@@ -1,0 +1,16 @@
+[core]
+	repositoryformatversion = 0
+	filemode = false
+	bare = false
+	symlinks = false
+	ignorecase = true
+	worktree = C:\\Users\\johan\\Documents\\Codex\\2026-08-12\\we
+[user]
+	name = Codex
+	email = codex@openai.com
+[remote "origin"]
+	url = https://git.chatgpt-team.site/faac2402-45cb-4f00-b1ab-ec2a6444c7e4/appgprj_6a7cfdd2127c819195271d5da8bdc3df.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
