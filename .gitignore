@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Framework and build output
+.next/
+.vinext/
+.wrangler/
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
