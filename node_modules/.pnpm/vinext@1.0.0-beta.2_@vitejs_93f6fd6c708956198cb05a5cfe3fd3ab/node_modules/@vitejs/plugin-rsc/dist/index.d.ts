@@ -1,2 +1,0 @@
-import { c as getPluginApi, r as PluginApi, s as RscPluginOptions, u as vitePluginRsc } from "./plugin-DGxRH4Nv.js";
-export { type PluginApi, type RscPluginOptions, vitePluginRsc as default, getPluginApi };
