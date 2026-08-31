@@ -274,6 +274,7 @@ export default function EduEssentialsApp() {
   const [toast, setToast] = useState<string | null>(null);
   const [profileMajor, setProfileMajor] = useState("Cognitive Science");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const topSearchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const onboarded = window.localStorage.getItem("eduessentials-onboarded");
@@ -312,6 +313,17 @@ export default function EduEssentialsApp() {
     const timeout = setTimeout(() => setToast(null), 2600);
     return () => clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        topSearchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
   const todayAssignments = assignments.filter((assignment) => assignment.status === "today");
@@ -502,6 +514,38 @@ export default function EduEssentialsApp() {
 
       {sidebarOpen && <button className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close navigation overlay" />}
 
+      <header className="desktop-topbar">
+        <div className="topbar-context">
+          <span>Workspace</span>
+          <strong>{page.charAt(0).toUpperCase() + page.slice(1)}</strong>
+        </div>
+        <label className="topbar-search">
+          <Search size={17} aria-hidden="true" />
+          <input
+            ref={topSearchRef}
+            aria-label="Search assignments, classes, and files"
+            placeholder="Search assignments, classes, and files…"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") navigate("search"); }}
+          />
+          <kbd>Ctrl K</kbd>
+        </label>
+        <div className="topbar-actions">
+          <button className="topbar-date" onClick={() => navigate("calendar")} aria-label="Open today in calendar">
+            <CalendarDays size={17} aria-hidden="true" />
+            <span><small>Today</small><strong>Aug 12</strong></span>
+          </button>
+          <button className="topbar-icon" onClick={() => flash("You’re all caught up")} aria-label="Open notifications">
+            <Bell size={18} />
+            <span className="notification-dot" />
+          </button>
+          <button className="topbar-avatar" onClick={() => navigate("settings")} aria-label="Open profile settings">
+            {studentName.slice(0, 1).toUpperCase()}
+          </button>
+        </div>
+      </header>
+
       <main id="main-content" className="main-content">
         <header className="mobile-header">
           <button className="icon-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={22} /></button>
@@ -547,22 +591,66 @@ export default function EduEssentialsApp() {
   }
 
   function renderHome() {
+    const featuredAssignments = assignments.slice(0, 3);
+    const schedule = [
+      { time: "2:00 PM", title: "Calculus lecture", detail: "Science Hall 201", color: courses[0].color, onOpen: () => navigate("calendar") },
+      { time: "4:00 PM", title: "Memory lab reflection due", detail: "PSYC 220", color: courses[1].color, onOpen: () => setSelectedAssignment(assignments[1]) },
+      { time: "6:30 PM", title: "Study group", detail: "University Library", color: "var(--red)", onOpen: () => navigate("calendar") },
+    ];
+
     return (
       <div className="page home-page">
-        <section className="assistant-shelf">
-          <div className="assistant-copy">
-            <p className="date-line">Wednesday, August 12</p>
-            <h1>Good afternoon, {studentName}.</h1>
-            <p>You’re in a good spot. Finish one overdue task, then shift to your memory lab reflection.</p>
+        <section className="home-today-panel" aria-labelledby="today-panel-title">
+          <header className="today-panel-header">
+            <div>
+              <h1 id="today-panel-title">Today</h1>
+              <p>The work that matters before you sign off.</p>
+            </div>
+            <button className="today-panel-link" onClick={() => navigate("dashboard")}>View all tasks <ArrowRight size={14} /></button>
+          </header>
+
+          <div className="today-panel-grid">
+            <section className="today-panel-section" aria-labelledby="today-tasks-title">
+              <div className="today-section-heading">
+                <h2 id="today-tasks-title">Tasks</h2>
+                <span>{featuredAssignments.length}</span>
+              </div>
+              <div className="today-task-list">
+                {featuredAssignments.map((assignment) => {
+                  const course = courseFor(courses, assignment.courseId);
+                  return (
+                    <button key={assignment.id} className="today-task-row" onClick={() => setSelectedAssignment(assignment)}>
+                      <span className={`today-urgency-line ${assignment.status}`} aria-hidden="true" />
+                      <span className="today-task-copy">
+                        <strong>{assignment.title}</strong>
+                        <small>{course.code} · {assignment.due}</small>
+                      </span>
+                      <StatusBadge status={assignment.status} />
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="today-panel-section today-schedule" aria-labelledby="today-schedule-title">
+              <div className="today-section-heading">
+                <h2 id="today-schedule-title">Schedule</h2>
+                <button onClick={() => navigate("calendar")}>Open calendar</button>
+              </div>
+              <div className="today-schedule-list">
+                {schedule.map((item) => (
+                  <button key={`${item.time}-${item.title}`} className="today-schedule-row" onClick={item.onOpen}>
+                    <time>{item.time}</time>
+                    <span className="today-schedule-copy">
+                      <span><i style={{ background: item.color }} aria-hidden="true" />{item.title}</span>
+                      <small>{item.detail}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
           </div>
-          <button className="notification-button" aria-label="Open notifications"><Bell size={20} /><span className="notification-dot" /></button>
-          <div className="ai-command">
-            <Sparkles size={19} aria-hidden="true" />
-            <input aria-label="Ask EduEssentials" placeholder="Ask about deadlines, study plans, or any class…" onKeyDown={(event) => { if (event.key === "Enter") flash("Edu AI is preparing your study plan"); }} />
-            <kbd>⌘ K</kbd>
-            <button onClick={() => flash("Edu AI is preparing your study plan")} aria-label="Send to Edu AI"><ArrowRight size={17} /></button>
-          </div>
-          <div className="assistant-suggestion"><span className="spark-dot"><Sparkles size={15} /></span><p><strong>Smart next step</strong><span>Spend 25 minutes finishing the limits problem set before your 4 PM deadline.</span></p><button onClick={() => { setActiveWorkspaceId("study-mode"); flash("Focus session ready"); }}>Start focus <ArrowRight size={14} /></button></div>
         </section>
 
         <section className="workspace-section">
