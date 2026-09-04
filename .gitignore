@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Environment variables and secrets
 .env
@@ -11,6 +12,7 @@ node_modules/
 .vinext/
 .wrangler/
 dist/
+*.tsbuildinfo
 
 # Logs
 *.log
@@ -21,4 +23,3 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
-

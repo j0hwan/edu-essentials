@@ -16,6 +16,27 @@ npm run dev
 npm run build
 ```
 
+## Supabase persistence
+
+Courses, dashboard workspaces, widget order/sizes, the active workspace, and
+quick notes are persisted in Supabase. The browser talks only to
+`/api/workspace`; `SUPABASE_SECRET_KEY` stays on the server.
+
+1. Copy `.env.example` to `.env` and enter the four Supabase project values.
+2. Apply `supabase/migrations/20260903000000_workspace_persistence.sql` in the
+   Supabase SQL editor (or with `supabase db push` in a linked project).
+3. Start the app with `npm run dev`.
+
+Before authentication is enabled, an HttpOnly cookie gives each browser an
+isolated anonymous profile. The schema already has an `auth_user_id` column so
+that profile can be attached to a Supabase Auth user later. Browser roles have
+no direct table access; all database operations are scoped by the server route.
+
+Dashboard state uses one versioned JSONB document per profile. Each widget is
+stored as a compact `[type_code, size_code]` tuple, and UI-only instance IDs are
+regenerated when loading. Saves are debounced to avoid a write for every drag
+event.
+
 This starter does not use `wrangler.jsonc`.
 
 ## Included Shape
