@@ -1,10 +1,9 @@
+import { apiError, AuthError, requireProfile, requireSameOrigin } from "../../../lib/auth";
 import { decodeWorkspaceState, type CompactWorkspaceState } from "../../../lib/workspace-codec";
 import { getSupabaseAdmin } from "../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
-const PROFILE_COOKIE = "eduessentials_profile";
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type CourseInput = {
   id: string;
@@ -31,14 +30,15 @@ type CourseRow = {
 };
 
 export async function GET(request: Request) {
-  const session = anonymousSession(request);
-
   try {
+    if (request.method !== "GET") requireSameOrigin(request);
+    const profile = await requireProfile();
+    const session = { profileId: profile.id };
     const supabase = getSupabaseAdmin();
-    const profile = await getOrCreateProfile(supabase, session.profileId);
+
 
     if (!profile.initialized) {
-      return jsonWithSession({ initialized: false }, session);
+      return jsonWithSession({ initialized: false });
     }
 
     const [coursesResult, dashboardResult] = await Promise.all([
@@ -63,21 +63,20 @@ export async function GET(request: Request) {
         courses: (coursesResult.data as CourseRow[]).map(courseFromRow),
         dashboard: dashboardResult.data?.payload ?? null,
       },
-      session,
     );
   } catch (error) {
-    return workspaceError(error, session);
+    return workspaceError(error);
   }
 }
 
 export async function POST(request: Request) {
-  const session = anonymousSession(request);
-
   try {
+    if (request.method !== "GET") requireSameOrigin(request);
+    const profile = await requireProfile();
+    const session = { profileId: profile.id };
     const body = await readJson(request);
     const action = typeof body.action === "string" ? body.action : "";
     const supabase = getSupabaseAdmin();
-    await getOrCreateProfile(supabase, session.profileId);
 
     if (action === "initialize") {
       if (!Array.isArray(body.courses)) throw new RequestError("courses must be an array");
@@ -85,27 +84,14 @@ export async function POST(request: Request) {
       if (courses.length > 100) throw new RequestError("Too many courses");
       const dashboard = validateDashboard(body.dashboard);
 
-      if (courses.length) {
-        const { error } = await supabase.from("courses").upsert(
-          courses.map((course) => courseToRow(course, session.profileId)),
-          { onConflict: "profile_id,id" },
-        );
-        if (error) throw error;
-      }
+      const { error } = await supabase.rpc("initialize_account_workspace", {
+        p_profile_id: profile.id,
+        p_courses: courses.map((course) => courseToRow(course, profile.id)),
+        p_dashboard: dashboard,
+      });
+      if (error) throw error;
 
-      const { error: dashboardError } = await supabase.from("dashboard_state").upsert(
-        { profile_id: session.profileId, payload: dashboard, updated_at: new Date().toISOString() },
-        { onConflict: "profile_id" },
-      );
-      if (dashboardError) throw dashboardError;
-
-      const { error: profileError } = await supabase
-        .from("app_profiles")
-        .update({ initialized: true, updated_at: new Date().toISOString() })
-        .eq("id", session.profileId);
-      if (profileError) throw profileError;
-
-      return jsonWithSession({ ok: true }, session, 201);
+      return jsonWithSession({ ok: true }, 201);
     }
 
     if (action === "create-course") {
@@ -116,23 +102,23 @@ export async function POST(request: Request) {
         .select("id,code,name,credits,instructor,room,color,soft_color,initials")
         .single();
       if (error) throw error;
-      return jsonWithSession({ course: courseFromRow(data as CourseRow) }, session, 201);
+      return jsonWithSession({ course: courseFromRow(data as CourseRow) }, 201);
     }
 
     throw new RequestError("Unknown action");
   } catch (error) {
-    return workspaceError(error, session);
+    return workspaceError(error);
   }
 }
 
 export async function PUT(request: Request) {
-  const session = anonymousSession(request);
-
   try {
+    if (request.method !== "GET") requireSameOrigin(request);
+    const profile = await requireProfile();
+    const session = { profileId: profile.id };
     const body = await readJson(request);
     const dashboard = validateDashboard(body.dashboard);
     const supabase = getSupabaseAdmin();
-    await getOrCreateProfile(supabase, session.profileId);
 
     const { error } = await supabase.from("dashboard_state").upsert(
       { profile_id: session.profileId, payload: dashboard, updated_at: new Date().toISOString() },
@@ -140,16 +126,17 @@ export async function PUT(request: Request) {
     );
     if (error) throw error;
 
-    return jsonWithSession({ ok: true }, session);
+    return jsonWithSession({ ok: true });
   } catch (error) {
-    return workspaceError(error, session);
+    return workspaceError(error);
   }
 }
 
 export async function DELETE(request: Request) {
-  const session = anonymousSession(request);
-
   try {
+    if (request.method !== "GET") requireSameOrigin(request);
+    const profile = await requireProfile();
+    const session = { profileId: profile.id };
     const id = new URL(request.url).searchParams.get("courseId") ?? "";
     if (!id || id.length > 120) throw new RequestError("Invalid course ID");
 
@@ -161,38 +148,10 @@ export async function DELETE(request: Request) {
       .eq("id", id);
     if (error) throw error;
 
-    return jsonWithSession({ ok: true }, session);
+    return jsonWithSession({ ok: true });
   } catch (error) {
-    return workspaceError(error, session);
+    return workspaceError(error);
   }
-}
-
-async function getOrCreateProfile(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  profileId: string,
-): Promise<{ initialized: boolean }> {
-  const { data, error } = await supabase
-    .from("app_profiles")
-    .select("initialized")
-    .eq("id", profileId)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (data) return data as { initialized: boolean };
-
-  const { data: created, error: createError } = await supabase
-    .from("app_profiles")
-    .insert({ id: profileId })
-    .select("initialized")
-    .single();
-
-  if (createError) {
-    // Two simultaneous first-load requests may race to create the same profile.
-    if (createError.code === "23505") return getOrCreateProfile(supabase, profileId);
-    throw createError;
-  }
-
-  return created as { initialized: boolean };
 }
 
 function validateCourse(value: unknown): CourseInput {
@@ -222,7 +181,7 @@ function validateCourse(value: unknown): CourseInput {
 
 function validateDashboard(value: unknown): CompactWorkspaceState {
   // Decode performs all bounds, tuple, widget-code, and version validation.
-  decodeWorkspaceState(value);
+  try { decodeWorkspaceState(value); } catch (error) { throw new RequestError(error instanceof Error ? error.message : "Invalid dashboard"); }
   return value as CompactWorkspaceState;
 }
 
@@ -255,38 +214,14 @@ function courseFromRow(course: CourseRow): CourseInput {
   };
 }
 
-function anonymousSession(request: Request) {
-  const cookie = request.headers.get("cookie") ?? "";
-  const existing = cookie
-    .split(";")
-    .map((part) => part.trim().split("="))
-    .find(([name]) => name === PROFILE_COOKIE)?.[1];
-
-  if (existing && UUID_PATTERN.test(existing)) {
-    return { profileId: existing, setCookie: false, secure: new URL(request.url).protocol === "https:" };
-  }
-
-  return { profileId: crypto.randomUUID(), setCookie: true, secure: new URL(request.url).protocol === "https:" };
+function jsonWithSession(body: unknown, status = 200) {
+  return Response.json(body, { status, headers: { "cache-control": "no-store" } });
 }
 
-function jsonWithSession(
-  body: unknown,
-  session: ReturnType<typeof anonymousSession>,
-  status = 200,
-) {
-  const headers = new Headers({ "cache-control": "no-store" });
-  if (session.setCookie) {
-    headers.set(
-      "set-cookie",
-      `${PROFILE_COOKIE}=${session.profileId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${session.secure ? "; Secure" : ""}`,
-    );
-  }
-  return Response.json(body, { status, headers });
-}
-
-function workspaceError(error: unknown, session: ReturnType<typeof anonymousSession>) {
+function workspaceError(error: unknown) {
+  if (error instanceof AuthError) return apiError(error);
   if (error instanceof RequestError) {
-    return jsonWithSession({ error: error.message }, session, 400);
+    return jsonWithSession({ error: error.message }, 400);
   }
 
   const details = errorDetails(error);
@@ -299,7 +234,6 @@ function workspaceError(error: unknown, session: ReturnType<typeof anonymousSess
         : "Workspace persistence is temporarily unavailable.",
       setupRequired,
     },
-    session,
     setupRequired ? 503 : 500,
   );
 }

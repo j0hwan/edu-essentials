@@ -9,11 +9,12 @@
     "dev": "vinext dev --hostname 127.0.0.1",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "pnpm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@supabase/ssr": "0.12.5",
     "@supabase/supabase-js": "^2.115.0",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.31.0",

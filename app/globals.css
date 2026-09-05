@@ -836,6 +836,16 @@ select:focus-visible {
   border-radius: 50%;
 }
 
+.today-empty {
+  min-height: 72px;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  padding: 22px 6px 14px 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .assistant-shelf {
   position: relative;
   display: grid;
