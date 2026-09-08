@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { clientModule } from './helpers/client-modules.mjs';
+const { detectedMime, fileMetadata, readFileBytes, MAX_FILE_BYTES, hashBytes } = await import(await clientModule('lib/files.ts'));
+const encode = (text) => new TextEncoder().encode(text);
+test('private file validation rejects paths, forged associations, active images and oversized streams', async () => {
+  const base = { name: 'résumé.txt', courseId: '', assignmentId: '', kind: 'resource' };
+  assert.deepEqual(fileMetadata({ ...base, profile_id: 'foreign', object_path: 'foreign/file' }), base);
+  for (const name of ['../x', 'a\\b', 'a\u0000b', ' '.repeat(2), 'a'.repeat(256)]) assert.throws(() => fileMetadata({ ...base, name }));
+  assert.throws(() => fileMetadata({ ...base, kind: 'class-image' }));
+  assert.equal(detectedMime(encode('<svg onload="alert(1)"></svg>'), 'fake.png'), 'application/octet-stream');
+  assert.equal(detectedMime(encode('<html>active</html>'), 'page.html'), 'application/octet-stream');
+  assert.equal(detectedMime(encode('<html>inert text</html>'), 'page.txt'), 'text/plain');
+  assert.equal(detectedMime(new Uint8Array([137,80,78,71,13,10,26,10]), 'x'), 'image/png');
+  assert.equal(detectedMime(new Uint8Array([255]), 'bad.txt'), 'application/octet-stream');
+  assert.equal(await hashBytes(encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  await assert.rejects(readFileBytes(new Request('https://edu.example', { method: 'POST', body: 'a', headers: { 'content-length': String(MAX_FILE_BYTES + 1) } })), /25 MiB/);
+  let cancelled = false;
+  const stream = new ReadableStream({ pull(controller) { controller.enqueue(new Uint8Array(1024 * 1024)); }, cancel() { cancelled = true; } });
+  await assert.rejects(readFileBytes(new Request('https://edu.example', { method: 'POST', body: stream, duplex: 'half' })), /25 MiB/); assert.equal(cancelled, true);
+});

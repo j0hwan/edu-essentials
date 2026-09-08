@@ -8,16 +8,11 @@ import {
   Bell,
   BookOpen,
   CalendarDays,
-  Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Circle,
   Clock3,
   Copy,
-  Download,
-  ExternalLink,
   FileSearch,
   FileText,
   Flame,
@@ -25,40 +20,52 @@ import {
   GraduationCap,
   GripVertical,
   House,
-  Image as ImageIcon,
   LayoutDashboard,
   LayoutGrid,
   List,
   Maximize2,
   Menu,
   MoreHorizontal,
-  Pause,
   Pencil,
   PieChart,
-  Play,
   Plus,
   Quote as QuoteIcon,
-  RotateCcw,
   Search,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   StickyNote,
   Sun,
   Target,
   TimerReset,
   Trash2,
-  UploadCloud,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
+import { downloadDraft, useSaveProtection } from "./use-save-protection";
+import { usePreferences } from "./use-preferences";
+import AcademicEditor from "./academic-editor";
+import SyllabusReview from "./syllabus-review";
+import AcademicCalendar from "./academic-calendar";
+import { usePrivateFiles } from "./use-private-files";
+import { FileEditor, FileList, FilePreview, PrivateImage } from "./private-files";
+import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
+import StudyWidget, { studyWidgetTypes } from "./study-widgets";
+import StudyPanel from "./study-panel";
+import { useStudyStats } from "./use-study-stats";
+import { emptyStudy, settleTimer, timerAction, goalPercent, durationLabel, completedInWeek, detachStudyCourse, segmentSeconds, type StudyData, type TimerKind } from "../lib/study";
+import { academicSnapshot, validateAcademicEdit } from "../lib/academic-snapshot";
+import { dayKey, dateLabel, addDays, weekStart, assignmentStatus, legacyEventTime, emptyCourse, emptyCourseDetails, type Course, type CourseDetails, type SyllabusDraft } from "../lib/academics";
+import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
 import ProfileEditor from "./profile-editor";
 import type { Profile } from "../lib/profile";
 import "./auth.css";
 import {
   decodeWorkspaceState,
   encodeWorkspaceState,
+  MAX_WORKSPACES,
+  MAX_WIDGETS_PER_WORKSPACE,
+  MAX_NOTES_LENGTH,
   type WidgetInstance,
   type WidgetSize,
   type WidgetType,
@@ -68,38 +75,14 @@ import {
 type PageId = "home" | "dashboard" | "calendar" | "search" | "files" | "settings";
 type Stoplight = "overdue" | "today" | "later" | "done";
 
-type Course = {
-  id: string;
-  code: string;
-  name: string;
-  credits: number;
-  instructor: string;
-  room: string;
-  color: string;
-  soft: string;
-  initials: string;
-};
-
-type Assignment = {
-  id: string;
-  title: string;
-  courseId: string;
-  due: string;
-  dateKey: string;
-  status: Stoplight;
-  progress: number;
-  description: string;
-  weight: string;
-  notes?: string;
-  checklist?: boolean[];
-};
-
-type PersistenceStatus = "loading" | "saved" | "saving" | "local";
+type Assignment = SavedAssignment;
 
 type WorkspaceResponse = {
   initialized: boolean;
   courses?: Course[];
   dashboard?: unknown;
+  revision?: string | null;
+  profile?: Profile;
   error?: string;
 };
 
@@ -110,15 +93,6 @@ const navItems: { id: PageId; label: string; icon: typeof House }[] = [
   { id: "search", label: "Search", icon: Search },
   { id: "files", label: "Files", icon: FolderOpen },
 ];
-
-const initialCourses: Course[] = [
-  { id: "math", code: "MATH 101", name: "Calculus I", credits: 4, instructor: "Dr. Elena Park", room: "Science 214", color: "#5b63e8", soft: "#eef0ff", initials: "M1" },
-  { id: "psych", code: "PSYC 220", name: "Cognitive Psychology", credits: 3, instructor: "Prof. Marcus Reed", room: "Hale 108", color: "#df6b57", soft: "#fff0ec", initials: "P2" },
-  { id: "bio", code: "BIO 115", name: "Principles of Biology", credits: 4, instructor: "Dr. Nina Shah", room: "Life Sci 302", color: "#249975", soft: "#e9f8f2", initials: "B1" },
-  { id: "writing", code: "WRIT 150", name: "Academic Writing", credits: 3, instructor: "Jordan Ellis", room: "Library 42", color: "#d6922c", soft: "#fff7e6", initials: "W1" },
-];
-
-
 
 const widgetTemplates: { type: WidgetType; title: string; description: string; icon: typeof Target; color: string; defaultSize: WidgetSize }[] = [
   { type: "daily-goal", title: "Daily study goal", description: "Progress ring and time remaining", icon: Target, color: "indigo", defaultSize: "medium" },
@@ -186,14 +160,15 @@ const statusMeta: Record<Stoplight, { label: string; short: string; icon: typeof
 };
 
 async function workspaceFetch(input: string, init?: RequestInit) {
-  const response = await fetch(input, init);
-  if (response.status === 401) window.location.assign("/login?error=session");
-  if (response.status === 403) window.location.assign("/onboarding");
+  const signal = init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000);
+  const response = await fetch(input, { ...init, signal });
+  if (response.status === 401) throw new SaveFailure("Your session ended or the account changed. Sign in to the same account in a new tab, then retry. Your edits are still here.", "session-error");
+  if (response.status === 403) throw new SaveFailure("Your account could not access this workspace. Your edits are still here. Reload after checking your account.", "session-error");
   return response;
 }
 
 function uid(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 function courseFor(courses: Course[], id: string) {
@@ -223,11 +198,10 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
   const [profile, setProfile] = useState(initialProfile);
   const [page, setPage] = useState<PageId>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const theme = profile.preferences.theme;
-  const reducedMotion = profile.preferences.reducedMotion;
+  usePreferences(profile.preferences);
   const studentName = profile.display_name;
   const [courses, setCourses] = useState<Course[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [storedAssignments, setAssignments] = useState<Assignment[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>(defaultWorkspaces);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState("my-day");
   const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
@@ -236,65 +210,84 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDialog, setWorkspaceDialog] = useState<"new" | "rename" | null>(null);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
-  const [draggedWidget, setDraggedWidget] = useState<number | null>(null);
-  const [timerSeconds, setTimerSeconds] = useState(25 * 60);
-  const [timerRunning, setTimerRunning] = useState(false);
+  const [draggedWidget, setDraggedWidget] = useState<string | null>(null);
+  const [studyOpen, setStudyOpen] = useState(false);
   const [notes, setNotes] = useState("");
+  const noteFocusRef = useRef<string | null>(null);
   const [dashboardView, setDashboardView] = useState<"cards" | "list">("cards");
   const [selectedClass, setSelectedClass] = useState<Course | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [addClassOpen, setAddClassOpen] = useState(false);
-  const [addClassMode, setAddClassMode] = useState<"manual" | "import" | "review">("manual");
-  const [parsing, setParsing] = useState(false);
-  const [reviewRows, setReviewRows] = useState([
-    { id: "r1", title: "Chapter 1 response", date: "2026-08-24", type: "Assignment" },
-    { id: "r2", title: "Midterm exam", date: "2026-09-18", type: "Exam" },
-    { id: "r3", title: "Final presentation", date: "2026-11-30", type: "Project" },
-  ]);
+  const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent } | null>(null);
+  const [syllabusId, setSyllabusId] = useState<string | null>(null);
+  const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: { filter: string; view: "list" | "grid" } }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: { filter: "all", view: "list" } });
+  const [now, setNow] = useState(() => new Date());
+  const today = dayKey(now, profile.timezone);
+  const assignments = storedAssignments.map((item) => ({ ...item, status: assignmentStatus(item, today), due: dateLabel(item.dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
   const [calendarView, setCalendarView] = useState<"month" | "week" | "day">("month");
-  const [calendarOffset, setCalendarOffset] = useState(0);
-  const [calendarFilterOpen, setCalendarFilterOpen] = useState(false);
   const [calendarFilter, setCalendarFilter] = useState("all");
-  const [eventDialogOpen, setEventDialogOpen] = useState(false);
-  const [manualEvents, setManualEvents] = useState<{ id: string; title: string; dateKey: string; time: string; type: string; courseId: string }[]>([]);
+  const [manualEvents, setManualEvents] = useState<SavedEvent[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [fileQuery, setFileQuery] = useState("");
-  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [filePreview, setFilePreview] = useState<PrivateFile | null>(null);
+  const [fileDialog, setFileDialog] = useState<{ initial?: PrivateFile; defaults?: Partial<FileMetadata>; reviewId?: string } | null>(null);
+  const fileStore = usePrivateFiles(initialProfile.id);
   const [toast, setToast] = useState<string | null>(null);
   const profileMajor = profile.major;
-  const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>("loading");
-  const persistenceReadyRef = useRef(false);
-  const saveQueueRef = useRef(Promise.resolve());
-  const saveRevisionRef = useRef(0);
-  const savedRevisionRef = useRef(0);
-  const [saveAttempt, setSaveAttempt] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const topSearchRef = useRef<HTMLInputElement | null>(null);
-
-useEffect(() => {
-    const root = document.documentElement;
-    const applied = theme === "system" ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : theme;
-    root.dataset.theme = applied;
-    root.dataset.motion = reducedMotion ? "reduced" : "full";
-    root.dataset.contrast = profile.preferences.highContrast ? "high" : "normal";
-  }, [theme, reducedMotion, profile.preferences.highContrast]);
-
-  useEffect(() => {
-    if (timerRunning) {
-      timerRef.current = setInterval(() => {
-        setTimerSeconds((seconds) => {
-          if (seconds <= 1) {
-            setTimerRunning(false);
-            return 25 * 60;
-          }
-          return seconds - 1;
-        });
-      }, 1000);
+  const [reloadAttempt, setReloadAttempt] = useState(0);
+  const [profilePending, setProfilePending] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileDraft, setProfileDraft] = useState(initialProfile);
+  const handleProfileDraft = useCallback((draft: Profile, pending: boolean, busy: boolean) => { setProfileDraft(draft); setProfilePending(pending); setProfileSaving(busy); }, []);
+  const accountFetch = useCallback((input: string, init?: RequestInit) => workspaceFetch(input, {
+    ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), "x-profile-id": initialProfile.id },
+  }), [initialProfile.id]);
+  const [autosave] = useState(() => new Autosave(async (snapshot, baseRevision) => {
+    const response = await accountFetch("/api/workspace", {
+      method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...JSON.parse(snapshot), baseRevision }),
+    });
+    if (response.status === 409) {
+      // A matching readback acknowledges a lost response. Never adopt a newer
+      // revision for different content, which would silently overwrite it.
+      const readback = await accountFetch("/api/workspace", { cache: "no-store" });
+      if (readback.ok) {
+        const saved = await readback.json() as WorkspaceResponse;
+        if (saved.dashboard && saved.revision) {
+          const decoded = decodeWorkspaceState(saved.dashboard);
+          const canonical = canonicalJson(academicSnapshot(saved.courses ?? [], encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, decoded.data)));
+          if (canonical === snapshot) return saved.revision;
+        }
+      }
+      throw new SaveFailure("Another session saved different changes. Download your unsaved work before reloading the saved workspace.", "conflict");
     }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+    const result = await response.json() as { revision?: string; error?: string };
+    if (!response.ok || !result.revision) throw new SaveFailure(result.error || "Your changes could not be saved. Retry when your connection is available.");
+    return result.revision;
+  }));
+  const saveState = useSyncExternalStore(autosave.subscribe, autosave.getSnapshot, autosave.getSnapshot);
+  const persistenceStatus = saveState.status;
+  const canWriteFiles = saveState.ready && !saveState.dirty;
+  const refreshFiles = fileStore.refresh;
+  useEffect(() => { if (saveState.status === "saved") void refreshFiles(); }, [saveState.status, refreshFiles]);
+  useSaveProtection(saveState.dirty || profilePending);
+  const topSearchRef = useRef<HTMLInputElement | null>(null);
+  const study = extraData.study;
+  const timezone = profile.timezone, monday = profile.week_starts_on === "Monday";
+  const stats = useStudyStats(study.sessions, today, timezone, monday);
+  const dailyPercent = goalPercent(stats.dailySeconds, study.dailyMinutes), weeklyPercent = goalPercent(stats.weeklySeconds, study.weeklyMinutes);
+  const weeklyCompleted = completedInWeek(assignments, today, profile.timezone, profile.week_starts_on === "Monday");
+  useEffect(() => {
+    // Completion consumes the active timer and adds its stable session ID in the
+    // same account snapshot. Ticks alone never cause database writes.
+    const tick = () => {
+      const time = new Date(); setNow(time);
+      if (saveState.ready) setExtraData((current) => { const next = settleTimer(current.study, time.getTime()); return next === current.study ? current : { ...current, study: next }; });
     };
-  }, [timerRunning]);
+    const interval = setInterval(tick, 1000);
+    window.addEventListener("focus", tick); document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(interval); window.removeEventListener("focus", tick); document.removeEventListener("visibilitychange", tick); };
+  }, [saveState.ready]);
 
   useEffect(() => {
     if (!toast) return;
@@ -315,93 +308,54 @@ useEffect(() => {
 
   useEffect(() => {
     const controller = new AbortController();
-
+    autosave.loading();
     async function hydrateWorkspace() {
       try {
-        const response = await workspaceFetch("/api/workspace", {
-          cache: "no-store",
-          credentials: "same-origin",
-          signal: controller.signal,
-        });
-        let data = (await response.json()) as WorkspaceResponse;
-        if (!response.ok) throw new Error(data.error || "Unable to load your workspace");
-
+        const read = async () => {
+          const response = await accountFetch("/api/workspace", { cache: "no-store", signal: controller.signal });
+          const data = await response.json() as WorkspaceResponse;
+          if (!response.ok) throw new Error(data.error || "Unable to load your workspace. Please retry.");
+          return data;
+        };
+        let data = await read();
         if (!data.initialized) {
-          const initializeResponse = await workspaceFetch("/api/workspace", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              action: "initialize",
-              courses: [],
-              dashboard: encodeWorkspaceState(defaultWorkspaces, "my-day", notes, { assignments, manualEvents, dashboardView, calendarView }),
-            }),
-            signal: controller.signal,
+          const response = await accountFetch("/api/workspace", {
+            method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
+            body: JSON.stringify({ action: "initialize", courses: [], dashboard: encodeWorkspaceState(defaultWorkspaces, "my-day", "", { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" }) }),
           });
-          if (!initializeResponse.ok) {
-            const error = (await initializeResponse.json()) as { error?: string };
-            throw new Error(error.error || "Unable to initialize your workspace");
-          }
-          const saved = await workspaceFetch("/api/workspace", { cache: "no-store", signal: controller.signal });
-          if (!saved.ok) throw new Error("Unable to load initialized workspace");
-          data = await saved.json() as WorkspaceResponse;
+          if (!response.ok) throw new Error("Unable to initialize your workspace. Please retry.");
+          data = await read();
         }
-        {
-          setCourses(data.courses ?? []);
-          if (data.dashboard) {
-            const decoded = decodeWorkspaceState(data.dashboard);
-            setWorkspaces(decoded.workspaces);
-            setActiveWorkspaceId(decoded.activeWorkspaceId);
-            setNotes(decoded.notes);
-            if (decoded.data) {
-              setAssignments(decoded.data.assignments);
-              setManualEvents(decoded.data.manualEvents);
-              setDashboardView(decoded.data.dashboardView);
-              setCalendarView(decoded.data.calendarView);
-            }
-          }
-        }
-
-        persistenceReadyRef.current = true;
-        setPersistenceStatus("saved");
-      } catch (error) {
         if (controller.signal.aborted) return;
-        console.error("Workspace hydration failed:", error);
-        setPersistenceStatus("local");
-        setToast("Unable to load your saved workspace. Please retry.");
-      }
+        if (!data.dashboard || !data.profile || data.profile.id !== initialProfile.id) throw new Error("Your saved workspace is incomplete or belongs to another account. Please retry loading.");
+        const decoded = decodeWorkspaceState(data.dashboard);
+        const loadedDetails = decoded.data ?? { assignments: [], manualEvents: [], dashboardView: "cards" as const, calendarView: "month" as const };
+        const courseIds = new Set((data.courses ?? []).map((c) => c.id));
+        const details = { ...loadedDetails, assignments: loadedDetails.assignments.map((a) => ({ ...a, courseId: courseIds.has(a.courseId) ? a.courseId : "" })), manualEvents: loadedDetails.manualEvents.map((e) => ({ ...e, time: legacyEventTime(e.time), courseId: courseIds.has(e.courseId) ? e.courseId : "" })), calendarFilter: (loadedDetails.calendarFilter === "all" || loadedDetails.calendarFilter === "personal") || courseIds.has(loadedDetails.calendarFilter ?? "") ? loadedDetails.calendarFilter! : "all", courseDetails: loadedDetails.courseDetails ?? {}, syllabusDrafts: loadedDetails.syllabusDrafts ?? [], study: loadedDetails.study ?? emptyStudy(), filePreferences: loadedDetails.filePreferences ?? { filter: "all", view: "list" as const } };
+        setProfile(data.profile); setProfileDraft(data.profile); setProfilePending(false);
+        setCourses(data.courses ?? []); setWorkspaces(decoded.workspaces);
+        setActiveWorkspaceId(decoded.activeWorkspaceId); setNotes(decoded.notes);
+        setAssignments(details.assignments); setManualEvents(details.manualEvents);
+        setDashboardView(details.dashboardView); setCalendarView(details.calendarView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: details.syllabusDrafts, study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setEditor(null); setSyllabusId(null);
+        setSelectedClass(null); setSelectedAssignment(null);
+        autosave.hydrate(canonicalJson({ courses: [...(data.courses ?? [])].sort((a, b) => a.id.localeCompare(b.id)), dashboard: encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, details) }), data.revision ?? null);
+      } catch (error) { if (!controller.signal.aborted) autosave.loadFailed(error); }
     }
-
     void hydrateWorkspace();
-    return () => controller.abort();
-    // The first-run payload intentionally snapshots the initial state once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => { controller.abort(); autosave.stop(); };
+  }, [reloadAttempt, accountFetch, autosave, initialProfile.id]);
 
   useEffect(() => {
-    if (!persistenceReadyRef.current) return;
-    const revision = ++saveRevisionRef.current;
-    const timeout = window.setTimeout(() => {
-      saveQueueRef.current = saveQueueRef.current.then(async () => {
-        try {
-          setPersistenceStatus("saving");
-          const dashboard = encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments, manualEvents, dashboardView, calendarView });
-          const response = await workspaceFetch("/api/workspace", {
-            method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ dashboard }),
-          });
-          if (!response.ok) throw new Error("Unable to save workspace");
-          savedRevisionRef.current = revision;
-          if (revision === saveRevisionRef.current) setPersistenceStatus("saved");
-        } catch {
-          setPersistenceStatus("local");
-          setToast("Changes haven’t been saved. Use Retry save before leaving.");
-        }
-      });
-    }, 700);
-    const warnBeforeLeaving = (event: BeforeUnloadEvent) => { if (savedRevisionRef.current !== saveRevisionRef.current) { event.preventDefault(); event.returnValue = ""; } };
-    window.addEventListener("beforeunload", warnBeforeLeaving);
-    return () => { window.clearTimeout(timeout); window.removeEventListener("beforeunload", warnBeforeLeaving); };
-  }, [activeWorkspaceId, notes, workspaces, assignments, manualEvents, dashboardView, calendarView, saveAttempt]);
+    try { autosave.change(canonicalJson(academicSnapshot(courses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData })))); }
+    catch (error) { autosave.invalidate(error instanceof Error ? error.message : "Invalid workspace data."); }
+  }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, extraData, courses, autosave]);
+
+  const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarView, calendarFilter, ...extraData });
+  const reloadWorkspace = () => {
+    if (persistenceStatus === "saving" || profileSaving) return;
+    if ((saveState.dirty || profilePending) && !window.confirm("Replace unsaved workspace and settings edits with saved data? Download your unsaved work first to keep a copy.")) return;
+    setReloadAttempt((attempt) => attempt + 1);
+  };
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
   const todayAssignments = assignments.filter((assignment) => assignment.status === "today");
@@ -416,18 +370,31 @@ useEffect(() => {
 
   const flash = (message: string) => setToast(message);
 
+  useEffect(() => {
+    if (page !== "home" || !noteFocusRef.current) return;
+    const input = document.getElementById(`note-${noteFocusRef.current}`);
+    if (input) { input.focus(); input.scrollIntoView?.({ block: "center" }); noteFocusRef.current = null; }
+  }, [page, activeWorkspaceId, workspaces]);
+
+  // Validate the entire candidate before accepting a change that cannot be saved.
+  const commitWorkspaces = (next: Workspace[], active = activeWorkspaceId, recoveredNotes = notes) => {
+    try { academicSnapshot(courses, encodeWorkspaceState(next, active, recoveredNotes, { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData })); }
+    catch (error) { flash(error instanceof Error ? error.message : "This layout cannot be saved."); return false; }
+    setWorkspaces(next); setActiveWorkspaceId(active); setNotes(recoveredNotes);
+    return true;
+  };
+
   const updateWorkspaceWidgets = (updater: (widgets: WidgetInstance[]) => WidgetInstance[]) => {
-    setWorkspaces((current) => current.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: updater(workspace.widgets) } : workspace));
+    return commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: updater(workspace.widgets) } : workspace));
   };
 
   const addWidget = (type: WidgetType) => {
     const template = widgetTemplates.find((item) => item.type === type)!;
-    updateWorkspaceWidgets((widgets) => [...widgets, { instanceId: uid("widget"), type, size: template.defaultSize }]);
-    flash(`${template.title} added`);
+    if (updateWorkspaceWidgets((widgets) => [...widgets, { instanceId: uid("widget"), type, size: template.defaultSize, ...(type === "notes" ? { note: "" } : {}) }])) flash(`${template.title} added`);
   };
 
   const moveWidget = (from: number, to: number) => {
-    if (from === to || to < 0 || to >= activeWorkspace.widgets.length) return;
+    if (from === to || from < 0 || from >= activeWorkspace.widgets.length || to < 0 || to >= activeWorkspace.widgets.length) return;
     updateWorkspaceWidgets((widgets) => {
       const next = [...widgets];
       const [moved] = next.splice(from, 1);
@@ -444,8 +411,7 @@ useEffect(() => {
   const createWorkspace = () => {
     const cleanName = workspaceNameDraft.trim() || "New workspace";
     const id = uid("workspace");
-    setWorkspaces((current) => [...current, { id, name: cleanName, widgets: [] }]);
-    setActiveWorkspaceId(id);
+    if (!commitWorkspaces([...workspaces, { id, name: cleanName, widgets: [] }], id)) return;
     setWorkspaceDialog(null);
     setWorkspaceNameDraft("");
     flash(`${cleanName} created`);
@@ -454,7 +420,7 @@ useEffect(() => {
   const renameWorkspace = () => {
     const cleanName = workspaceNameDraft.trim();
     if (!cleanName) return;
-    setWorkspaces((current) => current.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, name: cleanName } : workspace));
+    if (!commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, name: cleanName } : workspace))) return;
     setWorkspaceDialog(null);
     setWorkspaceNameDraft("");
     flash("Workspace renamed");
@@ -462,9 +428,8 @@ useEffect(() => {
 
   const duplicateWorkspace = () => {
     const id = uid("workspace");
-    const copy: Workspace = { id, name: `${activeWorkspace.name} copy`, widgets: activeWorkspace.widgets.map((widget) => ({ ...widget, instanceId: uid("widget") })) };
-    setWorkspaces((current) => [...current, copy]);
-    setActiveWorkspaceId(id);
+    const copy: Workspace = { id, name: `${activeWorkspace.name.slice(0, 75)} copy`, widgets: activeWorkspace.widgets.map((widget) => ({ ...widget, instanceId: uid("widget") })) };
+    if (!commitWorkspaces([...workspaces, copy], id)) return;
     setWorkspaceMenuOpen(false);
     flash("Workspace duplicated");
   };
@@ -474,139 +439,71 @@ useEffect(() => {
       flash("Keep at least one workspace");
       return;
     }
+    if (!window.confirm(`Delete ${activeWorkspace.name} and all its widgets and notes?`)) return;
     const next = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId);
-    setWorkspaces(next);
-    setActiveWorkspaceId(next[0].id);
+    if (!commitWorkspaces(next, next[0].id)) return;
     setWorkspaceMenuOpen(false);
     flash("Workspace deleted");
   };
 
-const persistCreatedCourse = async (course: Course) => {
-    if (!persistenceReadyRef.current) return;
-
-    try {
-      const response = await workspaceFetch("/api/workspace", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "create-course", course }),
-      });
-      if (!response.ok) throw new Error("Unable to save course");
-    } catch (error) {
-      console.error("Course save failed:", error);
-      setPersistenceStatus("local");
-      setCourses((current) => current.filter((item) => item.id !== course.id));
-      setAssignments((current) => current.filter((assignment) => assignment.courseId !== course.id));
-      setToast(`${course.code} could not be saved`);
-    }
+  const moveWorkspace = (offset: number) => {
+    const index = workspaces.findIndex((workspace) => workspace.id === activeWorkspaceId), target = index + offset;
+    if (target < 0 || target >= workspaces.length) return;
+    const next = [...workspaces]; [next[index], next[target]] = [next[target], next[index]];
+    commitWorkspaces(next); setWorkspaceMenuOpen(false);
+  };
+  const recoverNotes = () => {
+    const widget: WidgetInstance = { instanceId: uid("widget"), type: "notes", size: "large", note: notes };
+    if (commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: [...workspace.widgets, widget] } : workspace), activeWorkspaceId, "")) noteFocusRef.current = widget.instanceId;
   };
 
-  const removeClass = async (course: Course) => {
-    if (persistenceStatus === "loading") {
-      flash("Your saved workspace is still loading");
-      return;
-    }
-    if (!window.confirm(`Remove ${course.code} and its assignments?`)) return;
-
-    const previousAssignments = assignments.filter((assignment) => assignment.courseId === course.id);
-    setSelectedClass(null);
-    setCourses((current) => current.filter((item) => item.id !== course.id));
-    setAssignments((current) => current.filter((assignment) => assignment.courseId !== course.id));
-    flash(`${course.code} removed`);
-
-    if (!persistenceReadyRef.current) return;
-
-    try {
-      const response = await workspaceFetch(`/api/workspace?courseId=${encodeURIComponent(course.id)}`, {
-        method: "DELETE",
-        credentials: "same-origin",
-      });
-      if (!response.ok) throw new Error("Unable to remove course");
-    } catch (error) {
-      console.error("Course removal failed:", error);
-      setPersistenceStatus("local");
-      setCourses((current) => current.some((item) => item.id === course.id) ? current : [...current, course]);
-      setAssignments((current) => [...current, ...previousAssignments]);
-      setToast(`${course.code} could not be removed`);
-    }
+  const commitAcademic = (nextCourses: Course[], patch: Partial<WorkspaceData>) => {
+    const data = { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData, ...patch };
+    try { validateAcademicEdit(nextCourses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, data), { assignments: storedAssignments, manualEvents, dashboardView, calendarView }); }
+    catch (error) { flash(error instanceof Error ? error.message : "Review the academic data."); return false; }
+    setCourses(nextCourses); setAssignments(data.assignments); setManualEvents(data.manualEvents); setCalendarFilter(data.calendarFilter);
+    setExtraData({ courseDetails: data.courseDetails, syllabusDrafts: data.syllabusDrafts, study: data.study, filePreferences: data.filePreferences }); return true;
   };
-
-  const handleManualClass = (form: HTMLFormElement) => {
-    if (persistenceStatus === "loading") {
-      flash("Your saved workspace is still loading");
-      return;
-    }
-    const data = new FormData(form);
-    const name = String(data.get("className") || "New Course");
-    const code = String(data.get("classCode") || "COURSE 101");
-    const color = String(data.get("classColor") || "#5b63e8");
-    const id = uid("course");
-    const course: Course = {
-      id,
-      code,
-      name,
-      credits: Number(data.get("credits") || 3),
-      instructor: String(data.get("instructor") || "Instructor TBA"),
-      room: String(data.get("meeting") || "Location TBA"),
-      color,
-      soft: `${color}18`,
-      initials: code.slice(0, 2).toUpperCase(),
-    };
-    setCourses((current) => [...current, course]);
-    setAddClassOpen(false);
-    flash(`${code} added to your dashboard`);
-    void persistCreatedCourse(course);
+  const commitStudy = (patch: Partial<StudyData>) => commitAcademic(courses, { study: { ...study, ...patch } });
+  const controlTimer = (action: "start" | "pause" | "resume" | "finish" | "reset", kind: TimerKind) => {
+    try { commitStudy(timerAction(study, action, kind, Date.now(), uid("session"))); setNow(new Date()); }
+    catch (error) { flash(error instanceof Error ? error.message : "Unable to update the timer."); }
   };
-
-  const parseSyllabus = () => {
-    setParsing(true);
-    setTimeout(() => {
-      setParsing(false);
-      setAddClassMode("review");
-    }, 1100);
+  const removeClass = (course: Course) => {
+    if (!window.confirm("Remove " + course.code + ", its assignments, grades, and class schedule? Study history, timers, calendar events, and files will remain as personal items.")) return;
+    const details = { ...extraData.courseDetails }; delete details[course.id];
+    if (commitAcademic(courses.filter((c) => c.id !== course.id), { assignments: storedAssignments.filter((a) => a.courseId !== course.id), manualEvents: manualEvents.map((e) => e.courseId === course.id ? { ...e, courseId: "" } : e), courseDetails: details, study: detachStudyCourse(study, course.id), filePreferences: { ...extraData.filePreferences, filter: extraData.filePreferences.filter === course.id ? "all" : extraData.filePreferences.filter }, calendarFilter: calendarFilter === course.id ? "all" : calendarFilter })) { setSelectedClass(null); setEditor(null); }
   };
-
-  const approveImport = () => {
-    if (persistenceStatus === "loading") {
-      flash("Your saved workspace is still loading");
-      return;
-    }
-    const newCourse: Course = { id: "sociology", code: "SOCI 130", name: "Social Change", credits: 3, instructor: "Dr. Avery Kim", room: "Barton 206", color: "#8c5bd7", soft: "#f3ecff", initials: "S1" };
-    const isNewCourse = !courses.some((course) => course.id === newCourse.id);
-    setCourses((current) => current.some((course) => course.id === newCourse.id) ? current : [...current, newCourse]);
-    setAssignments((current) => [
-      ...current,
-      ...reviewRows.map((row, index) => ({ id: uid("assignment"), title: row.title, courseId: newCourse.id, due: new Date(`${row.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }), dateKey: row.date, status: "later" as Stoplight, progress: 0, description: `Imported from the ${newCourse.code} syllabus.`, weight: index === 1 ? "20%" : "10%" })),
-    ]);
-    setAddClassOpen(false);
-    setAddClassMode("manual");
-    flash("Syllabus verified and class added");
-    if (isNewCourse) void persistCreatedCourse(newCourse);
+  const applyEditor = (value: NonNullable<typeof editor>) => {
+    let accepted = false;
+    if (value.course) accepted = commitAcademic([...courses.filter((c) => c.id !== value.course!.id), value.course], { courseDetails: { ...extraData.courseDetails, [value.course.id]: value.details ?? emptyCourseDetails() } });
+    if (value.assignment) accepted = commitAcademic(courses, { assignments: [...storedAssignments.filter((a) => a.id !== value.assignment!.id), value.assignment] });
+    if (value.event) accepted = commitAcademic(courses, { manualEvents: [...manualEvents.filter((e) => e.id !== value.event!.id), value.event] });
+    if (accepted) { setEditor(null); setSelectedAssignment(null); setSelectedClass(null); }
+    return accepted;
   };
-
-  const toggleAssignmentComplete = (assignmentId: string) => {
-    setAssignments((current) => current.map((assignment) => assignment.id === assignmentId ? { ...assignment, status: assignment.status === "done" ? "later" : "done", progress: assignment.status === "done" ? 60 : 100 } : assignment));
-    setSelectedAssignment((current) => current?.id === assignmentId ? { ...current, status: current.status === "done" ? "later" : "done", progress: current.status === "done" ? 60 : 100 } : current);
-    flash("Assignment updated");
+  const newAssignment = () => setEditor({ assignment: { id: uid("assignment"), title: "", courseId: "", due: "", dateKey: today, dueTime: "", type: "Assignment", status: "later", progress: 0, description: "", weight: "", notes: "", checklist: [false, false, false] } });
+  const newEvent = () => setEditor({ event: { id: uid("event"), title: "", courseId: "", dateKey: today, time: "", type: "Personal", description: "" } });
+  const newReview = () => createReview();
+  const createReview = (file?: PrivateFile, sourceText = "") => {
+    const draft: SyllabusDraft = { id: uid("review"), sourceText, sourceName: file?.name ?? "", ...(file ? { sourceFileId: file.id } : {}), course: emptyCourse(uid("course")), items: [] };
+    if (commitAcademic(courses, { syllabusDrafts: [...extraData.syllabusDrafts, draft] })) { setSyllabusId(draft.id); setAddClassOpen(false); }
   };
-
-  const addCalendarEvent = (form: HTMLFormElement) => {
-    const data = new FormData(form);
-    setManualEvents((current) => [...current, {
-      id: uid("event"),
-      title: String(data.get("title") || "New event"),
-      dateKey: String(data.get("date") || "2026-08-12"),
-      time: String(data.get("time") || "12:00 PM"),
-      type: String(data.get("type") || "Study block"),
-      courseId: String(data.get("course") || "math"),
-    }]);
-    setEventDialogOpen(false);
-    flash("Event added to calendar");
+  const approveReview = (draft: SyllabusDraft) => {
+    const course = { ...draft.course, initials: draft.course.code.slice(0, 2).toUpperCase() };
+    const items: Assignment[] = draft.items.map((item) => ({ id: "syllabus-" + item.id, courseId: course.id, title: item.title, type: item.type, dateKey: item.date, due: dateLabel(item.date), status: "later", progress: 0, description: item.description, weight: item.weight, notes: "", checklist: [false, false, false] }));
+    const accepted = commitAcademic([...courses.filter((c) => c.id !== course.id), course], { assignments: [...storedAssignments, ...items], syllabusDrafts: extraData.syllabusDrafts.filter((d) => d.id !== draft.id), courseDetails: { ...extraData.courseDetails, [course.id]: { ...emptyCourseDetails(), syllabusText: draft.sourceText, syllabusName: draft.sourceName, ...(draft.sourceFileId ? { syllabusFileId: draft.sourceFileId } : {}) } } });
+    if (accepted) setSyllabusId(null); return accepted;
+  };
+  const toggleAssignmentComplete = (id: string) => {
+    const a = storedAssignments.find((a) => a.id === id); if (!a) return;
+    const changed: Assignment = a.status === "done" ? { ...a, status: "later", completedAt: null, progress: a.progressBeforeCompletion ?? 0 } : { ...a, status: "done", completedAt: new Date().toISOString(), progressBeforeCompletion: a.progress, progress: 100 };
+    if (commitAcademic(courses, { assignments: storedAssignments.map((item) => item.id === id ? changed : item) })) setSelectedAssignment(changed);
   };
 
   return (
     <div className="app-shell">
-      {persistenceStatus === "local" && <div className="save-warning" role="alert">Your latest changes are not saved. <button onClick={() => setSaveAttempt((value) => value + 1)}>Retry save</button></div>}
+
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`} aria-label="Primary navigation">
         <div className="brand-row">
@@ -623,17 +520,17 @@ const persistCreatedCourse = async (course: Course) => {
               <button key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => navigate(item.id)} aria-current={page === item.id ? "page" : undefined}>
                 <Icon size={19} strokeWidth={2.1} />
                 <span>{item.label}</span>
-                {item.id === "dashboard" && <span className="nav-count">2</span>}
+                {item.id === "dashboard" && <span className="nav-count">{courses.length}</span>}
               </button>
             );
           })}
         </nav>
 
         <div className="sidebar-focus-card">
-          <div className="focus-card-top"><span><Flame size={15} /> 8 day streak</span><strong>67%</strong></div>
-          <div className="tiny-progress"><span style={{ width: "67%" }} /></div>
-          <p>40 more minutes to reach today’s goal.</p>
-          <button onClick={() => { navigate("home"); setActiveWorkspaceId("study-mode"); }}>Start focus session <ArrowRight size={14} /></button>
+          <div className="focus-card-top"><span><Flame size={15} /> {stats.streak} day streak</span><strong>{study.dailyMinutes ? `${dailyPercent}%` : "No target"}</strong></div>
+          <div className="tiny-progress"><span style={{ width: `${dailyPercent}%` }} /></div>
+          <p>{study.dailyMinutes ? `${durationLabel(Math.max(0, study.dailyMinutes * 60 - stats.dailySeconds))} left toward today’s target.` : "Set your study targets."}</p>
+          <button disabled={!saveState.ready} onClick={() => setStudyOpen(true)}>Study & grades <ArrowRight size={14} /></button>
         </div>
 
         <div className="sidebar-bottom">
@@ -668,7 +565,7 @@ const persistCreatedCourse = async (course: Course) => {
         <div className="topbar-actions">
           <button className="topbar-date" onClick={() => navigate("calendar")} aria-label="Open today in calendar">
             <CalendarDays size={17} aria-hidden="true" />
-            <span><small>Today</small><strong>Aug 12</strong></span>
+            <span><small>Today</small><strong>{dateLabel(today, { month: "short", day: "numeric" })}</strong></span>
           </button>
           <button className="topbar-icon" onClick={() => flash("You’re all caught up")} aria-label="Open notifications">
             <Bell size={18} />
@@ -687,12 +584,24 @@ const persistCreatedCourse = async (course: Course) => {
           <button className="icon-button" aria-label="Notifications"><Bell size={20} /><span className="notification-dot" /></button>
         </header>
 
-        {page === "home" && renderHome()}
-        {page === "dashboard" && renderDashboard()}
-        {page === "calendar" && renderCalendar()}
-        {page === "search" && renderSearch()}
-        {page === "files" && renderFiles()}
-        {page === "settings" && renderSettings()}
+        <div className="workspace-save-bar" role={["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus) ? "alert" : "status"}>
+          <span>{saveState.message || (persistenceStatus === "dirty" ? "Unsaved workspace changes" : persistenceStatus === "saving" ? "Saving workspace…" : persistenceStatus === "saved" ? "Workspace saved" : "Loading your workspace…")}{profilePending && (profileSaving ? " · Saving settings…" : " · Settings have unsaved changes")}</span>
+          {profilePending && page !== "settings" && <button onClick={() => navigate("settings")}>Review settings</button>}
+          {persistenceStatus === "dirty" && <button onClick={() => void autosave.flush()}>Save now</button>}
+          {persistenceStatus === "save-error" && <button onClick={autosave.retry}>Retry save</button>}
+          {persistenceStatus === "session-error" && <><a href="/login?error=session" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a><button onClick={saveState.ready ? autosave.retry : reloadWorkspace}>Retry after signing in</button></>}
+          {persistenceStatus === "load-error" && <button onClick={reloadWorkspace}>Retry loading</button>}
+          {saveState.dirty && <button onClick={downloadUnsavedWork}>Download unsaved work</button>}
+          {saveState.dirty && <button disabled={persistenceStatus === "saving" || profileSaving} onClick={reloadWorkspace}>Reload saved workspace</button>}
+        </div>
+        {(fileStore.error || fileStore.busy) && <div className="workspace-save-bar" role={fileStore.error ? "alert" : "status"}>{fileStore.error || "Saving private files…"}{fileStore.error && <><button onClick={() => void fileStore.refresh()} disabled={fileStore.busy}>Reload files</button><a href="/login" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a></>}</div>}
+        {!saveState.ready && <section className="workspace-loading"><h1>{persistenceStatus === "loading" ? "Loading your workspace" : "Your workspace could not be loaded"}</h1><p>Your saved work will be available here when the connection is restored.</p></section>}
+        {saveState.ready && page === "home" && renderHome()}
+        {saveState.ready && page === "dashboard" && renderDashboard()}
+        {saveState.ready && page === "calendar" && renderCalendar()}
+        {saveState.ready && page === "search" && renderSearch()}
+        {saveState.ready && page === "files" && renderFiles()}
+        {saveState.ready && <div key={reloadAttempt} hidden={page !== "settings"}>{renderSettings()}</div>}
       </main>
 
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
@@ -703,13 +612,16 @@ const persistCreatedCourse = async (course: Course) => {
         <button className={page === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Settings size={19} /><span>Settings</span></button>
       </nav>
 
+      {studyOpen && <StudyPanel data={study} courses={courses} system={profile.gpa_system} term={profile.current_term} studyGoal={profile.study_goal} timezone={profile.timezone} now={now.getTime()} onChange={commitStudy} onTimer={controlTimer} onClose={() => setStudyOpen(false)} />}
       {widgetPickerOpen && renderWidgetPicker()}
       {workspaceDialog && renderWorkspaceDialog()}
       {selectedClass && renderClassDetail(selectedClass)}
       {selectedAssignment && renderAssignmentDetail(selectedAssignment)}
       {addClassOpen && renderAddClassDialog()}
-      {eventDialogOpen && renderEventDialog()}
-      {filePreview && renderFilePreview(filePreview)}
+      {editor && <AcademicEditor key={(editor.course ?? editor.assignment ?? editor.event)!.id} initial={editor} courses={courses} today={today} onApply={applyEditor} onClose={() => setEditor(null)} onDelete={editor.course && courses.some((c) => c.id === editor.course!.id) ? () => removeClass(editor.course!) : editor.assignment && storedAssignments.some((a) => a.id === editor.assignment!.id) ? () => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== editor.assignment!.id) })) setEditor(null); } } : editor.event && manualEvents.some((e) => e.id === editor.event!.id) ? () => { if (window.confirm("Delete this event?")) { if (commitAcademic(courses, { manualEvents: manualEvents.filter((e) => e.id !== editor.event!.id) })) setEditor(null); } } : undefined} />}
+      {syllabusId && extraData.syllabusDrafts.filter((d) => d.id === syllabusId).map((draft) => <SyllabusReview key={draft.id} draft={draft} onUpload={() => setFileDialog({ defaults: { kind: "syllabus" }, reviewId: draft.id })} onFile={() => { const file = fileStore.files.find((f) => f.id === draft.sourceFileId); if (file) setFilePreview(file); else flash("Refresh Files to load this saved source."); }} onChange={(next) => { commitAcademic(courses, { syllabusDrafts: extraData.syllabusDrafts.map((d) => d.id === draft.id ? next : d) }); }} onApprove={() => approveReview(draft)} onClose={() => setSyllabusId(null)} onDelete={() => { if (window.confirm("Discard this syllabus review and its source text?")) { if (commitAcademic(courses, { syllabusDrafts: extraData.syllabusDrafts.filter((d) => d.id !== draft.id) })) setSyllabusId(null); } }} />)}
+      {fileDialog && <FileEditor key={fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file"} store={fileStore} courses={courses} assignments={assignments} initial={fileDialog.initial} defaults={fileDialog.defaults} canWrite={canWriteFiles} onClose={() => setFileDialog(null)} onSaved={(file) => { if (fileDialog.reviewId) setExtraData((current) => ({ ...current, syllabusDrafts: current.syllabusDrafts.map((draft) => draft.id === fileDialog.reviewId ? { ...draft, sourceFileId: file.id, sourceName: file.name } : draft) })); }} />}
+      {filePreview && <FilePreview file={fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview} store={fileStore} onClose={() => setFilePreview(null)} canWrite={canWriteFiles} onEdit={() => { setFileDialog({ initial: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview }); setFilePreview(null); }} onReview={(file, text) => { createReview(file, text); setFilePreview(null); }} />}
       {toast && <div className="toast" role="status"><CheckCircle2 size={17} /> {toast}</div>}
     </div>
   );
@@ -724,17 +636,21 @@ const persistCreatedCourse = async (course: Course) => {
   }
 
   function renderHome() {
-    const featuredAssignments = assignments.slice(0, 3);
-    const schedule = manualEvents.slice(0, 3).map((event) => {
+    const featuredAssignments = assignments.filter((a) => a.dateKey <= today && a.status !== "done").slice(0, 3);
+    const schedule = manualEvents.filter((event) => event.dateKey === today).sort((a, b) => a.time.localeCompare(b.time)).map((event) => {
       const course = courseFor(courses, event.courseId);
       return {
         time: event.time || "All day",
         title: event.title,
         detail: course.code === "Personal" ? event.type : course.code,
         color: course.color,
-        onOpen: () => navigate("calendar"),
+        onOpen: () => setEditor({ event }),
       };
     });
+    for (const course of courses) for (const meeting of extraData.courseDetails[course.id]?.meetings ?? []) {
+      if (today >= meeting.from && today <= meeting.until && meeting.days.includes(new Date(today + "T12:00:00Z").getUTCDay())) schedule.push({ time: meeting.start, title: course.name, detail: meeting.location || course.room, color: course.color, onOpen: () => setSelectedClass(course) });
+    }
+    schedule.sort((a, b) => a.time.localeCompare(b.time));
 
     return (
       <div className="page home-page">
@@ -754,7 +670,7 @@ const persistCreatedCourse = async (course: Course) => {
                 <span>{featuredAssignments.length}</span>
               </div>
               <div className="today-task-list">
-                {featuredAssignments.length === 0 && <p className="today-empty">No tasks yet. Add a class to start planning your work.</p>}
+                {featuredAssignments.length === 0 && <p className="today-empty">No overdue or due-today tasks.</p>}
                 {featuredAssignments.map((assignment) => {
                   const course = courseFor(courses, assignment.courseId);
                   return (
@@ -797,7 +713,7 @@ const persistCreatedCourse = async (course: Course) => {
           <div className="workspace-bar">
             <div className="workspace-tabs" role="tablist" aria-label="Home workspaces">
               {workspaces.map((workspace) => <button key={workspace.id} role="tab" aria-selected={activeWorkspaceId === workspace.id} className={activeWorkspaceId === workspace.id ? "active" : ""} onClick={() => setActiveWorkspaceId(workspace.id)}>{workspace.name}</button>)}
-              <button className="add-tab" onClick={() => { setWorkspaceNameDraft(""); setWorkspaceDialog("new"); }} aria-label="Add workspace"><Plus size={16} /></button>
+              <button className="add-tab" disabled={workspaces.length >= MAX_WORKSPACES} title={`Up to ${MAX_WORKSPACES} workspaces`} onClick={() => { setWorkspaceNameDraft(""); setWorkspaceDialog("new"); }} aria-label="Add workspace"><Plus size={16} /></button>
             </div>
             <div className="workspace-actions">
               <button className="secondary-button" onClick={() => setWidgetPickerOpen(true)}><Plus size={16} /> Add widget</button>
@@ -805,18 +721,16 @@ const persistCreatedCourse = async (course: Course) => {
                 <button className="icon-button" onClick={() => setWorkspaceMenuOpen((open) => !open)} aria-label="Workspace options"><MoreHorizontal size={19} /></button>
                 {workspaceMenuOpen && <div className="popover workspace-menu">
                   <button onClick={() => { setWorkspaceNameDraft(activeWorkspace.name); setWorkspaceDialog("rename"); setWorkspaceMenuOpen(false); }}><Pencil size={15} /> Rename</button>
-                  <button onClick={duplicateWorkspace}><Copy size={15} /> Duplicate</button>
-                  <button onClick={() => {
-                    const index = workspaces.findIndex((workspace) => workspace.id === activeWorkspaceId);
-                    if (index > 0) setWorkspaces((current) => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; });
-                    setWorkspaceMenuOpen(false);
-                  }}><ArrowLeft size={15} /> Move left</button>
-                  <button className="danger" onClick={deleteWorkspace}><Trash2 size={15} /> Delete</button>
+                  <button disabled={workspaces.length >= MAX_WORKSPACES} onClick={duplicateWorkspace}><Copy size={15} /> Duplicate</button>
+                  <button disabled={workspaces[0].id === activeWorkspaceId} onClick={() => moveWorkspace(-1)}><ArrowLeft size={15} /> Move left</button>
+                  <button disabled={workspaces[workspaces.length - 1].id === activeWorkspaceId} onClick={() => moveWorkspace(1)}><ArrowRight size={15} /> Move right</button>
+                  <button className="danger" disabled={workspaces.length === 1} onClick={deleteWorkspace}><Trash2 size={15} /> Delete</button>
                 </div>}
               </div>
             </div>
           </div>
 
+          {notes && <div className="workspace-save-bar"><span>Your earlier shared note is saved and available to restore.</span><button disabled={activeWorkspace.widgets.length >= MAX_WIDGETS_PER_WORKSPACE} onClick={recoverNotes}>Add saved note here</button><button onClick={() => downloadDraft("eduessentials-recovered-note.json", { note: notes })}>Download saved note</button></div>}
           {activeWorkspace.widgets.length === 0 ? (
             <div className="empty-workspace">
               <div className="empty-icon"><LayoutGrid size={26} /></div>
@@ -841,56 +755,46 @@ const persistCreatedCourse = async (course: Course) => {
     return (
       <article
         key={widget.instanceId}
-        className={`widget-card widget-${widget.type} ${draggedWidget === index ? "dragging" : ""}`}
+        className={`widget-card widget-${widget.type} ${draggedWidget === widget.instanceId ? "dragging" : ""}`}
         data-size={widget.size}
-        draggable
-        onDragStart={() => setDraggedWidget(index)}
-        onDragEnter={(event) => { event.preventDefault(); if (draggedWidget !== null && draggedWidget !== index) { moveWidget(draggedWidget, index); setDraggedWidget(index); } }}
+        data-widget-id={widget.instanceId}
         onDragOver={(event) => event.preventDefault()}
-        onDragEnd={() => { setDraggedWidget(null); flash("Widget moved"); }}
+        onDrop={(event) => { event.preventDefault(); if (draggedWidget !== null) moveWidget(activeWorkspace.widgets.findIndex((item) => item.instanceId === draggedWidget), index); setDraggedWidget(null); }}
       >
         <div className="widget-header">
           <span className={`widget-icon tone-${template.color}`}><TemplateIcon size={16} /></span>
           <h2>{template.title}</h2>
-          <span className="drag-handle" aria-hidden="true"><GripVertical size={16} /></span>
+          <button className="drag-handle icon-button mini" aria-label={`Drag ${template.title}`} draggable onDragStart={(event) => { event.dataTransfer?.setData("text/plain", widget.instanceId); setDraggedWidget(widget.instanceId); }} onDragEnd={() => setDraggedWidget(null)}><GripVertical size={16} /></button>
           <div className="menu-wrap">
             <button className="icon-button mini" onClick={() => setOpenWidgetMenu(openWidgetMenu === widget.instanceId ? null : widget.instanceId)} aria-label={`${template.title} options`}><MoreHorizontal size={17} /></button>
             {openWidgetMenu === widget.instanceId && (
               <div className="popover widget-menu">
                 <p>Widget size</p>
                 <div className="size-options">
-                  {(["small", "medium", "large"] as WidgetSize[]).map((size) => <button key={size} className={widget.size === size ? "active" : ""} onClick={() => resizeWidget(widget.instanceId, size)}>{size.slice(0, 1).toUpperCase()}</button>)}
+                  {(["small", "medium", "large"] as WidgetSize[]).map((size) => <button key={size} aria-label={`${size} widget`} aria-pressed={widget.size === size} className={widget.size === size ? "active" : ""} onClick={() => resizeWidget(widget.instanceId, size)}>{size.slice(0, 1).toUpperCase()}</button>)}
                 </div>
                 <button onClick={() => moveWidget(index, index - 1)} disabled={index === 0}><ArrowLeft size={15} /> Move earlier</button>
                 <button onClick={() => moveWidget(index, index + 1)} disabled={index === activeWorkspace.widgets.length - 1}><ArrowRight size={15} /> Move later</button>
-                <button onClick={() => { updateWorkspaceWidgets((widgets) => [...widgets, { ...widget, instanceId: uid("widget") }]); setOpenWidgetMenu(null); }}><Copy size={15} /> Duplicate</button>
-                <button className="danger" onClick={() => { updateWorkspaceWidgets((widgets) => widgets.filter((item) => item.instanceId !== widget.instanceId)); setOpenWidgetMenu(null); flash("Widget removed"); }}><Trash2 size={15} /> Remove</button>
+                <button disabled={activeWorkspace.widgets.length >= MAX_WIDGETS_PER_WORKSPACE} onClick={() => { updateWorkspaceWidgets((widgets) => [...widgets, { ...widget, instanceId: uid("widget") }]); setOpenWidgetMenu(null); }}><Copy size={15} /> Duplicate</button>
+                <button className="danger" onClick={() => { if (widget.note && !window.confirm("Remove this notes widget and its text?")) return; if (updateWorkspaceWidgets((widgets) => widgets.filter((item) => item.instanceId !== widget.instanceId))) { setOpenWidgetMenu(null); flash("Widget removed"); } }}><Trash2 size={15} /> Remove</button>
               </div>
             )}
           </div>
         </div>
-        <div className="widget-body">{renderWidgetBody(widget.type)}</div>
+        <div className="widget-body">{renderWidgetBody(widget)}</div>
       </article>
     );
   }
 
-  function renderWidgetBody(type: WidgetType) {
-    if (type === "daily-goal") return <div className="goal-widget"><div className="progress-ring" style={{ "--progress": "67%" } as React.CSSProperties}><strong>67%</strong><span>complete</span></div><div><strong>2h 00m</strong><p>of your 3 hour goal</p><button className="text-button" onClick={() => flash("Study goal editor opened")}>Adjust goal <ArrowRight size={13} /></button></div></div>;
-    if (type === "weekly-goal") return <div><div className="metric-row"><span><strong>9h 40m</strong><small>of 14 hours</small></span><b>69%</b></div><div className="week-bars">{[62, 80, 45, 74, 30, 18, 0].map((height, i) => <span key={i}><i style={{ height: `${Math.max(height, 6)}%` }} /><small>{["M", "T", "W", "T", "F", "S", "S"][i]}</small></span>)}</div></div>;
+  function renderWidgetBody(widget: WidgetInstance) {
+    const { type } = widget;
+    if (studyWidgetTypes.includes(type)) return <StudyWidget type={type} data={study} stats={stats} courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} now={now.getTime()} system={profile.gpa_system} term={profile.current_term} onOpen={() => setStudyOpen(true)} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onTimer={controlTimer} />;
     if (type === "upcoming") return <div className="compact-list">{assignments.filter((item) => item.status !== "done").slice(0, 4).map((assignment) => { const course = courseFor(courses, assignment.courseId); return <button key={assignment.id} className="compact-assignment" onClick={() => setSelectedAssignment(assignment)}><StatusBadge status={assignment.status} compact /><span><strong>{assignment.title}</strong><small>{course.code} · {assignment.due}</small></span><ChevronRight size={15} /></button>; })}</div>;
     if (type === "stoplight") return <div className="stoplight-summary"><button onClick={() => navigate("dashboard")}><span className="stoplight-count red"><AlertOctagon size={17} />{overdueAssignments.length}</span><span><strong>Overdue</strong><small>Needs attention</small></span></button><button onClick={() => navigate("dashboard")}><span className="stoplight-count amber"><Clock3 size={17} />{todayAssignments.length}</span><span><strong>Due today</strong><small>Before midnight</small></span></button><button onClick={() => navigate("dashboard")}><span className="stoplight-count green"><Circle size={17} />{assignments.filter((item) => item.status === "later").length}</span><span><strong>Upcoming</strong><small>After today</small></span></button></div>;
-    if (type === "red-alerts") return <div className="alert-widget"><div className="alert-banner"><AlertOctagon size={18} /><span><strong>{overdueAssignments.length + todayAssignments.length} tasks need attention</strong><small>One is already overdue</small></span></div>{[...overdueAssignments, ...todayAssignments].slice(0, 2).map((assignment) => <button key={assignment.id} onClick={() => setSelectedAssignment(assignment)}><span className={`urgency-line ${assignment.status}`} /><span><strong>{assignment.title}</strong><small>{assignment.due}</small></span><ChevronRight size={15} /></button>)}</div>;
-    if (type === "mini-calendar") return <div className="mini-cal"><div className="mini-cal-month"><strong>August 2026</strong><span>Week 33</span></div><div className="mini-days">{[10,11,12,13,14,15,16].map((day, i) => <button key={day} className={day === 12 ? "today" : ""} onClick={() => navigate("calendar")}><small>{["M","T","W","T","F","S","S"][i]}</small><strong>{day}</strong>{[11,12,13,14].includes(day) && <i />}</button>)}</div><button className="text-button" onClick={() => navigate("calendar")}>Open full calendar <ArrowRight size={13} /></button></div>;
-    if (type === "pomodoro") return <div className={`timer-widget ${timerRunning ? "running" : ""}`}><div className="timer-dial"><strong>{String(Math.floor(timerSeconds / 60)).padStart(2, "0")}:{String(timerSeconds % 60).padStart(2, "0")}</strong><span>Focus</span></div><div className="timer-controls"><button onClick={() => setTimerRunning((running) => !running)} aria-label={timerRunning ? "Pause timer" : "Start timer"}>{timerRunning ? <Pause size={18} /> : <Play size={18} />}</button><button onClick={() => { setTimerRunning(false); setTimerSeconds(25 * 60); }} aria-label="Reset timer"><RotateCcw size={17} /></button></div></div>;
-    if (type === "focus-timer") return <div className="focus-timer"><strong>45:00</strong><p>Deep work · No interruptions</p><button className="primary-button compact" onClick={() => flash("45-minute focus started")}><Play size={15} /> Begin</button></div>;
-    if (type === "task-completion") return <div className="completion-widget"><div className="big-number"><strong>18</strong><span>of 24 tasks</span></div><div className="completion-track"><span style={{ width: "75%" }} /></div><div className="legend-row"><span><i className="legend-dot done" />18 complete</span><span><i className="legend-dot open" />6 open</span></div><p>Up 12% from last week</p></div>;
-    if (type === "assignment-pie") return <div className="pie-widget"><div className="pie-chart"><span><strong>8</strong><small>open</small></span></div><div className="pie-legend">{courses.slice(0, 4).map((course, index) => <span key={course.id}><i style={{ background: course.color }} />{course.code}<b>{[3,2,2,1][index]}</b></span>)}</div></div>;
-    if (type === "gpa") return <div className="gpa-widget"><strong>3.82</strong><span>Current GPA</span><p><ArrowRight size={14} className="trend-up" /> +0.14 this term</p><div className="gpa-scale"><i style={{ width: "95.5%" }} /></div></div>;
+    if (type === "red-alerts") return <div className="alert-widget"><div className="alert-banner"><AlertOctagon size={18} /><span><strong>{overdueAssignments.length + todayAssignments.length} tasks need attention</strong><small>{overdueAssignments.length} overdue · {todayAssignments.length} due today</small></span></div>{[...overdueAssignments, ...todayAssignments].slice(0, 2).map((assignment) => <button key={assignment.id} onClick={() => setSelectedAssignment(assignment)}><span className={`urgency-line ${assignment.status}`} /><span><strong>{assignment.title}</strong><small>{assignment.due}</small></span><ChevronRight size={15} /></button>)}</div>;
+    if (type === "mini-calendar") return <div className="mini-cal"><div className="mini-cal-month"><strong>{dateLabel(today, { month: "long", year: "numeric" })}</strong></div><div className="mini-days">{Array.from({ length: 7 }, (_, i) => addDays(weekStart(today, profile.week_starts_on === "Monday"), i)).map((date) => <button key={date} className={date === today ? "today" : ""} onClick={() => navigate("calendar")}><small>{dateLabel(date, { weekday: "short" })}</small><strong>{Number(date.slice(-2))}</strong>{(assignments.some((a) => a.dateKey === date) || manualEvents.some((e) => e.dateKey === date)) && <i />}</button>)}</div><button className="text-button" onClick={() => navigate("calendar")}>Open full calendar</button></div>;
     if (type === "class-links") return <div className="class-link-grid">{courses.slice(0, 4).map((course) => <button key={course.id} onClick={() => { setPage("dashboard"); setSelectedClass(course); }}><CourseStamp course={course} small /><span><strong>{course.code}</strong><small>{course.name}</small></span><ChevronRight size={14} /></button>)}</div>;
-    if (type === "notes") return <div className="notes-widget"><textarea aria-label="Quick notes" value={notes} onChange={(event) => setNotes(event.target.value)} /><div><span>{persistenceStatus === "loading" ? "Connecting…" : persistenceStatus === "saving" ? "Saving…" : persistenceStatus === "local" ? "Local only" : "Saved"}</span><button onClick={() => setNotes("")} aria-label="Clear notes"><Trash2 size={14} /></button></div></div>;
-    if (type === "exams") return <div className="exam-list"><button><span className="exam-date"><strong>24</strong><small>AUG</small></span><span><strong>Calculus quiz 2</strong><small>MATH 101 · 12 days</small></span></button><button><span className="exam-date"><strong>02</strong><small>SEP</small></span><span><strong>Biology practical</strong><small>BIO 115 · 21 days</small></span></button></div>;
-    if (type === "streak") return <div className="streak-widget"><span className="flame-orb"><Flame size={28} /></span><div><strong>8 days</strong><span>Longest: 14 days</span></div><div className="streak-dots">{[1,2,3,4,5,6,7].map((day) => <i key={day} className={day < 7 ? "filled" : ""} />)}</div></div>;
-    if (type === "today") return <div className="today-widget"><div className="today-column"><p className="widget-kicker">Up next</p><strong>Memory lab reflection</strong><span>PSYC 220 · Due at 4:00 PM</span><div className="completion-track"><span style={{ width: "45%" }} /></div><button className="primary-button compact" onClick={() => setSelectedAssignment(assignments[1])}>Continue work <ArrowRight size={14} /></button></div><div className="today-agenda"><p><Clock3 size={14} /> Today’s agenda</p><span><i>2:00</i> Calculus lecture</span><span><i>4:00</i> Reflection due</span><span><i>6:30</i> Study group</span></div></div>;
+    if (type === "notes") return <div className="notes-widget"><textarea id={`note-${widget.instanceId}`} aria-label="Quick notes" value={widget.note ?? ""} maxLength={MAX_NOTES_LENGTH} onChange={(event) => updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: event.target.value } : item))} /><div><span>{persistenceStatus === "saved" ? "Saved" : persistenceStatus === "saving" ? "Saving…" : "Not saved"}</span><button disabled={!widget.note} onClick={() => { if (window.confirm("Clear this note's text?")) updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: "" } : item)); }} aria-label="Clear notes"><Trash2 size={14} /></button></div></div>;
     if (type === "quote") return <div className="quote-widget"><QuoteIcon size={24} /><blockquote>Small, focused steps turn heavy weeks into manageable days.</blockquote><span>— Your Edu AI reminder</span></div>;
     return <div className="spacer-widget"><span>Spacer</span><p>This tile creates breathing room. Resize it to shape your layout.</p></div>;
   }
@@ -898,15 +802,16 @@ const persistCreatedCourse = async (course: Course) => {
   function renderDashboard() {
     return (
       <div className="page">
-        {renderPageHeader("Academic overview", "Your dashboard", "Classes, deadlines, and progress—without the clutter.", <><div className="view-toggle" role="group" aria-label="Dashboard view"><button className={dashboardView === "cards" ? "active" : ""} onClick={() => setDashboardView("cards")}><LayoutGrid size={16} /> Cards</button><button className={dashboardView === "list" ? "active" : ""} onClick={() => setDashboardView("list")}><List size={16} /> List</button></div><button className="primary-button" onClick={() => { setAddClassMode("manual"); setAddClassOpen(true); }}><Plus size={17} /> Add class</button></>)}
+        {renderPageHeader("Academic overview", "Your dashboard", "Classes, deadlines, and progress—without the clutter.", <><div className="view-toggle" role="group" aria-label="Dashboard view"><button className={dashboardView === "cards" ? "active" : ""} onClick={() => setDashboardView("cards")}><LayoutGrid size={16} /> Cards</button><button className={dashboardView === "list" ? "active" : ""} onClick={() => setDashboardView("list")}><List size={16} /> List</button></div><button className="primary-button" onClick={() => { setAddClassOpen(true); }}><Plus size={17} /> Add class</button></>)}
 
         <div className="summary-strip">
           <div><span className="summary-icon red"><AlertOctagon size={18} /></span><p><strong>{overdueAssignments.length}</strong><small>Overdue</small></p></div>
           <div><span className="summary-icon amber"><Clock3 size={18} /></span><p><strong>{todayAssignments.length}</strong><small>Due today</small></p></div>
-          <div><span className="summary-icon green"><CheckCircle2 size={18} /></span><p><strong>18</strong><small>Completed this week</small></p></div>
-          <div className="summary-progress"><p><strong>67%</strong><small>Weekly study goal</small></p><div className="completion-track"><span style={{ width: "67%" }} /></div></div>
+          <div><span className="summary-icon green"><CheckCircle2 size={18} /></span><p><strong>{weeklyCompleted}</strong><small>Completed this week</small></p></div>
+          <div className="summary-progress"><p><strong>{study.weeklyMinutes ? `${weeklyPercent}%` : "No target"}</strong><small>Weekly study goal</small></p><div className="completion-track"><span style={{ width: `${weeklyPercent}%` }} /></div></div>
         </div>
 
+        <div className="academic-actions"><button className="secondary-button" onClick={() => setStudyOpen(true)}>Study goals, history & grades</button><button className="secondary-button" onClick={newAssignment}>Add assignment</button><button className="secondary-button" onClick={newReview}>Import syllabus</button>{extraData.syllabusDrafts.map((draft) => <button className="secondary-button" key={draft.id} onClick={() => setSyllabusId(draft.id)}>Resume {draft.course.code || "syllabus review"}</button>)}</div>
         {dashboardView === "cards" ? (
           <section>
             <div className="section-title-row"><div><h2>Your classes</h2><p>{courses.length} active courses · {courses.reduce((sum, course) => sum + course.credits, 0)} total credits</p></div><button className="text-button" onClick={() => setDashboardView("list")}>View every assignment <ArrowRight size={14} /></button></div>
@@ -915,17 +820,17 @@ const persistCreatedCourse = async (course: Course) => {
                 const courseAssignments = assignments.filter((assignment) => assignment.courseId === course.id && assignment.status !== "done");
                 return <button key={course.id} className="class-card" onClick={() => setSelectedClass(course)}>
                   <div className="class-card-visual" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
-                    <span className="course-watermark">{course.initials}</span><span className="course-pill" style={{ color: course.color }}>{course.code}</span><BookOpen size={34} style={{ color: course.color }} />
+                    {fileStore.files.filter((f) => f.course_id === course.id && f.kind === "class-image" && f.state === "ready").sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 1).map((f) => <PrivateImage key={f.id} file={f} store={fileStore} />)}<span className="course-watermark">{course.initials}</span><span className="course-pill" style={{ color: course.color }}>{course.code}</span><BookOpen size={34} style={{ color: course.color }} />
                   </div>
                   <div className="class-card-body"><div><h3>{course.name}</h3><p>{course.instructor} · {course.credits} credits</p></div><div className="class-statuses"><span className="status-overdue"><AlertOctagon size={14} />{courseAssignments.filter((item) => item.status === "overdue").length}<small>overdue</small></span><span className="status-today"><Clock3 size={14} />{courseAssignments.filter((item) => item.status === "today").length}<small>today</small></span><span className="status-later"><Circle size={14} />{courseAssignments.filter((item) => item.status === "later").length}<small>later</small></span></div></div>
                 </button>;
               })}
-              <button className="class-card add-class-card" onClick={() => { setAddClassMode("manual"); setAddClassOpen(true); }}><span><Plus size={24} /></span><strong>Add another class</strong><small>Enter it manually or import a syllabus</small></button>
+              <button className="class-card add-class-card" onClick={() => { setAddClassOpen(true); }}><span><Plus size={24} /></span><strong>Add another class</strong><small>Enter it manually or import a syllabus</small></button>
             </div>
           </section>
         ) : renderAssignmentTable(assignments)}
 
-        {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2><p>Your nearest deadlines across every class.</p></div><button className="text-button" onClick={() => setDashboardView("list")}>See all <ArrowRight size={14} /></button></div>{renderAssignmentTable(assignments.slice(0, 5), true)}</section>}
+        {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2><p>Your nearest deadlines across every class.</p></div><button className="text-button" onClick={() => setDashboardView("list")}>See all <ArrowRight size={14} /></button></div>{renderAssignmentTable(assignments.filter((a) => a.status !== "done").slice(0, 5), true)}</section>}
       </div>
     );
   }
@@ -933,6 +838,7 @@ const persistCreatedCourse = async (course: Course) => {
   function renderAssignmentTable(items: Assignment[], compact = false) {
     return <div className={`assignment-table ${compact ? "compact" : ""}`}>
       {!compact && <div className="assignment-table-head"><span>Status</span><span>Assignment</span><span>Class</span><span>Due</span><span>Progress</span><span /></div>}
+      {!items.length && <p className="form-hint">No assignments yet.</p>}
       {items.map((assignment) => { const course = courseFor(courses, assignment.courseId); return <button className={`assignment-row ${assignment.status === "done" ? "completed" : ""}`} key={assignment.id} onClick={() => setSelectedAssignment(assignment)}>
         <span><StatusBadge status={assignment.status} /></span>
         <span className="assignment-title"><strong>{assignment.title}</strong>{compact && <small>{course.code}</small>}</span>
@@ -945,132 +851,74 @@ const persistCreatedCourse = async (course: Course) => {
   }
 
   function renderCalendar() {
-    const baseDate = new Date(2026, 7 + calendarOffset, 1);
-    const monthLabel = baseDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    const startDay = baseDate.getDay();
-    const daysInMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0).getDate();
-    const prevDays = new Date(baseDate.getFullYear(), baseDate.getMonth(), 0).getDate();
-    const cells = Array.from({ length: 42 }, (_, index) => {
-      const raw = index - startDay + 1;
-      if (raw < 1) return { day: prevDays + raw, muted: true, dateKey: "" };
-      if (raw > daysInMonth) return { day: raw - daysInMonth, muted: true, dateKey: "" };
-      const dateKey = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, "0")}-${String(raw).padStart(2, "0")}`;
-      return { day: raw, muted: false, dateKey };
-    });
-    return <div className="page calendar-page">
-      {renderPageHeader("Planning", "Calendar", "A dedicated view of deadlines, classes, and study time.", <><button className="secondary-button filter-button" onClick={() => setCalendarFilterOpen((open) => !open)}><SlidersHorizontal size={16} /> Filter <ChevronDown size={14} /></button><button className="primary-button" onClick={() => setEventDialogOpen(true)}><Plus size={17} /> Add event</button></>)}
-      {calendarFilterOpen && <div className="calendar-filter-panel"><strong>Show on calendar</strong><div>{["all", ...courses.map((course) => course.id)].map((filter) => <button key={filter} className={calendarFilter === filter ? "active" : ""} onClick={() => setCalendarFilter(filter)}>{filter === "all" ? "All classes" : courseFor(courses, filter).code}{calendarFilter === filter && <Check size={14} />}</button>)}</div></div>}
-      <div className="calendar-toolbar">
-        <div className="calendar-title-controls"><button className="secondary-button compact-button" onClick={() => setCalendarOffset(0)}>Today</button><button className="icon-button" onClick={() => setCalendarOffset((offset) => offset - 1)} aria-label="Previous period"><ChevronLeft size={20} /></button><button className="icon-button" onClick={() => setCalendarOffset((offset) => offset + 1)} aria-label="Next period"><ChevronRight size={20} /></button><h2>{monthLabel}</h2></div>
-        <div className="view-toggle"><button className={calendarView === "month" ? "active" : ""} onClick={() => setCalendarView("month")}>Month</button><button className={calendarView === "week" ? "active" : ""} onClick={() => setCalendarView("week")}>Week</button><button className={calendarView === "day" ? "active" : ""} onClick={() => setCalendarView("day")}>Day</button></div>
-      </div>
-      {calendarView === "month" && <div className="calendar-grid"><div className="calendar-weekdays">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-cells">{cells.map((cell, index) => {
-        const dayAssignments = cell.dateKey ? assignments.filter((assignment) => assignment.dateKey === cell.dateKey && (calendarFilter === "all" || assignment.courseId === calendarFilter)) : [];
-        const dayEvents = cell.dateKey ? manualEvents.filter((event) => event.dateKey === cell.dateKey && (calendarFilter === "all" || event.courseId === calendarFilter)) : [];
-        const isToday = cell.dateKey === "2026-08-12";
-        return <div className={`calendar-cell ${cell.muted ? "muted" : ""} ${isToday ? "is-today" : ""}`} key={index}><span className="day-number">{cell.day}{isToday && <small>Today</small>}</span><div className="calendar-events">{dayAssignments.slice(0, 3).map((assignment) => <button className={`calendar-chip ${assignment.status}`} key={assignment.id} onClick={() => setSelectedAssignment(assignment)} title={`${assignment.title}, ${statusMeta[assignment.status].label}`}><i />{assignment.title}<small>{courseFor(courses, assignment.courseId).code}</small></button>)}{dayEvents.map((event) => <button className="calendar-chip event" key={event.id} onClick={() => flash(`${event.title} · ${event.time}`)}><i />{event.title}<small>{event.time}</small></button>)}</div></div>;
-      })}</div></div>}
-      {calendarView === "week" && renderWeekCalendar()}
-      {calendarView === "day" && renderDayCalendar()}
-      <div className="calendar-legend"><span><i className="overdue" /> Overdue</span><span><i className="today" /> Due today</span><span><i className="later" /> Due later</span><span><i className="event" /> Personal event</span></div>
-    </div>;
-  }
-
-  function renderWeekCalendar() {
-    return <div className="week-calendar"><div className="week-header"><span /><span>Mon 10</span><span>Tue 11</span><span className="today">Wed 12<small>Today</small></span><span>Thu 13</span><span>Fri 14</span><span>Sat 15</span><span>Sun 16</span></div>{["9 AM","11 AM","1 PM","3 PM","5 PM","7 PM"].map((time, row) => <div className="week-row" key={time}><span>{time}</span>{Array.from({ length: 7 }, (_, day) => <div key={day}>{row === 2 && day === 2 && <button className="schedule-block indigo" onClick={() => flash("Calculus lecture · Science 214")}><strong>Calculus</strong><small>2:00–3:15</small></button>}{row === 3 && day === 2 && <button className="schedule-block amber" onClick={() => setSelectedAssignment(assignments[1])}><strong>Reflection due</strong><small>4:00 PM</small></button>}{row === 4 && day === 3 && <button className="schedule-block teal" onClick={() => flash("Study group · 6:30 PM")}><strong>Study group</strong><small>6:30–7:30</small></button>}</div>)}</div>)}</div>;
-  }
-
-  function renderDayCalendar() {
-    return <div className="day-calendar"><div className="day-agenda-head"><div className="date-tile"><span>AUG</span><strong>12</strong></div><div><h3>Wednesday</h3><p>3 scheduled items · 2 deadlines</p></div><span className="weather-pill"><Sun size={15} /> 73°</span></div><div className="day-timeline">{["9:00 AM","10:30 AM","12:00 PM","2:00 PM","4:00 PM","6:30 PM","8:00 PM"].map((time, index) => <div key={time}><span>{time}</span><i />{index === 3 && <button className="agenda-block indigo"><strong>Calculus lecture</strong><small>Science 214 · 2:00–3:15 PM</small></button>}{index === 4 && <button className="agenda-block amber" onClick={() => setSelectedAssignment(assignments[1])}><strong>Memory lab reflection due</strong><small>PSYC 220 · 45% complete</small></button>}{index === 5 && <button className="agenda-block teal"><strong>Study group</strong><small>Learning Commons · 6:30–7:30 PM</small></button>}</div>)}</div></div>;
+    return <AcademicCalendar courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} monday={profile.week_starts_on === "Monday"} timezone={profile.timezone} view={calendarView} filter={calendarFilter} onView={setCalendarView} onFilter={setCalendarFilter} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onAdd={newEvent} />;
   }
 
   function renderSearch() {
     const query = searchQuery.toLowerCase().trim();
     const resultGroups = [
-      { title: "Assignments", icon: CheckCircle2, items: assignments.filter((assignment) => !query || `${assignment.title} ${assignment.description} ${courseFor(courses, assignment.courseId).code}`.toLowerCase().includes(query)).map((assignment) => ({ id: assignment.id, title: assignment.title, subtitle: `${courseFor(courses, assignment.courseId).code} · ${assignment.due}`, badge: statusMeta[assignment.status].short, action: () => setSelectedAssignment(assignment) })) },
-      { title: "Classes", icon: BookOpen, items: courses.filter((course) => !query || `${course.name} ${course.code} ${course.instructor}`.toLowerCase().includes(query)).map((course) => ({ id: course.id, title: course.name, subtitle: `${course.code} · ${course.instructor}`, badge: `${course.credits} credits`, action: () => setSelectedClass(course) })) },
-      { title: "Syllabi & files", icon: FileText, items: [
-        { id: "f1", title: "MATH 101 Syllabus.pdf", subtitle: "Mentions: office hours, grading policy, limits", badge: "PDF", action: () => setFilePreview("MATH 101 Syllabus.pdf") },
-        { id: "f2", title: "Memory Lab Instructions.pdf", subtitle: "Mentions: reflection, encoding, lab procedure", badge: "PDF", action: () => setFilePreview("Memory Lab Instructions.pdf") },
-      ].filter((item) => !query || `${item.title} ${item.subtitle}`.toLowerCase().includes(query)) },
-      { title: "Notes", icon: StickyNote, items: [{ id: "n1", title: "Quick notes", subtitle: notes.replace(/\n/g, " · "), badge: "Note", action: () => { navigate("home"); setActiveWorkspaceId("my-day"); } }].filter((item) => !query || `${item.title} ${item.subtitle}`.toLowerCase().includes(query)) },
+      { title: "Assignments", icon: CheckCircle2, items: assignments.filter((assignment) => !query || `${assignment.title} ${assignment.description} ${assignment.notes ?? ""} ${statusMeta[assignment.status].label} ${courseFor(courses, assignment.courseId).code}`.toLowerCase().includes(query)).map((assignment) => ({ id: assignment.id, title: assignment.title, subtitle: `${courseFor(courses, assignment.courseId).code} · ${assignment.due}`, badge: statusMeta[assignment.status].short, action: () => setSelectedAssignment(assignment) })) },
+      { title: "Classes", icon: BookOpen, items: courses.filter((course) => !query || `${course.name} ${course.code} ${course.instructor} ${course.room} ${extraData.courseDetails[course.id]?.officeHours ?? ""}`.toLowerCase().includes(query)).map((course) => ({ id: course.id, title: course.name, subtitle: `${course.code} · ${course.instructor}`, badge: `${course.credits} credits`, action: () => setSelectedClass(course) })) },
+      { title: "Files", icon: FileText, items: fileStore.files.filter((f) => !query || (f.name + " " + f.kind + " " + f.mime_type + " " + courseFor(courses, f.course_id ?? "").code).toLowerCase().includes(query)).map((f) => ({ id: f.id, title: f.name, subtitle: fileSize(Number(f.size_bytes)) + " · " + f.state, badge: f.kind, action: () => setFilePreview(f) })) },
+      { title: "Events", icon: CalendarDays, items: manualEvents.filter((e) => !query || (e.title + " " + e.description + " " + e.type + " " + courseFor(courses, e.courseId).code).toLowerCase().includes(query)).map((e) => ({ id: e.id, title: e.title, subtitle: dateLabel(e.dateKey) + " · " + e.time, badge: e.type, action: () => setEditor({ event: e }) })) },
+      { title: "Syllabus text", icon: FileText, items: courses.filter((c) => extraData.courseDetails[c.id]?.syllabusText && (!query || (extraData.courseDetails[c.id].syllabusText + " " + c.code).toLowerCase().includes(query))).map((c) => ({ id: c.id, title: c.code + " syllabus", subtitle: extraData.courseDetails[c.id].syllabusName ?? "Saved text", badge: "Syllabus", action: () => setSelectedClass(c) })) },
+      { title: "Syllabus reviews", icon: FileSearch, items: extraData.syllabusDrafts.filter((d) => !query || (d.sourceText + " " + d.sourceName + " " + d.course.code + " " + d.items.map((i) => i.title).join(" ")).toLowerCase().includes(query)).map((d) => ({ id: d.id, title: d.course.code || d.sourceName || "Syllabus review", subtitle: d.sourceName, badge: "Draft", action: () => setSyllabusId(d.id) })) },
+      { title: "Grades", icon: GraduationCap, items: study.grades.filter((g) => !query || (courseFor(courses, g.courseId).code + " " + g.term + " " + g.value + " " + g.system).toLowerCase().includes(query)).map((g) => ({ id: g.id, title: courseFor(courses, g.courseId).code + " grade", subtitle: g.value + " / " + g.max + " · " + g.term, badge: g.system, action: () => setStudyOpen(true) })) },
+      { title: "Study history", icon: Clock3, items: study.sessions.filter((session) => !query || (session.kind + " " + courseFor(courses, session.courseId).code + " " + session.segments.at(-1)!.end).toLowerCase().includes(query)).map((session) => ({ id: session.id, title: courseFor(courses, session.courseId).code + " study session", subtitle: durationLabel(segmentSeconds(session.segments)) + " · " + session.segments.at(-1)!.end.slice(0, 10), badge: session.kind, action: () => setStudyOpen(true) })) },
+      { title: "Notes", icon: StickyNote, items: workspaces.flatMap((workspace) => workspace.widgets.filter((widget) => widget.type === "notes").map((widget, index) => ({ id: widget.instanceId, title: `Quick notes ${index + 1} · ${workspace.name}`, subtitle: (widget.note ?? "").replace(/\n/g, " · "), badge: "Note", action: () => { navigate("home"); setActiveWorkspaceId(workspace.id); noteFocusRef.current = widget.instanceId; } }))).filter((item) => !query || `${item.title} ${item.subtitle}`.toLowerCase().includes(query)) },
     ];
     const resultCount = resultGroups.reduce((total, group) => total + group.items.length, 0);
     return <div className="page search-page">
-      {renderPageHeader("Find anything", "Search your workspace", "Assignments, syllabi, notes, events, classes, and files in one place.")}
+      {renderPageHeader("Find anything", "Search your workspace", "Search saved text, file names, events, classes, grades, and study history. PDF/image contents are not indexed.")}
       <div className="global-search"><Search size={22} /><input aria-label="Search everything" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Try “reflection,” “office hours,” or “MATH 101”…" />{searchQuery && <button onClick={() => setSearchQuery("")} aria-label="Clear search"><X size={18} /></button>}<kbd>⌘ K</kbd></div>
       {!query && <div className="search-suggestions"><span>Try searching</span>{["Due today", "Lab report", "Office hours", "Grading policy"].map((suggestion) => <button key={suggestion} onClick={() => setSearchQuery(suggestion)}>{suggestion}</button>)}</div>}
       <div className="search-meta"><strong>{resultCount} {query ? `results for “${searchQuery}”` : "items ready to search"}</strong><span>Results update as you type</span></div>
-      {resultCount === 0 ? <div className="empty-search"><FileSearch size={30} /><h2>No results found</h2><p>Check the spelling or try a broader phrase.</p></div> : <div className="search-results">{resultGroups.filter((group) => group.items.length).map((group) => { const GroupIcon = group.icon; return <section key={group.title}><div className="result-group-title"><span><GroupIcon size={17} /></span><h2>{group.title}</h2><small>{group.items.length}</small></div><div>{group.items.slice(0, query ? 8 : 3).map((item) => <button key={item.id} onClick={item.action}><span className="result-type-icon"><GroupIcon size={18} /></span><span><strong>{item.title}</strong><small>{item.subtitle}</small></span><em>{item.badge}</em><ChevronRight size={16} /></button>)}</div></section>; })}</div>}
+      {resultCount === 0 ? <div className="empty-search"><FileSearch size={30} /><h2>No results found</h2><p>Check the spelling or try a broader phrase.</p></div> : <div className="search-results">{resultGroups.filter((group) => group.items.length).map((group) => { const GroupIcon = group.icon; return <section key={group.title}><div className="result-group-title"><span><GroupIcon size={17} /></span><h2>{group.title}</h2><small>{group.items.length}</small></div><div>{group.items.map((item) => <button key={item.id} onClick={item.action}><span className="result-type-icon"><GroupIcon size={18} /></span><span><strong>{item.title}</strong><small>{item.subtitle}</small></span><em>{item.badge}</em><ChevronRight size={16} /></button>)}</div></section>; })}</div>}
     </div>;
   }
 
   function renderFiles() {
-    const fileItems = [
-      { name: "MATH 101 Syllabus.pdf", course: "math", type: "Syllabus", size: "1.8 MB", updated: "Aug 2" },
-      { name: "Limits practice set.pdf", course: "math", type: "Assignment", size: "420 KB", updated: "Aug 10" },
-      { name: "Memory Lab Instructions.pdf", course: "psych", type: "Class resource", size: "2.1 MB", updated: "Aug 8" },
-      { name: "Cognitive Psychology Syllabus.pdf", course: "psych", type: "Syllabus", size: "1.2 MB", updated: "Aug 1" },
-      { name: "Cell microscopy guide.jpg", course: "bio", type: "Image", size: "3.4 MB", updated: "Aug 11" },
-      { name: "Osmosis lab data.csv", course: "bio", type: "Dataset", size: "84 KB", updated: "Aug 12" },
-      { name: "Essay rubric.pdf", course: "writing", type: "Class resource", size: "308 KB", updated: "Aug 5" },
-    ].filter((file) => courses.some((course) => course.id === file.course)).filter((file) => !fileQuery || `${file.name} ${file.type} ${courseFor(courses, file.course).code}`.toLowerCase().includes(fileQuery.toLowerCase()));
-    return <div className="page files-page">
-      {renderPageHeader("Resources", "Your files", "Syllabi, class resources, and assignment attachments—organized automatically.", <label className="primary-button upload-button"><UploadCloud size={17} /> Upload file<input type="file" onChange={(event) => { if (event.target.files?.[0]) flash(`${event.target.files[0].name} uploaded`); }} /></label>)}
-      <div className="files-toolbar"><div className="inline-search"><Search size={17} /><input aria-label="Search files" placeholder="Search files…" value={fileQuery} onChange={(event) => setFileQuery(event.target.value)} /></div><button className="secondary-button"><SlidersHorizontal size={16} /> All classes <ChevronDown size={14} /></button><button className="secondary-button"><List size={16} /> List</button></div>
-      <div className="storage-card"><div className="storage-copy"><span className="storage-icon"><FolderOpen size={20} /></span><div><strong>2.4 GB of 10 GB used</strong><p>Your course files are backed up and searchable.</p></div></div><div className="storage-bar"><span style={{ width: "24%" }} /></div><small>24%</small></div>
-      <div className="file-table"><div className="file-table-head"><span>Name</span><span>Class</span><span>Type</span><span>Updated</span><span>Size</span><span /></div>{fileItems.map((file) => { const course = courseFor(courses, file.course); const image = file.type === "Image"; return <button className="file-row" key={file.name} onClick={() => setFilePreview(file.name)}><span className={`file-type ${image ? "image" : ""}`}>{image ? <ImageIcon size={20} /> : <FileText size={20} />}</span><span><strong>{file.name}</strong><small>{file.name.split(".").pop()?.toUpperCase()}</small></span><span className="file-course"><CourseStamp course={course} small />{course.code}</span><span>{file.type}</span><span>{file.updated}</span><span>{file.size}</span><MoreHorizontal size={17} /></button>; })}</div>
-      {fileItems.length === 0 && <div className="empty-search"><FileSearch size={30} /><h2>No matching files</h2><p>Try a class name or file type.</p></div>}
+    const prefs = extraData.filePreferences;
+    const visible = fileStore.files.filter((f) => (prefs.filter === "all" || (prefs.filter === "personal" ? !f.course_id : f.course_id === prefs.filter)) && (!fileQuery || (f.name + " " + f.kind + " " + courseFor(courses, f.course_id ?? "").code).toLowerCase().includes(fileQuery.toLowerCase())));
+    return <div className={"page files-page file-view-" + prefs.view}>{renderPageHeader("Resources", "Your private files", "Original files are stored privately with your account.", <button className="primary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({})}>Upload file</button>)}
+      <div className="files-toolbar"><label>Search files<input aria-label="Search files" value={fileQuery} onChange={(e) => setFileQuery(e.target.value)} /></label><label>File class filter<select value={prefs.filter} onChange={(e) => commitAcademic(courses, { filePreferences: { ...prefs, filter: e.target.value } })}><option value="all">All classes and personal</option><option value="personal">Personal</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select></label><label>File view<select value={prefs.view} onChange={(e) => commitAcademic(courses, { filePreferences: { ...prefs, view: e.target.value as "list" | "grid" } })}><option value="list">List</option><option value="grid">Grid</option></select></label><button className="secondary-button" disabled={fileStore.busy} onClick={() => void fileStore.refresh()}>Refresh files</button></div>
+      <p>{fileSize(fileStore.files.filter((f) => f.state === "ready").reduce((sum, f) => sum + Number(f.size_bytes), 0))} in ready files · {fileStore.files.length} / 1,000 files · 25 MiB maximum per file</p>
+      {fileStore.loading && <p>Loading files…</p>}<FileList files={visible} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} canWrite={canWriteFiles} />
     </div>;
   }
 
   function renderSettings() {
     return <div className="page settings-page">
       {renderPageHeader("Make it yours", "Settings", "Your profile and preferences follow your Google account.")}
-      <ProfileEditor initialProfile={profile} onSaved={setProfile} />
-      <section className="settings-card"><h2>Account & data</h2><div className="data-actions"><button className="secondary-button" onClick={() => {
-        const blob = new Blob([JSON.stringify({ profile, courses, assignments, manualEvents, dashboard: encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments, manualEvents, dashboardView, calendarView }) }, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "eduessentials-export.json"; anchor.click(); URL.revokeObjectURL(url);
-      }}><Download size={16} /> Export data</button><form action="/auth/signout" method="post"><button className="secondary-button">Sign out</button></form></div></section>
+      <ProfileEditor initialProfile={profile} onSaved={setProfile} onDraftChange={handleProfileDraft} />
+      <section className="settings-card"><h2>Account & data</h2><div className="data-actions"><a className="secondary-button" aria-disabled={profilePending || saveState.dirty || fileStore.busy} onClick={(e) => { if (profilePending || saveState.dirty || fileStore.busy) e.preventDefault(); }} href={"/api/export?account=" + encodeURIComponent(initialProfile.id)} target="_blank" rel="noopener noreferrer">Export saved account (.zip)</a><button className="secondary-button" onClick={downloadUnsavedWork}>Download current drafts (.json)</button><form action="/auth/signout" method="post"><button className="secondary-button" disabled={profilePending || saveState.dirty || fileStore.busy}>Sign out</button></form></div>{(profilePending || saveState.dirty) && <p className="form-hint">Save or discard pending edits before signing out. Download a draft first if you want to keep a copy.</p>}</section>
     </div>;
   }
 
   function renderWidgetPicker() {
     const filtered = widgetTemplates.filter((template) => `${template.title} ${template.description}`.toLowerCase().includes(widgetSearch.toLowerCase()));
-    return <div className="modal-backdrop"><div className="widget-picker-modal" role="dialog" aria-modal="true" aria-labelledby="widget-picker-title"><div className="modal-header"><div><p className="eyebrow">Customize {activeWorkspace.name}</p><h2 id="widget-picker-title">Add a widget</h2><p>Choose a study tile, then move and resize it on your grid.</p></div><button className="icon-button" onClick={() => { setWidgetPickerOpen(false); setWidgetSearch(""); }} aria-label="Close widget picker"><X size={20} /></button></div><div className="picker-search"><Search size={17} /><input aria-label="Search widgets" placeholder="Search 18 widgets…" value={widgetSearch} onChange={(event) => setWidgetSearch(event.target.value)} /></div><div className="widget-picker-grid">{filtered.map((template) => { const Icon = template.icon; return <button key={template.type} onClick={() => addWidget(template.type)}><span className={`picker-icon tone-${template.color}`}><Icon size={20} /></span><span><strong>{template.title}</strong><small>{template.description}</small></span><Plus size={18} /></button>; })}</div><div className="picker-footer"><span><GripVertical size={15} /> Drag widgets to rearrange</span><button className="primary-button" onClick={() => setWidgetPickerOpen(false)}>Done</button></div></div></div>;
+    return <div className="modal-backdrop"><div className="widget-picker-modal" role="dialog" aria-modal="true" aria-labelledby="widget-picker-title"><div className="modal-header"><div><p className="eyebrow">Customize {activeWorkspace.name}</p><h2 id="widget-picker-title">Add a widget</h2><p>Choose a study tile, then move and resize it on your grid.</p></div><button className="icon-button" onClick={() => { setWidgetPickerOpen(false); setWidgetSearch(""); }} aria-label="Close widget picker"><X size={20} /></button></div><div className="picker-search"><Search size={17} /><input aria-label="Search widgets" placeholder="Search 18 widgets…" value={widgetSearch} onChange={(event) => setWidgetSearch(event.target.value)} /></div><div className="widget-picker-grid">{filtered.map((template) => { const Icon = template.icon; return <button key={template.type} disabled={activeWorkspace.widgets.length >= MAX_WIDGETS_PER_WORKSPACE} onClick={() => addWidget(template.type)}><span className={`picker-icon tone-${template.color}`}><Icon size={20} /></span><span><strong>{template.title}</strong><small>{template.description}</small></span><Plus size={18} /></button>; })}</div><div className="picker-footer"><span>{activeWorkspace.widgets.length} / {MAX_WIDGETS_PER_WORKSPACE} widgets · Drag or use Move earlier/later</span><button className="primary-button" onClick={() => setWidgetPickerOpen(false)}>Done</button></div></div></div>;
   }
 
   function renderWorkspaceDialog() {
-    return <div className="modal-backdrop"><form className="small-modal" onSubmit={(event) => { event.preventDefault(); if (workspaceDialog === "new") createWorkspace(); else renameWorkspace(); }}><div className="modal-header"><div><p className="eyebrow">Home workspace</p><h2>{workspaceDialog === "new" ? "Create a new workspace" : "Rename workspace"}</h2></div><button type="button" className="icon-button" onClick={() => setWorkspaceDialog(null)}><X size={19} /></button></div><label>Workspace name<input value={workspaceNameDraft} onChange={(event) => setWorkspaceNameDraft(event.target.value)} placeholder="e.g. Finals Prep" /></label><p className="form-hint">New workspaces start empty so you can build them exactly how you want.</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setWorkspaceDialog(null)}>Cancel</button><button className="primary-button">{workspaceDialog === "new" ? "Create workspace" : "Save name"}</button></div></form></div>;
+    return <div className="modal-backdrop"><form className="small-modal" onSubmit={(event) => { event.preventDefault(); if (workspaceDialog === "new") createWorkspace(); else renameWorkspace(); }}><div className="modal-header"><div><p className="eyebrow">Home workspace</p><h2>{workspaceDialog === "new" ? "Create a new workspace" : "Rename workspace"}</h2></div><button type="button" className="icon-button" onClick={() => setWorkspaceDialog(null)}><X size={19} /></button></div><label>Workspace name<input required maxLength={80} value={workspaceNameDraft} onChange={(event) => setWorkspaceNameDraft(event.target.value)} placeholder="e.g. Finals Prep" /></label><p className="form-hint">New workspaces start empty so you can build them exactly how you want.</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setWorkspaceDialog(null)}>Cancel</button><button className="primary-button">{workspaceDialog === "new" ? "Create workspace" : "Save name"}</button></div></form></div>;
   }
 
   function renderClassDetail(course: Course) {
-    const items = assignments.filter((assignment) => assignment.courseId === course.id);
-    return <div className="modal-backdrop side-panel-backdrop"><aside className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="class-detail-title"><div className="detail-hero" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 15%, white))` }}><button className="icon-button" onClick={() => setSelectedClass(null)} aria-label="Close class"><X size={20} /></button><CourseStamp course={course} /><div><p>{course.code}</p><h2 id="class-detail-title">{course.name}</h2><span>{course.credits} credits · {course.room}</span></div></div><div className="detail-panel-body"><div className="instructor-row"><span className="avatar small">{course.instructor.split(" ").slice(-1)[0][0]}</span><div><strong>{course.instructor}</strong><p>Instructor · Office hours Tue 2–4 PM</p></div><button className="secondary-button compact-button" onClick={() => flash("Message draft opened")}>Message</button></div><div className="detail-tabs"><button className="active">Assignments</button><button onClick={() => { setSelectedClass(null); navigate("files"); }}>Files</button><button onClick={() => { setSelectedClass(null); navigate("calendar"); }}>Schedule</button></div><div className="class-panel-summary"><div><strong>{items.filter((item) => item.status !== "done").length}</strong><span>Open tasks</span></div><div><strong>84%</strong><span>Current grade</span></div><div><strong>6.5h</strong><span>Study time</span></div></div><h3>Assignments</h3>{renderAssignmentTable(items, true)}<button className="secondary-button full remove-class-button" onClick={() => void removeClass(course)}><Trash2 size={16} /> Remove class</button></div></aside></div>;
+    const items = assignments.filter((a) => a.courseId === course.id), details = extraData.courseDetails[course.id] ?? emptyCourseDetails();
+    const average = study.grades.find((g) => g.courseId === course.id && g.system === profile.gpa_system && g.term === profile.current_term);
+    const studySeconds = study.sessions.filter((s) => s.courseId === course.id).reduce((sum, s) => sum + segmentSeconds(s.segments), 0);
+    return <div className="modal-backdrop side-panel-backdrop"><aside className="detail-panel" role="dialog" aria-modal="true" aria-label="Class details"><div className="modal-header"><h2>{course.code} · {course.name}</h2><button className="secondary-button" onClick={() => setSelectedClass(null)}>Close class</button></div><div className="detail-panel-body"><p>{course.credits} credits · {course.room || "No location entered"}</p><h3>Files and images</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id } })}>Add class file</button><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id, kind: "class-image" } })}>Upload class image</button><FileList files={fileStore.files.filter((f) => f.course_id === course.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} canWrite={canWriteFiles} />{details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}<h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((a) => a.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {profile.current_term || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades</button><h3>Instructor</h3><p>{course.instructor || "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p><h3>Schedule</h3>{details.meetings.length ? details.meetings.map((m) => <p key={m.id}>{m.days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")} · {m.start}–{m.end} · {m.location || course.room}<br />{dateLabel(m.from)} – {dateLabel(m.until)}</p>) : <p>No recurring meetings entered.</p>}<div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}>Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}>View schedule</button></div><h3>Assignments</h3>{renderAssignmentTable(items, true)}<button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}>Add assignment</button>{details.syllabusText && <details><summary>Saved syllabus source</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}<button className="secondary-button full remove-class-button" onClick={() => removeClass(course)}>Remove class</button></div></aside></div>;
   }
 
   function renderAssignmentDetail(assignment: Assignment) {
-    const update = (patch: Partial<Assignment>) => {
-      setAssignments((current) => current.map((item) => item.id === assignment.id ? { ...item, ...patch } : item));
-      setSelectedAssignment((current) => current ? { ...current, ...patch } : current);
-    };
-    const course = courseFor(courses, assignment.courseId);
-    return <div className="modal-backdrop"><div className="assignment-modal" role="dialog" aria-modal="true" aria-labelledby="assignment-detail-title"><div className="modal-header assignment-modal-head"><div><div className="assignment-course-label"><CourseStamp course={course} small /><span>{course.code} · {course.name}</span></div><h2 id="assignment-detail-title">{assignment.title}</h2></div><button className="icon-button" onClick={() => setSelectedAssignment(null)} aria-label="Close assignment"><X size={20} /></button></div><div className="assignment-meta-strip"><div><span>Status</span><StatusBadge status={assignment.status} /></div><div><span>Due</span><strong>{assignment.due}</strong></div><div><span>Weight</span><strong>{assignment.weight}</strong></div></div><div className="assignment-modal-body"><section><h3>About this assignment</h3><p>{assignment.description}</p><div className="assignment-checklist"><label><input type="checkbox" checked={assignment.checklist?.[0] ?? assignment.progress >= 35} onChange={(event) => { const checklist = assignment.checklist ? [...assignment.checklist] : [35, 60, 90].map((threshold) => assignment.progress >= threshold); checklist[0] = event.target.checked; update({ checklist }); }} /><span>Review instructions and rubric</span></label><label><input type="checkbox" checked={assignment.checklist?.[1] ?? assignment.progress >= 60} onChange={(event) => { const checklist = assignment.checklist ? [...assignment.checklist] : [35, 60, 90].map((threshold) => assignment.progress >= threshold); checklist[1] = event.target.checked; update({ checklist }); }} /><span>Complete first draft</span></label><label><input type="checkbox" checked={assignment.checklist?.[2] ?? assignment.progress >= 90} onChange={(event) => { const checklist = assignment.checklist ? [...assignment.checklist] : [35, 60, 90].map((threshold) => assignment.progress >= threshold); checklist[2] = event.target.checked; update({ checklist }); }} /><span>Proofread and submit</span></label></div><h3>Notes</h3><textarea placeholder="Add a note for this assignment…" value={assignment.notes ?? ""} maxLength={20000} onChange={(event) => update({ notes: event.target.value })} /></section><aside><div className="progress-editor"><div><span>Progress</span><strong>{assignment.progress}%</strong></div><input type="range" min="0" max="100" value={assignment.progress} onChange={(event) => { const progress = Number(event.target.value); setAssignments((current) => current.map((item) => item.id === assignment.id ? { ...item, progress } : item)); setSelectedAssignment({ ...assignment, progress }); }} /></div><div className="attachment-card"><FileText size={20} /><span><strong>Assignment brief.pdf</strong><small>PDF · 840 KB</small></span><button aria-label="Download attachment"><Download size={16} /></button></div><button className={`primary-button full ${assignment.status === "done" ? "success-button" : ""}`} onClick={() => toggleAssignmentComplete(assignment.id)}>{assignment.status === "done" ? <><RotateCcw size={17} /> Mark incomplete</> : <><CheckCircle2 size={17} /> Mark complete</>}</button><button className="secondary-button full" onClick={() => { setSelectedAssignment(null); navigate("calendar"); }}><CalendarDays size={17} /> View in calendar</button></aside></div></div></div>;
+    const current = storedAssignments.find((a) => a.id === assignment.id) ?? assignment;
+    const course = courseFor(courses, current.courseId);
+    return <div className="modal-backdrop"><section className="assignment-modal academic-editor" role="dialog" aria-modal="true" aria-label="Assignment details"><div className="modal-header"><div><p>{course.code} · {current.type ?? "Assignment"}</p><h2>{current.title}</h2></div><button className="secondary-button" onClick={() => setSelectedAssignment(null)}>Close assignment</button></div><p>Due {dateLabel(current.dateKey)} {current.dueTime ?? ""}</p><StatusBadge status={assignmentStatus(current, today)} /><p>{current.description || "No description entered."}</p><p>Weight: {current.weight || "Not entered"} · Progress: {current.progress}%</p><h3>Attachments</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: current.courseId, assignmentId: current.id, kind: "attachment" } })}>Attach file</button><FileList files={fileStore.files.filter((f) => f.assignment_id === current.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} canWrite={canWriteFiles} /><h3>Notes</h3><p className="syllabus-source">{current.notes || "No notes yet."}</p><ul>{["Review instructions and rubric", "Complete first draft", "Proofread and submit"].map((label, i) => <li key={label}>{current.checklist?.[i] ? "✓" : "○"} {label}</li>)}</ul><div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ assignment: current }); setSelectedAssignment(null); }}>Edit assignment</button><button className="secondary-button" onClick={() => toggleAssignmentComplete(current.id)}>{current.status === "done" ? "Mark incomplete" : "Mark complete"}</button><button className="secondary-button" onClick={() => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== current.id) })) setSelectedAssignment(null); } }}>Delete assignment</button></div></section></div>;
   }
 
   function renderAddClassDialog() {
-    return <div className="modal-backdrop"><div className="add-class-modal" role="dialog" aria-modal="true" aria-labelledby="add-class-title"><div className="modal-header"><div><p className="eyebrow">Academic setup</p><h2 id="add-class-title">{addClassMode === "review" ? "Check if this is right" : "Add a class"}</h2><p>{addClassMode === "review" ? "Review every item before it reaches your dashboard and calendar." : "Enter details yourself or let Edu AI read a syllabus."}</p></div><button className="icon-button" onClick={() => setAddClassOpen(false)} aria-label="Close"><X size={20} /></button></div>{addClassMode !== "review" && <div className="method-tabs"><button className={addClassMode === "manual" ? "active" : ""} onClick={() => setAddClassMode("manual")}><Pencil size={16} /> Manual entry</button><button className={addClassMode === "import" ? "active" : ""} onClick={() => setAddClassMode("import")}><Sparkles size={16} /> Import syllabus</button></div>}
-      {addClassMode === "manual" && <form className="add-class-form" onSubmit={(event) => { event.preventDefault(); handleManualClass(event.currentTarget); }}><div className="settings-form-grid"><label>Course code<input required name="classCode" placeholder="e.g. HIST 205" /></label><label>Class name<input required name="className" placeholder="e.g. Modern World History" /></label><label>Credits<input name="credits" type="number" min="1" max="8" defaultValue="3" /></label><label>Instructor<input name="instructor" placeholder="Professor name" /></label><label>Meeting time & location<input name="meeting" placeholder="Tue/Thu · Hall 210" /></label><label>Class color<input name="classColor" type="color" defaultValue="#5b63e8" /></label></div><label className="image-drop"><ImageIcon size={21} /><span><strong>Add a class image</strong><small>Upload an optional JPG or PNG</small></span><input type="file" accept="image/*" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setAddClassOpen(false)}>Cancel</button><button className="primary-button"><Plus size={16} /> Add class</button></div></form>}
-      {addClassMode === "import" && <div className="syllabus-import"><div className="import-drop"><span><UploadCloud size={25} /></span><h3>Drop in your syllabus</h3><p>PDF, photo, or scanned image up to 25 MB</p><label className="secondary-button upload-button">Choose file<input type="file" accept=".pdf,image/*" /></label></div><div className="or-divider"><span>or paste the text</span></div><textarea aria-label="Paste syllabus text" placeholder="Paste syllabus text here…" defaultValue="SOCI 130: Social Change\nDr. Avery Kim · Barton 206\nChapter 1 response — August 24\nMidterm exam — September 18\nFinal presentation — November 30" /><div className="ai-safety-note"><ShieldCheck size={17} /><p><strong>Nothing is saved automatically.</strong><span>You’ll review and edit everything Edu AI finds before approving it.</span></p></div><div className="modal-actions"><button className="secondary-button" onClick={() => setAddClassOpen(false)}>Cancel</button><button className="primary-button" disabled={parsing} onClick={parseSyllabus}>{parsing ? <><span className="spinner" /> Reading syllabus…</> : <><Sparkles size={16} /> Extract information</>}</button></div></div>}
-      {addClassMode === "review" && <div className="review-import"><div className="review-class-card"><CourseStamp course={{ ...initialCourses[0], color: "#8c5bd7", soft: "#f3ecff", initials: "S1" }} /><div><span>Detected class</span><h3>SOCI 130 · Social Change</h3><p>Dr. Avery Kim · 3 credits · Barton 206</p></div><button className="secondary-button compact-button"><Pencil size={14} /> Edit</button></div><div className="review-heading"><div><h3>Assignments & exams</h3><p>{reviewRows.length} items found</p></div><span className="verified-badge"><ShieldCheck size={14} /> Needs your approval</span></div><div className="review-table">{reviewRows.map((row) => <div key={row.id}><select value={row.type} onChange={(event) => setReviewRows((current) => current.map((item) => item.id === row.id ? { ...item, type: event.target.value } : item))}><option>Assignment</option><option>Exam</option><option>Project</option></select><input value={row.title} onChange={(event) => setReviewRows((current) => current.map((item) => item.id === row.id ? { ...item, title: event.target.value } : item))} /><input type="date" value={row.date} onChange={(event) => setReviewRows((current) => current.map((item) => item.id === row.id ? { ...item, date: event.target.value } : item))} /><button className="icon-button" onClick={() => setReviewRows((current) => current.filter((item) => item.id !== row.id))} aria-label={`Remove ${row.title}`}><Trash2 size={16} /></button></div>)}</div><button className="text-button" onClick={() => setReviewRows((current) => [...current, { id: uid("review"), title: "New assignment", date: "2026-08-24", type: "Assignment" }])}><Plus size={14} /> Add missing item</button><div className="modal-actions"><button className="secondary-button" onClick={() => setAddClassMode("import")}><ArrowLeft size={16} /> Back</button><button className="primary-button" onClick={approveImport}><Check size={16} /> Approve and add class</button></div></div>}
-    </div></div>;
+    return <div className="modal-backdrop"><section className="small-modal" role="dialog" aria-modal="true" aria-label="Add a class"><div className="modal-header"><h2>Add a class</h2><button className="secondary-button" onClick={() => setAddClassOpen(false)}>Close</button></div><div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ course: emptyCourse(uid("course")), details: emptyCourseDetails() }); setAddClassOpen(false); }}>Manual entry</button><button className="secondary-button" onClick={newReview}>Import syllabus</button></div><h3>Saved syllabus reviews</h3>{extraData.syllabusDrafts.length ? extraData.syllabusDrafts.map((draft) => <button className="secondary-button" key={draft.id} onClick={() => { setSyllabusId(draft.id); setAddClassOpen(false); }}>{draft.course.code || draft.sourceName || "Untitled review"}</button>) : <p>No pending reviews.</p>}</section></div>;
   }
 
-  function renderEventDialog() {
-    return <div className="modal-backdrop"><form className="small-modal event-modal" onSubmit={(event) => { event.preventDefault(); addCalendarEvent(event.currentTarget); }}><div className="modal-header"><div><p className="eyebrow">Calendar</p><h2>Add an event</h2></div><button type="button" className="icon-button" onClick={() => setEventDialogOpen(false)}><X size={19} /></button></div><label>Event name<input name="title" required placeholder="e.g. Biology study group" /></label><div className="two-fields"><label>Date<input name="date" type="date" defaultValue="2026-08-13" /></label><label>Time<input name="time" type="time" defaultValue="18:30" /></label></div><div className="two-fields"><label>Type<select name="type"><option>Study block</option><option>Exam</option><option>Office hours</option><option>Appointment</option><option>Personal</option></select></label><label>Class<select name="course">{courses.map((course) => <option key={course.id} value={course.id}>{course.code}</option>)}</select></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setEventDialogOpen(false)}>Cancel</button><button className="primary-button"><Plus size={16} /> Add event</button></div></form></div>;
-  }
-
-  function renderFilePreview(name: string) {
-    return <div className="modal-backdrop"><div className="file-preview-modal"><div className="modal-header"><div className="file-preview-title"><span className="file-type"><FileText size={20} /></span><div><h2>{name}</h2><p>Preview · Last updated Aug 10</p></div></div><button className="icon-button" onClick={() => setFilePreview(null)}><X size={20} /></button></div><div className="document-preview"><div className="paper"><p className="paper-eyebrow">NORTHBRIDGE UNIVERSITY</p><h3>{name.includes("Syllabus") ? "Course Syllabus" : "Class Resource"}</h3><p className="paper-sub">Fall 2026 · Updated August 10</p><hr /><h4>Overview</h4><p>This document contains the course expectations, key learning objectives, weekly schedule, and important deadlines.</p><h4>Important dates</h4><div className="paper-lines"><span /><span /><span /></div><h4>Contact & office hours</h4><div className="paper-lines short"><span /><span /></div></div></div><div className="preview-actions"><button className="secondary-button" onClick={() => flash("Download started")}><Download size={16} /> Download</button><button className="primary-button" onClick={() => flash("Opened in a new view")}><ExternalLink size={16} /> Open full screen</button></div></div></div>;
-  }
 }

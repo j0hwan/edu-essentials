@@ -1,5 +1,5 @@
 import { createAuthClient, ensureProfile } from "../../../lib/auth";
-import { isGoogleUser } from "../../../lib/auth-policy";
+import { isAuthUnavailable, isGoogleUser } from "../../../lib/auth-policy";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -10,6 +10,7 @@ export async function GET(request: Request) {
       const auth = await createAuthClient();
       const { data, error } = await auth.auth.exchangeCodeForSession(code);
       if (error) {
+        if (isAuthUnavailable(error)) destination = "/login?error=unavailable";
         console.error("Supabase OAuth exchange failed", {
           name: error.name,
           message: error.message,

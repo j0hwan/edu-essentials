@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabaseAdmin, getSupabaseAuthConfig } from "./supabase-server";
-import { isGoogleUser, isSameOrigin } from "./auth-policy";
+import { isAuthUnavailable, isGoogleUser, isSameOrigin } from "./auth-policy";
 import { defaultPreferences, type Profile } from "./profile";
 import type { User } from "@supabase/supabase-js";
 
@@ -27,6 +27,7 @@ export class AuthError extends Error {
 export async function authenticatedUser() {
   const auth = await createAuthClient();
   const { data: { user }, error } = await auth.auth.getUser();
+  if (isAuthUnavailable(error)) throw new AuthError("Authentication is temporarily unavailable. Keep your edits and retry shortly.", 503);
   if (error || !user || !isGoogleUser(user)) throw new AuthError("Please sign in with Google.", 401);
   return user;
 }

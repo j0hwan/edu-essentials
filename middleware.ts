@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAuthConfig } from "./lib/supabase-server";
-import { isGoogleUser, isPublicPath } from "./lib/auth-policy";
+import { isAuthUnavailable, isGoogleUser, isPublicPath } from "./lib/auth-policy";
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
@@ -33,6 +33,7 @@ export async function middleware(request: NextRequest) {
       },
     });
     const { data: { user }, error } = await auth.auth.getUser();
+    if (isAuthUnavailable(error)) return reject(503, "/login?error=unavailable");
     if (error || !isGoogleUser(user)) return reject(401, "/login?error=session");
     return response;
   } catch { return reject(503, "/login?error=unavailable"); }

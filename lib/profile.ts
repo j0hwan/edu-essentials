@@ -15,12 +15,17 @@ export type Profile = ProfileDetails & {
   avatar_url: string | null;
   onboarding_completed_at: string | null;
   initialized: boolean;
+  updated_at: string;
   preferences: Preferences;
 };
 export const defaultPreferences: Preferences = {
   theme: "light", reducedMotion: false, highContrast: true,
   deadlineReminders: true, dailyStudyPlan: true, streakNudges: false,
 };
+
+export function editableProfile(profile: Profile): ProfileDetails & { preferences: Preferences } {
+  return { ...Object.fromEntries(profileFields.map((key) => [key, profile[key]])) as Omit<ProfileDetails, "age">, age: profile.age, preferences: { ...profile.preferences } };
+}
 
 export function validateProfile(value: unknown): ProfileDetails & { preferences: Preferences } {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid profile.");

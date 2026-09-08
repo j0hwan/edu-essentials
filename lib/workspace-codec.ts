@@ -1,3 +1,5 @@
+import { validateCourseDetails, validateDraft, type CourseDetails, type SyllabusDraft } from "./academics";
+import { validateStudy, type StudyData } from "./study";
 export const widgetTypes = [
   "daily-goal",
   "weekly-goal",
@@ -28,6 +30,7 @@ export type WidgetInstance = {
   instanceId: string;
   type: WidgetType;
   size: WidgetSize;
+  note?: string;
 };
 
 export type Workspace = {
@@ -36,14 +39,15 @@ export type Workspace = {
   widgets: WidgetInstance[];
 };
 
-type CompactWidget = [type: number, size: number];
+type CompactWidget = [type: number, size: number, instanceId: string, noteIndex?: number];
 type CompactWorkspace = [id: string, name: string, widgets: CompactWidget[]];
 
 export type CompactWorkspaceState = {
-  v: 1;
+  v: 2;
   a: string;
   w: CompactWorkspace[];
   n?: string;
+  t?: string[];
   d?: WorkspaceData;
 };
 
@@ -51,11 +55,15 @@ export type SavedAssignment = {
   id: string; title: string; courseId: string; due: string; dateKey: string;
   status: "overdue" | "today" | "later" | "done"; progress: number; description: string; weight: string;
   notes?: string; checklist?: boolean[];
+  type?: "Assignment" | "Exam" | "Project"; dueTime?: string; completedAt?: string | null; progressBeforeCompletion?: number;
 };
-export type SavedEvent = { id: string; title: string; courseId: string; dateKey: string; time: string; type: string };
+export type SavedEvent = { id: string; title: string; courseId: string; dateKey: string; time: string; type: string; description?: string };
 export type WorkspaceData = {
   assignments: SavedAssignment[]; manualEvents: SavedEvent[];
   dashboardView: "cards" | "list"; calendarView: "month" | "week" | "day";
+  calendarFilter?: string; courseDetails?: Record<string, CourseDetails>; syllabusDrafts?: SyllabusDraft[];
+  study?: StudyData;
+  filePreferences?: { filter: string; view: "list" | "grid" };
 };
 
 export type DecodedWorkspaceState = {
@@ -65,13 +73,16 @@ export type DecodedWorkspaceState = {
   data?: WorkspaceData;
 };
 
-const MAX_WORKSPACES = 20;
-const MAX_WIDGETS_PER_WORKSPACE = 100;
-const MAX_NOTES_LENGTH = 20_000;
+export const MAX_WORKSPACES = 20;
+export const MAX_WIDGETS_PER_WORKSPACE = 100;
+export const MAX_NOTES_LENGTH = 20_000;
+export const MAX_WORKSPACE_BYTES = 1_000_000;
 
 /**
- * Stores only numeric widget/size codes. Instance IDs are UI-only and are
- * rebuilt while decoding, avoiding repeated object keys and UUIDs in JSONB.
+ * V2 retains stable widget identities and independent note text. The n field
+ * holds legacy text only when no notes widget existed to receive it. Equal note
+ * strings are packed once in t; references are rebuilt on each save, so edits
+ * remain independent and large legacy layouts don't multiply shared text.
  */
 export function encodeWorkspaceState(
   workspaces: Workspace[],
@@ -82,7 +93,9 @@ export function encodeWorkspaceState(
   if (!workspaces.length || workspaces.length > MAX_WORKSPACES) {
     throw new Error("A dashboard must contain between 1 and 20 workspaces.");
   }
+  if (new Set(workspaces.map((workspace) => workspace.id)).size !== workspaces.length) throw new Error("Duplicate workspace ID.");
 
+  const texts: string[] = [], textIndexes = new Map<string, number>();
   const compactWorkspaces: CompactWorkspace[] = workspaces.map((workspace) => {
     if (!workspace.id || workspace.id.length > 120) {
       throw new Error("Invalid workspace ID.");
@@ -98,7 +111,11 @@ export function encodeWorkspaceState(
       const type = widgetTypes.indexOf(widget.type);
       const size = widgetSizes.indexOf(widget.size);
       if (type < 0 || size < 0) throw new Error("Invalid widget layout.");
-      return [type, size];
+      if (widget.type !== "notes") return [type, size, widget.instanceId];
+      const note = widget.note ?? "";
+      if (typeof note !== "string" || note.length > MAX_NOTES_LENGTH) throw new Error("Quick notes cannot exceed 20,000 characters.");
+      if (!textIndexes.has(note)) { textIndexes.set(note, texts.length); texts.push(note); }
+      return [type, size, widget.instanceId, textIndexes.get(note)!];
     });
 
     return [workspace.id, workspace.name.trim(), widgets];
@@ -112,22 +129,31 @@ export function encodeWorkspaceState(
     ? activeWorkspaceId
     : workspaces[0].id;
 
-  return {
-    v: 1,
+  const payload: CompactWorkspaceState = {
+    v: 2,
     a: active,
     w: compactWorkspaces,
+    ...(texts.length ? { t: texts } : {}),
     ...(notes ? { n: notes } : {}),
     ...(data ? { d: validateWorkspaceData(data) } : {}),
   };
+  decodeWorkspaceState(payload);
+  return payload;
 }
 
 export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
-  if (!isRecord(value) || value.v !== 1 || typeof value.a !== "string" || !Array.isArray(value.w)) {
+  if (!isRecord(value) || ![1, 2].includes(value.v as number) || typeof value.a !== "string" || !Array.isArray(value.w)) {
     throw new Error("Unsupported dashboard layout.");
   }
   if (!value.w.length || value.w.length > MAX_WORKSPACES) {
     throw new Error("Invalid workspace count.");
   }
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_WORKSPACE_BYTES) throw new Error("Workspace storage limit reached. Shorten notes or remove unused widgets before adding more content.");
+  const notes = value.n === undefined ? "" : value.n;
+  if (typeof notes !== "string" || notes.length > MAX_NOTES_LENGTH) throw new Error("Invalid quick notes.");
+  const widgetIds = new Set<string>();
+  const texts = value.t ?? [];
+  if (!Array.isArray(texts) || texts.length > MAX_WORKSPACES * MAX_WIDGETS_PER_WORKSPACE || texts.some((text) => typeof text !== "string" || text.length > MAX_NOTES_LENGTH)) throw new Error("Invalid note content.");
 
   const workspaces = value.w.map((workspace, workspaceIndex): Workspace => {
     if (
@@ -148,7 +174,7 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
     const widgets = workspace[2].map((widget, widgetIndex): WidgetInstance => {
       if (
         !Array.isArray(widget) ||
-        widget.length !== 2 ||
+        (value.v === 1 ? widget.length !== 2 : widget.length !== (widget[0] === 12 ? 4 : 3)) ||
         !Number.isInteger(widget[0]) ||
         !Number.isInteger(widget[1]) ||
         !widgetTypes[widget[0]] ||
@@ -156,28 +182,32 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
       ) {
         throw new Error("Invalid widget layout.");
       }
+      const instanceId = value.v === 1 ? `legacy-${workspaceIndex}-${widgetIndex}` : widget[2];
+      if (typeof instanceId !== "string" || !instanceId.trim() || instanceId.length > 120 || widgetIds.has(instanceId)) throw new Error("Invalid or duplicate widget ID.");
+      widgetIds.add(instanceId);
+      if (value.v === 2 && widgetTypes[widget[0]] === "notes" && (!Number.isInteger(widget[3]) || widget[3] < 0 || widget[3] >= texts.length)) throw new Error("Invalid note reference.");
+      const note = value.v === 1 ? notes : texts[widget[3]];
+      if (widgetTypes[widget[0]] === "notes" && (typeof note !== "string" || note.length > MAX_NOTES_LENGTH)) throw new Error("Quick notes cannot exceed 20,000 characters.");
 
       return {
-        instanceId: `${workspace[0]}-${workspaceIndex}-${widgetIndex}`,
+        instanceId,
         type: widgetTypes[widget[0]],
         size: widgetSizes[widget[1]],
+        ...(widgetTypes[widget[0]] === "notes" ? { note } : {}),
       };
     });
 
     return { id: workspace[0], name: workspace[1].trim(), widgets };
   });
 
-  const notes = value.n === undefined ? "" : value.n;
-  if (typeof notes !== "string" || notes.length > MAX_NOTES_LENGTH) {
-    throw new Error("Invalid quick notes.");
-  }
+  if (new Set(workspaces.map((workspace) => workspace.id)).size !== workspaces.length) throw new Error("Duplicate workspace ID.");
 
   return {
     activeWorkspaceId: workspaces.some((workspace) => workspace.id === value.a)
       ? value.a
       : workspaces[0].id,
     workspaces,
-    notes,
+    notes: value.v === 1 && workspaces.some((workspace) => workspace.widgets.some((widget) => widget.type === "notes")) ? "" : notes,
     ...(value.d !== undefined ? { data: validateWorkspaceData(value.d) } : {}),
   };
 }
@@ -202,6 +232,14 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
     if (!item.id || !item.title) throw new Error("Invalid calendar event.");
   }
   if (JSON.stringify(value).length > 500000) throw new Error("Workspace data is too large.");
+  for (const items of [value.assignments, value.manualEvents]) {
+    if (new Set(items.map((item) => item.id)).size !== items.length) throw new Error("Duplicate record ID.");
+  }
+  if (value.calendarFilter !== undefined && (typeof value.calendarFilter !== "string" || value.calendarFilter.length > 120)) throw new Error("Invalid calendar filter.");
+  if (value.study !== undefined) validateStudy(value.study);
+  if (value.filePreferences !== undefined && (!isRecord(value.filePreferences) || typeof value.filePreferences.filter !== "string" || value.filePreferences.filter.length > 120 || !["list", "grid"].includes(String(value.filePreferences.view)))) throw new Error("Invalid file preferences.");
+  if (value.courseDetails !== undefined) { if (!isRecord(value.courseDetails) || Object.keys(value.courseDetails).length > 100) throw new Error("Invalid class details."); Object.values(value.courseDetails).forEach(validateCourseDetails); }
+  if (value.syllabusDrafts !== undefined) { if (!Array.isArray(value.syllabusDrafts) || value.syllabusDrafts.length > 10) throw new Error("Keep at most 10 syllabus reviews."); value.syllabusDrafts.forEach(validateDraft); if (new Set(value.syllabusDrafts.map((d) => d.id)).size !== value.syllabusDrafts.length) throw new Error("Duplicate syllabus review ID."); }
   return value as WorkspaceData;
 }
 

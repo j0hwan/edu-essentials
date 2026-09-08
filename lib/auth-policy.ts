@@ -8,3 +8,7 @@ export function isGoogleUser(user: { app_metadata?: { provider?: string }; is_an
 export function isSameOrigin(request: Request) {
   return request.headers.get("origin") === new URL(request.url).origin;
 }
+
+export function isAuthUnavailable(error: { name?: string; status?: number } | null | undefined) {
+  return !!error && (error.name === "AuthRetryableFetchError" || error.status === 0 || (error.status ?? 0) >= 500);
+}

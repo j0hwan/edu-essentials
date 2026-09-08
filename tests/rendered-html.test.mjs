@@ -53,7 +53,7 @@ test("private pages and unknown routes reject anonymous and legacy-cookie visito
   }
 });
 test("every private API verb returns 401 without an account", async () => {
-  for (const [path, methods] of [["/api/workspace", ["GET", "POST", "PUT", "DELETE"]], ["/api/profile", ["GET", "PUT"]]]) {
+  for (const [path, methods] of [["/api/workspace", ["GET", "POST", "PUT", "DELETE"]], ["/api/profile", ["GET", "PUT"]], ["/api/files", ["GET", "POST", "PUT", "DELETE"]], ["/api/export", ["GET"]]]) {
     for (const method of methods) assert.equal((await fetch(base + path, { method, redirect: "manual", headers: { origin: base } })).status, 401, `${method} ${path}`);
   }
 });
