@@ -27,6 +27,7 @@ URL.revokeObjectURL = () => {};
 window.HTMLAnchorElement.prototype.click = function () {};
 function reset() {
   alerts = []; downloads = [];
+  window.history.replaceState({}, "", "/home");
   window.confirm = () => true;
   media = { matches: false, listeners: new Set(), addEventListener(_event, fn) { this.listeners.add(fn); }, removeEventListener(_event, fn) { this.listeners.delete(fn); } };
   window.matchMedia = () => media;
@@ -51,8 +52,12 @@ async function edit(label, value) {
   });
 }
 async function click(text) {
-  const button = [...rootNode.querySelectorAll("button")].find((node) => node.textContent.trim() === text);
-  assert.ok(button, `Missing button ${text}`); await act(async () => button.click());
+  const control = [...rootNode.querySelectorAll("button,a")].find((node) => node.textContent.trim() === text);
+  assert.ok(control, `Missing control ${text}`);
+  await act(async () => {
+    if (control.tagName === "A") control.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    else control.click();
+  });
 }
 function unloadBlocked() { const event = new window.Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; }
 const savedDashboard = { v: 1, a: "day", w: [["day", "Day", [[12, 1]]]], n: "Saved notes", d: { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" } };
@@ -110,7 +115,7 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
     reset(); let expired = true;
     fetcher = async (_url, init) => expired ? Response.json({}, { status: 401 }) : Response.json({ profile: { ...baseProfile, ...validateProfile(JSON.parse(init.body)), updated_at: "2026-09-06T00:00:03Z" } });
     await render(ProfileEditor, { initialProfile: baseProfile }); await edit("Last name", "Retained"); await click("Save changes");
-    assert.equal(field("Last name").value, "Retained"); assert.equal(window.location.pathname, "/");
+    assert.equal(field("Last name").value, "Retained"); assert.equal(window.location.pathname, "/home");
     assert.ok(rootNode.querySelector('a[target="_blank"]')); expired = false;
     await click("Retry settings save"); assert.equal(unloadBlocked(), false); await unmount();
   });
@@ -131,6 +136,25 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
     assert.equal(payloads.length, 2); assert.deepEqual(payloads[1], payloads[0]);
     assert.equal(payloads[0].major, "Existing major"); assert.equal(payloads[0].display_name, "New name");
     assert.equal(field("Major").value, "Optional draft"); assert.equal(unloadBlocked(), true);
+    await unmount();
+  });
+
+  await t.test("onboarding saves custom choices and opens the workspace", async () => {
+    reset(); window.history.replaceState({}, "", "/onboarding"); let payload;
+    const onboardingProfile = { ...baseProfile, onboarding_completed_at: null };
+    fetcher = async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return Response.json({ profile: { ...onboardingProfile, ...validateProfile(payload), onboarding_completed_at: "2026-09-10T00:00:00Z", updated_at: "2026-09-10T00:00:00Z" } });
+    };
+    await render(ProfileEditor, { initialProfile: onboardingProfile, onboarding: true });
+    await edit("Display name", "Jordan"); await click("Continue");
+    assert.equal(field("College or university").getAttribute("list"), "profile-university-options");
+    assert.equal(field("Time zone").getAttribute("list"), "profile-timezone-options");
+    await edit("Academic year", "__custom__"); await edit("Your academic year", "Fifth year");
+    await edit("Time zone", "America/Los_Angeles"); await click("Use automatic"); assert.equal(field("Time zone").value, "");
+    await edit("Time zone", "America/Los_Angeles"); await click("Save and open workspace");
+    assert.equal(payload.academic_year, "Other: Fifth year"); assert.equal(payload.timezone, "America/Los_Angeles");
+    assert.equal(window.location.pathname, "/home"); assert.equal(unloadBlocked(), false);
     await unmount();
   });
 
@@ -177,7 +201,8 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
     assert.match(rootNode.textContent, /could not be loaded/); fail = false; await click("Retry loading");
     assert.equal(rootNode.querySelector('textarea[aria-label="Quick notes"]').value, "Saved notes");
     assert.equal(writes, 0); assert.equal(unloadBlocked(), false);
-    await click("Settings"); await edit("Major", "Kept while navigating"); await click("Home"); await click("Settings");
+    await click("Settings"); assert.equal(window.location.pathname, "/settings"); await edit("Major", "Kept while navigating");
+    await click("Home"); assert.equal(window.location.pathname, "/home"); await click("Settings"); assert.equal(window.location.pathname, "/settings");
     assert.equal(field("Major").value, "Kept while navigating"); assert.equal(unloadBlocked(), true);
     assert.equal([...rootNode.querySelectorAll("button")].find((b) => b.textContent === "Sign out").disabled, true);
     await unmount();
@@ -216,6 +241,40 @@ async function saveAndReload() {
 const cards = () => [...rootNode.querySelectorAll(".widget-card")];
 
 const sampleCourse = { id: "history", code: "HIST 205", name: "History", credits: 3, instructor: "Teacher", room: "Hall", color: "#112233", soft: "#11223318", initials: "HI" };
+test("experimental mode previews each schedule without saving and restores the real workspace", async () => {
+  reset(); const server = installWorkspaceServer(savedDashboard, []);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await clickAria("Experimental mode"); await clickAria("Load Clear experimental data");
+    assert.match(rootNode.textContent, /Clear experimental mode/);
+    assert.equal(rootNode.querySelector(".nav-count").textContent, "0");
+    assert.match(rootNode.textContent, /No overdue or due-today tasks/);
+    assert.match(rootNode.textContent, /No events yet/);
+    assert.equal(server.writes, 0); assert.equal(unloadBlocked(), false);
+
+    await clickAria("Experimental mode"); await clickAria("Load Light experimental data");
+    assert.match(rootNode.textContent, /Light experimental mode/);
+    assert.equal(rootNode.querySelector(".nav-count").textContent, "2");
+    assert.equal(server.writes, 0); assert.equal(unloadBlocked(), false);
+
+    await clickAria("Experimental mode"); await clickAria("Load Medium experimental data");
+    assert.match(rootNode.textContent, /Medium experimental mode/);
+    assert.equal(rootNode.querySelector(".nav-count").textContent, "4");
+
+    await clickAria("Experimental mode"); await clickAria("Load Packed experimental data");
+    assert.match(rootNode.textContent, /Packed experimental mode/);
+    assert.equal(rootNode.querySelector(".nav-count").textContent, "6");
+    assert.equal(server.writes, 0); assert.equal(unloadBlocked(), false);
+
+    await clickAria("Experimental mode"); await click("Exit experimental mode");
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    assert.doesNotMatch(rootNode.textContent, /Packed experimental mode/);
+    assert.equal(rootNode.querySelector(".nav-count").textContent, "0");
+    assert.equal(rootNode.querySelector('textarea[aria-label="Quick notes"]').value, "Saved notes");
+    assert.equal(server.writes, 0); assert.equal(unloadBlocked(), false);
+  } finally { if (root) await unmount(); }
+});
+
 test("study controls persist targets, timers, history and grades", async (t) => {
   t.afterEach(async () => { if (root) await unmount(); });
   await t.test("goals and timer settings retain offline edits and form drafts, then reload", async () => {

@@ -216,6 +216,7 @@ select:focus-visible {
   color: var(--muted);
   padding: 0 12px;
   text-align: left;
+  text-decoration: none;
   transition: 0.18s ease;
 }
 
@@ -241,6 +242,108 @@ select:focus-visible {
   color: var(--amber);
   font-size: 11px;
   font-weight: 750;
+}
+
+.experimental-control {
+  position: relative;
+}
+
+.experimental-trigger {
+  width: 100%;
+}
+
+.experimental-trigger.active {
+  background: color-mix(in srgb, var(--brand-soft) 72%, var(--surface));
+  color: var(--brand-dark);
+}
+
+.experimental-badge {
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--border));
+  border-radius: 99px;
+  color: var(--brand-dark);
+  padding: 3px 6px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.experimental-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  left: 0;
+  display: grid;
+  width: 100%;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  padding: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.experimental-menu > p {
+  margin: 2px 4px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.experimental-menu > button {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--ink);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.experimental-menu > button:hover,
+.experimental-menu > button.selected {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+}
+
+.experimental-menu > button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.experimental-menu strong,
+.experimental-menu small {
+  display: block;
+}
+
+.experimental-menu strong {
+  font-size: 12px;
+}
+
+.experimental-menu button small,
+.experimental-menu > small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.experimental-menu > small {
+  padding: 3px 4px 0;
+}
+
+.experimental-menu > .experimental-exit {
+  min-height: 38px;
+  justify-content: center;
+  background: transparent;
+  color: var(--brand-dark);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .sidebar-focus-card {
@@ -330,6 +433,7 @@ select:focus-visible {
   background: transparent;
   padding: 15px 6px 2px;
   text-align: left;
+  text-decoration: none;
 }
 
 .avatar {
@@ -2523,8 +2627,8 @@ html[data-theme="dark"] .tone-blue { background: #1d3546; color: #78c8ff; }
   .mobile-header { position: fixed; inset: 0 0 auto; z-index: 50; display: flex; height: 58px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 90%, transparent); padding: 0 15px; backdrop-filter: blur(12px); }
   .mobile-brand { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 740; }
   .mobile-bottom-nav { position: fixed; inset: auto 0 0; z-index: 50; display: grid; grid-template-columns: repeat(5,1fr); border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 92%, transparent); padding: 6px 5px max(6px, env(safe-area-inset-bottom)); backdrop-filter: blur(12px); }
-  .mobile-bottom-nav button { display: flex; min-height: 45px; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 8px; background: transparent; color: var(--muted); font-size: 8px; }
-  .mobile-bottom-nav button.active { color: var(--brand-dark); }
+  .mobile-bottom-nav a { display: flex; min-height: 45px; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 8px; background: transparent; color: var(--muted); font-size: 8px; text-decoration: none; }
+  .mobile-bottom-nav a.active { color: var(--brand-dark); }
   .page { padding: 24px 18px 90px; }
   .home-page { padding-top: 16px; }
   .assistant-shelf { padding: 22px; }

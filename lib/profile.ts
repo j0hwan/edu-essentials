@@ -38,13 +38,15 @@ export function validateProfile(value: unknown): ProfileDetails & { preferences:
   }
   if (!details.display_name) throw new Error("Please enter your name.");
   const choices = {
-    academic_year: ["", "Freshman", "Sophomore", "Junior", "Senior", "Graduate", "Other"],
-    academic_structure: ["", "Quarter", "Semester", "Trimester", "Other"],
-    gpa_system: ["", "4.0 scale", "Percentage", "Custom"],
-    week_starts_on: ["", "Monday", "Sunday"],
+    academic_year: { options: ["", "Freshman", "Sophomore", "Junior", "Senior", "Graduate", "Other"], customPrefix: "Other: " },
+    academic_structure: { options: ["", "Quarter", "Semester", "Trimester", "Other"], customPrefix: "Other: " },
+    gpa_system: { options: ["", "4.0 scale", "Percentage", "Custom"], customPrefix: "Custom: " },
+    week_starts_on: { options: ["", "Monday", "Sunday"], customPrefix: "" },
   };
-  for (const [key, options] of Object.entries(choices)) {
-    if (!options.includes(details[key as keyof typeof choices])) throw new Error(`Invalid ${key.replaceAll("_", " ")}.`);
+  for (const [key, choice] of Object.entries(choices)) {
+    const field = details[key as keyof typeof choices];
+    const custom = choice.customPrefix && field.startsWith(choice.customPrefix) && field.length > choice.customPrefix.length;
+    if (!choice.options.includes(field) && !custom) throw new Error(`Invalid ${key.replaceAll("_", " ")}.`);
   }
   if (details.timezone) {
     try { new Intl.DateTimeFormat("en", { timeZone: details.timezone }); }
