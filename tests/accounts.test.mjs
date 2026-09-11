@@ -38,6 +38,8 @@ test("onboarding accepts only a name; all optional details can be skipped", () =
 });
 test("profile validation rejects malformed fields and excludes ownership fields", () => {
   for (const patch of [{ display_name: " " }, { age: -1 }, { academic_year: "invalid" }, { timezone: "not/a/zone" }, { preferences: { theme: "other" } }]) assert.throws(() => validateProfile({ display_name: "Alex", ...patch }));
+  const custom = validateProfile({ display_name: "Alex", academic_year: "Other: Fifth year", academic_structure: "Other: Block plan", gpa_system: "Custom: 5.0 scale" });
+  assert.equal(custom.academic_year, "Other: Fifth year"); assert.equal(custom.academic_structure, "Other: Block plan"); assert.equal(custom.gpa_system, "Custom: 5.0 scale");
   const result = validateProfile({ display_name: "Alex", id: "attacker", auth_user_id: "attacker", email: "fake@example.com", onboarding_completed_at: "forged" });
   assert.equal(result.auth_user_id, undefined);
   assert.equal(result.email, undefined);

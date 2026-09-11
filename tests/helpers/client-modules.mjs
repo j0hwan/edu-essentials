@@ -5,6 +5,10 @@ import ts from "typescript";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const compiled = new Map();
+const testAliases = new Map([
+  ["next/link", new URL("./next-link.mjs", import.meta.url).href],
+  ["next/navigation", new URL("./next-navigation.mjs", import.meta.url).href],
+]);
 export async function clientModule(relative) {
   const path = resolve(root, relative);
   if (compiled.has(path)) return compiled.get(path);
@@ -19,7 +23,7 @@ export async function clientModule(relative) {
       for (const suffix of ["", ".ts", ".tsx"]) { try { await access(base + suffix); file = base + suffix; break; } catch { /* Try the next TypeScript extension. */ } }
       if (!file) throw new Error(`Missing test import: ${specifier}`);
       url = await clientModule(file);
-    } else url = import.meta.resolve(specifier);
+    } else url = testAliases.get(specifier) ?? import.meta.resolve(specifier);
     code = code.replaceAll(JSON.stringify(specifier), JSON.stringify(url));
   }
   const url = `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;

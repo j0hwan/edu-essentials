@@ -45,7 +45,7 @@ test("overview is available without signing in", async () => {
   assert.equal((await fetch(`${base}/overview`, { redirect: "manual" })).status, 200);
 });
 test("private pages and unknown routes reject anonymous and legacy-cookie visitors", async () => {
-  for (const path of ["/", "/dashboard", "/onboarding", "/settings", "/future-page", "/private.json"]) {
+  for (const path of ["/", "/home", "/dashboard", "/calendar", "/search", "/files", "/settings", "/onboarding", "/future-page", "/private.json"]) {
     const response = await fetch(base + path, { redirect: "manual", headers: { cookie: "eduessentials_profile=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } });
     assert.equal(response.status, 307, path);
     assert.equal(new URL(response.headers.get("location"), base).pathname, "/login");

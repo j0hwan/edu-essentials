@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import {
   AlertOctagon,
   ArrowLeft,
@@ -15,6 +17,7 @@ import {
   Copy,
   FileSearch,
   FileText,
+  FlaskConical,
   Flame,
   FolderOpen,
   GraduationCap,
@@ -56,6 +59,7 @@ import { useStudyStats } from "./use-study-stats";
 import { emptyStudy, settleTimer, timerAction, goalPercent, durationLabel, completedInWeek, detachStudyCourse, segmentSeconds, type StudyData, type TimerKind } from "../lib/study";
 import { academicSnapshot, validateAcademicEdit } from "../lib/academic-snapshot";
 import { dayKey, dateLabel, addDays, weekStart, assignmentStatus, legacyEventTime, emptyCourse, emptyCourseDetails, type Course, type CourseDetails, type SyllabusDraft } from "../lib/academics";
+import { experimentalData, type ExperimentalDensity } from "../lib/experimental-data";
 import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
 import ProfileEditor from "./profile-editor";
 import type { Profile } from "../lib/profile";
@@ -93,6 +97,13 @@ const navItems: { id: PageId; label: string; icon: typeof House }[] = [
   { id: "search", label: "Search", icon: Search },
   { id: "files", label: "Files", icon: FolderOpen },
 ];
+
+const pageIds = new Set<PageId>(["home", "dashboard", "calendar", "search", "files", "settings"]);
+
+function pageFromPathname(pathname: string): PageId {
+  const segment = pathname.split("/").filter(Boolean)[0] as PageId | undefined;
+  return segment && pageIds.has(segment) ? segment : "home";
+}
 
 const widgetTemplates: { type: WidgetType; title: string; description: string; icon: typeof Target; color: string; defaultSize: WidgetSize }[] = [
   { type: "daily-goal", title: "Daily study goal", description: "Progress ring and time remaining", icon: Target, color: "indigo", defaultSize: "medium" },
@@ -194,10 +205,15 @@ function CourseStamp({ course, small = false }: { course: Course; small?: boolea
   );
 }
 
-export default function EduEssentialsApp({ initialProfile }: { initialProfile: Profile }) {
+export default function EduEssentialsApp({ initialProfile, children }: { initialProfile: Profile; children?: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const page = pageFromPathname(pathname);
   const [profile, setProfile] = useState(initialProfile);
-  const [page, setPage] = useState<PageId>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [experimentalMenuOpen, setExperimentalMenuOpen] = useState(false);
+  const [experimentalMode, setExperimentalMode] = useState<ExperimentalDensity | null>(null);
+  const [experimentalRestoring, setExperimentalRestoring] = useState(false);
   usePreferences(profile.preferences);
   const studentName = profile.display_name;
   const [courses, setCourses] = useState<Course[]>([]);
@@ -267,12 +283,14 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
   }));
   const saveState = useSyncExternalStore(autosave.subscribe, autosave.getSnapshot, autosave.getSnapshot);
   const persistenceStatus = saveState.status;
-  const canWriteFiles = saveState.ready && !saveState.dirty;
+  const canWriteFiles = !experimentalMode && saveState.ready && !saveState.dirty;
   const refreshFiles = fileStore.refresh;
   useEffect(() => { if (saveState.status === "saved") void refreshFiles(); }, [saveState.status, refreshFiles]);
   useSaveProtection(saveState.dirty || profilePending);
   const topSearchRef = useRef<HTMLInputElement | null>(null);
   const study = extraData.study;
+  const activeGpaSystem = experimentalMode ? "4.0 scale" : profile.gpa_system;
+  const activeTerm = experimentalMode ? "Current term" : profile.current_term;
   const timezone = profile.timezone, monday = profile.week_starts_on === "Monday";
   const stats = useStudyStats(study.sessions, today, timezone, monday);
   const dailyPercent = goalPercent(stats.dailySeconds, study.dailyMinutes), weeklyPercent = goalPercent(stats.weeklySeconds, study.weeklyMinutes);
@@ -338,17 +356,19 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
         setAssignments(details.assignments); setManualEvents(details.manualEvents);
         setDashboardView(details.dashboardView); setCalendarView(details.calendarView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: details.syllabusDrafts, study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setEditor(null); setSyllabusId(null);
         setSelectedClass(null); setSelectedAssignment(null);
+        setExperimentalMode(null); setExperimentalMenuOpen(false); setExperimentalRestoring(false);
         autosave.hydrate(canonicalJson({ courses: [...(data.courses ?? [])].sort((a, b) => a.id.localeCompare(b.id)), dashboard: encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, details) }), data.revision ?? null);
-      } catch (error) { if (!controller.signal.aborted) autosave.loadFailed(error); }
+      } catch (error) { if (!controller.signal.aborted) { setExperimentalRestoring(false); autosave.loadFailed(error); } }
     }
     void hydrateWorkspace();
     return () => { controller.abort(); autosave.stop(); };
   }, [reloadAttempt, accountFetch, autosave, initialProfile.id]);
 
   useEffect(() => {
+    if (experimentalMode) return;
     try { autosave.change(canonicalJson(academicSnapshot(courses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData })))); }
     catch (error) { autosave.invalidate(error instanceof Error ? error.message : "Invalid workspace data."); }
-  }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, extraData, courses, autosave]);
+  }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, extraData, courses, autosave, experimentalMode]);
 
   const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarView, calendarFilter, ...extraData });
   const reloadWorkspace = () => {
@@ -362,13 +382,61 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
   const overdueAssignments = assignments.filter((assignment) => assignment.status === "overdue");
 
   const navigate = (destination: PageId) => {
-    setPage(destination);
+    router.push(`/${destination}`);
     setSidebarOpen(false);
+    setExperimentalMenuOpen(false);
     setSelectedAssignment(null);
     setSelectedClass(null);
   };
 
   const flash = (message: string) => setToast(message);
+
+  const applyExperimentalData = (density: ExperimentalDensity) => {
+    if (!saveState.ready || saveState.dirty || profilePending || fileStore.busy) {
+      flash("Wait for your real workspace to finish saving first");
+      return;
+    }
+    const demo = experimentalData(density, today);
+    const demoDetails = {
+      assignments: demo.assignments,
+      manualEvents: demo.manualEvents,
+      dashboardView: "cards" as const,
+      calendarView: "month" as const,
+      calendarFilter: "all",
+      courseDetails: demo.courseDetails,
+      syllabusDrafts: [],
+      study: demo.study,
+      filePreferences: extraData.filePreferences,
+    };
+    try {
+      academicSnapshot(demo.courses, encodeWorkspaceState(demo.workspaces, demo.activeWorkspaceId, demo.notes, demoDetails));
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Unable to load the preview data");
+      return;
+    }
+    setExperimentalMode(density);
+    setCourses(demo.courses);
+    setAssignments(demo.assignments);
+    setManualEvents(demo.manualEvents);
+    setWorkspaces(demo.workspaces);
+    setActiveWorkspaceId(demo.activeWorkspaceId);
+    setNotes(demo.notes);
+    setDashboardView("cards");
+    setCalendarView("month");
+    setCalendarFilter("all");
+    setExtraData({ courseDetails: demo.courseDetails, syllabusDrafts: [], study: demo.study, filePreferences: extraData.filePreferences });
+    setExperimentalMenuOpen(false);
+    setSelectedAssignment(null); setSelectedClass(null); setEditor(null); setStudyOpen(false); setSyllabusId(null);
+    navigate("home");
+    flash(`${density.charAt(0).toUpperCase() + density.slice(1)} demo loaded`);
+  };
+
+  const exitExperimentalMode = () => {
+    if (experimentalRestoring) return;
+    setExperimentalRestoring(true);
+    setExperimentalMenuOpen(false);
+    setReloadAttempt((attempt) => attempt + 1);
+  };
 
   useEffect(() => {
     if (page !== "home" || !noteFocusRef.current) return;
@@ -517,13 +585,38 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => navigate(item.id)} aria-current={page === item.id ? "page" : undefined}>
+              <Link key={item.id} href={`/${item.id}`} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setSidebarOpen(false)} aria-current={page === item.id ? "page" : undefined}>
                 <Icon size={19} strokeWidth={2.1} />
                 <span>{item.label}</span>
                 {item.id === "dashboard" && <span className="nav-count">{courses.length}</span>}
-              </button>
+              </Link>
             );
           })}
+          <div className="experimental-control">
+            <button
+              className={`nav-item experimental-trigger ${experimentalMode ? "active" : ""}`}
+              type="button"
+              aria-label="Experimental mode"
+              aria-expanded={experimentalMenuOpen}
+              aria-controls="experimental-options"
+              onClick={() => setExperimentalMenuOpen((open) => !open)}
+            >
+              <FlaskConical size={19} strokeWidth={2.1} />
+              <span>Experimental mode</span>
+              <span className="experimental-badge">TEMP</span>
+            </button>
+            {experimentalMenuOpen && <div className="experimental-menu" id="experimental-options">
+              <p>Fake preview data</p>
+              {([
+                ["clear", "Clear", "0 classes · 0 tasks"],
+                ["light", "Light", "2 classes · 6 tasks"],
+                ["medium", "Medium", "4 classes · 14 tasks"],
+                ["packed", "Packed", "6 classes · 28 tasks"],
+              ] as const).map(([value, label, detail]) => <button key={value} type="button" aria-label={`Load ${label} experimental data`} className={experimentalMode === value ? "selected" : ""} disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring} onClick={() => applyExperimentalData(value)}><span><strong>{label}</strong><small>{detail}</small></span>{experimentalMode === value && <CheckCircle2 size={15} />}</button>)}
+              {experimentalMode && <button className="experimental-exit" type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit experimental mode"}</button>}
+              <small>Your saved workspace stays untouched.</small>
+            </div>}
+          </div>
         </nav>
 
         <div className="sidebar-focus-card">
@@ -534,12 +627,12 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
         </div>
 
         <div className="sidebar-bottom">
-          <button className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => navigate("settings")}><Settings size={19} /><span>Settings</span></button>
-          <button className="profile-card" onClick={() => navigate("settings")}>
+          <Link href="/settings" className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => setSidebarOpen(false)} aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
+          <Link href="/settings" className="profile-card" onClick={() => setSidebarOpen(false)}>
             <span className="avatar">{studentName.slice(0, 1).toUpperCase()}</span>
             <span><strong>{studentName}</strong><small>{profileMajor}</small></span>
             <MoreHorizontal size={18} />
-          </button>
+          </Link>
         </div>
       </aside>
 
@@ -584,7 +677,11 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
           <button className="icon-button" aria-label="Notifications"><Bell size={20} /><span className="notification-dot" /></button>
         </header>
 
-        <div className="workspace-save-bar" role={["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus) ? "alert" : "status"}>
+        {experimentalMode ? <div className="experimental-banner" role="status">
+          <FlaskConical size={17} />
+          <span><strong>{experimentalMode.charAt(0).toUpperCase() + experimentalMode.slice(1)} experimental mode</strong> — fake data is shown only in this tab and is not saved.</span>
+          <button type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit"}</button>
+        </div> : <div className="workspace-save-bar" role={["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus) ? "alert" : "status"}>
           <span>{saveState.message || (persistenceStatus === "dirty" ? "Unsaved workspace changes" : persistenceStatus === "saving" ? "Saving workspace…" : persistenceStatus === "saved" ? "Workspace saved" : "Loading your workspace…")}{profilePending && (profileSaving ? " · Saving settings…" : " · Settings have unsaved changes")}</span>
           {profilePending && page !== "settings" && <button onClick={() => navigate("settings")}>Review settings</button>}
           {persistenceStatus === "dirty" && <button onClick={() => void autosave.flush()}>Save now</button>}
@@ -593,7 +690,7 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
           {persistenceStatus === "load-error" && <button onClick={reloadWorkspace}>Retry loading</button>}
           {saveState.dirty && <button onClick={downloadUnsavedWork}>Download unsaved work</button>}
           {saveState.dirty && <button disabled={persistenceStatus === "saving" || profileSaving} onClick={reloadWorkspace}>Reload saved workspace</button>}
-        </div>
+        </div>}
         {(fileStore.error || fileStore.busy) && <div className="workspace-save-bar" role={fileStore.error ? "alert" : "status"}>{fileStore.error || "Saving private files…"}{fileStore.error && <><button onClick={() => void fileStore.refresh()} disabled={fileStore.busy}>Reload files</button><a href="/login" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a></>}</div>}
         {!saveState.ready && <section className="workspace-loading"><h1>{persistenceStatus === "loading" ? "Loading your workspace" : "Your workspace could not be loaded"}</h1><p>Your saved work will be available here when the connection is restored.</p></section>}
         {saveState.ready && page === "home" && renderHome()}
@@ -607,12 +704,13 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         {navItems.slice(0, 4).map((item) => {
           const Icon = item.icon;
-          return <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => navigate(item.id)}><Icon size={19} /><span>{item.label}</span></button>;
+          return <Link key={item.id} href={`/${item.id}`} className={page === item.id ? "active" : ""} aria-current={page === item.id ? "page" : undefined}><Icon size={19} /><span>{item.label}</span></Link>;
         })}
-        <button className={page === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Settings size={19} /><span>Settings</span></button>
+        <Link href="/settings" className={page === "settings" ? "active" : ""} aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
       </nav>
 
-      {studyOpen && <StudyPanel data={study} courses={courses} system={profile.gpa_system} term={profile.current_term} studyGoal={profile.study_goal} timezone={profile.timezone} now={now.getTime()} onChange={commitStudy} onTimer={controlTimer} onClose={() => setStudyOpen(false)} />}
+      {children}
+      {studyOpen && <StudyPanel data={study} courses={courses} system={activeGpaSystem} term={activeTerm} studyGoal={profile.study_goal} timezone={profile.timezone} now={now.getTime()} onChange={commitStudy} onTimer={controlTimer} onClose={() => setStudyOpen(false)} />}
       {widgetPickerOpen && renderWidgetPicker()}
       {workspaceDialog && renderWorkspaceDialog()}
       {selectedClass && renderClassDetail(selectedClass)}
@@ -788,12 +886,12 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
 
   function renderWidgetBody(widget: WidgetInstance) {
     const { type } = widget;
-    if (studyWidgetTypes.includes(type)) return <StudyWidget type={type} data={study} stats={stats} courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} now={now.getTime()} system={profile.gpa_system} term={profile.current_term} onOpen={() => setStudyOpen(true)} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onTimer={controlTimer} />;
+    if (studyWidgetTypes.includes(type)) return <StudyWidget type={type} data={study} stats={stats} courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} now={now.getTime()} system={activeGpaSystem} term={activeTerm} onOpen={() => setStudyOpen(true)} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onTimer={controlTimer} />;
     if (type === "upcoming") return <div className="compact-list">{assignments.filter((item) => item.status !== "done").slice(0, 4).map((assignment) => { const course = courseFor(courses, assignment.courseId); return <button key={assignment.id} className="compact-assignment" onClick={() => setSelectedAssignment(assignment)}><StatusBadge status={assignment.status} compact /><span><strong>{assignment.title}</strong><small>{course.code} · {assignment.due}</small></span><ChevronRight size={15} /></button>; })}</div>;
     if (type === "stoplight") return <div className="stoplight-summary"><button onClick={() => navigate("dashboard")}><span className="stoplight-count red"><AlertOctagon size={17} />{overdueAssignments.length}</span><span><strong>Overdue</strong><small>Needs attention</small></span></button><button onClick={() => navigate("dashboard")}><span className="stoplight-count amber"><Clock3 size={17} />{todayAssignments.length}</span><span><strong>Due today</strong><small>Before midnight</small></span></button><button onClick={() => navigate("dashboard")}><span className="stoplight-count green"><Circle size={17} />{assignments.filter((item) => item.status === "later").length}</span><span><strong>Upcoming</strong><small>After today</small></span></button></div>;
     if (type === "red-alerts") return <div className="alert-widget"><div className="alert-banner"><AlertOctagon size={18} /><span><strong>{overdueAssignments.length + todayAssignments.length} tasks need attention</strong><small>{overdueAssignments.length} overdue · {todayAssignments.length} due today</small></span></div>{[...overdueAssignments, ...todayAssignments].slice(0, 2).map((assignment) => <button key={assignment.id} onClick={() => setSelectedAssignment(assignment)}><span className={`urgency-line ${assignment.status}`} /><span><strong>{assignment.title}</strong><small>{assignment.due}</small></span><ChevronRight size={15} /></button>)}</div>;
     if (type === "mini-calendar") return <div className="mini-cal"><div className="mini-cal-month"><strong>{dateLabel(today, { month: "long", year: "numeric" })}</strong></div><div className="mini-days">{Array.from({ length: 7 }, (_, i) => addDays(weekStart(today, profile.week_starts_on === "Monday"), i)).map((date) => <button key={date} className={date === today ? "today" : ""} onClick={() => navigate("calendar")}><small>{dateLabel(date, { weekday: "short" })}</small><strong>{Number(date.slice(-2))}</strong>{(assignments.some((a) => a.dateKey === date) || manualEvents.some((e) => e.dateKey === date)) && <i />}</button>)}</div><button className="text-button" onClick={() => navigate("calendar")}>Open full calendar</button></div>;
-    if (type === "class-links") return <div className="class-link-grid">{courses.slice(0, 4).map((course) => <button key={course.id} onClick={() => { setPage("dashboard"); setSelectedClass(course); }}><CourseStamp course={course} small /><span><strong>{course.code}</strong><small>{course.name}</small></span><ChevronRight size={14} /></button>)}</div>;
+    if (type === "class-links") return <div className="class-link-grid">{courses.slice(0, 4).map((course) => <button key={course.id} onClick={() => { navigate("dashboard"); setSelectedClass(course); }}><CourseStamp course={course} small /><span><strong>{course.code}</strong><small>{course.name}</small></span><ChevronRight size={14} /></button>)}</div>;
     if (type === "notes") return <div className="notes-widget"><textarea id={`note-${widget.instanceId}`} aria-label="Quick notes" value={widget.note ?? ""} maxLength={MAX_NOTES_LENGTH} onChange={(event) => updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: event.target.value } : item))} /><div><span>{persistenceStatus === "saved" ? "Saved" : persistenceStatus === "saving" ? "Saving…" : "Not saved"}</span><button disabled={!widget.note} onClick={() => { if (window.confirm("Clear this note's text?")) updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: "" } : item)); }} aria-label="Clear notes"><Trash2 size={14} /></button></div></div>;
     if (type === "quote") return <div className="quote-widget"><QuoteIcon size={24} /><blockquote>Small, focused steps turn heavy weeks into manageable days.</blockquote><span>— Your Edu AI reminder</span></div>;
     return <div className="spacer-widget"><span>Spacer</span><p>This tile creates breathing room. Resize it to shape your layout.</p></div>;
@@ -906,9 +1004,9 @@ export default function EduEssentialsApp({ initialProfile }: { initialProfile: P
 
   function renderClassDetail(course: Course) {
     const items = assignments.filter((a) => a.courseId === course.id), details = extraData.courseDetails[course.id] ?? emptyCourseDetails();
-    const average = study.grades.find((g) => g.courseId === course.id && g.system === profile.gpa_system && g.term === profile.current_term);
+    const average = study.grades.find((g) => g.courseId === course.id && g.system === activeGpaSystem && g.term === activeTerm);
     const studySeconds = study.sessions.filter((s) => s.courseId === course.id).reduce((sum, s) => sum + segmentSeconds(s.segments), 0);
-    return <div className="modal-backdrop side-panel-backdrop"><aside className="detail-panel" role="dialog" aria-modal="true" aria-label="Class details"><div className="modal-header"><h2>{course.code} · {course.name}</h2><button className="secondary-button" onClick={() => setSelectedClass(null)}>Close class</button></div><div className="detail-panel-body"><p>{course.credits} credits · {course.room || "No location entered"}</p><h3>Files and images</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id } })}>Add class file</button><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id, kind: "class-image" } })}>Upload class image</button><FileList files={fileStore.files.filter((f) => f.course_id === course.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} canWrite={canWriteFiles} />{details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}<h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((a) => a.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {profile.current_term || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades</button><h3>Instructor</h3><p>{course.instructor || "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p><h3>Schedule</h3>{details.meetings.length ? details.meetings.map((m) => <p key={m.id}>{m.days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")} · {m.start}–{m.end} · {m.location || course.room}<br />{dateLabel(m.from)} – {dateLabel(m.until)}</p>) : <p>No recurring meetings entered.</p>}<div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}>Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}>View schedule</button></div><h3>Assignments</h3>{renderAssignmentTable(items, true)}<button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}>Add assignment</button>{details.syllabusText && <details><summary>Saved syllabus source</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}<button className="secondary-button full remove-class-button" onClick={() => removeClass(course)}>Remove class</button></div></aside></div>;
+    return <div className="modal-backdrop side-panel-backdrop"><aside className="detail-panel" role="dialog" aria-modal="true" aria-label="Class details"><div className="modal-header"><h2>{course.code} · {course.name}</h2><button className="secondary-button" onClick={() => setSelectedClass(null)}>Close class</button></div><div className="detail-panel-body"><p>{course.credits} credits · {course.room || "No location entered"}</p><h3>Files and images</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id } })}>Add class file</button><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id, kind: "class-image" } })}>Upload class image</button><FileList files={fileStore.files.filter((f) => f.course_id === course.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} canWrite={canWriteFiles} />{details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}<h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((a) => a.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {activeTerm || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades</button><h3>Instructor</h3><p>{course.instructor || "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p><h3>Schedule</h3>{details.meetings.length ? details.meetings.map((m) => <p key={m.id}>{m.days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")} · {m.start}–{m.end} · {m.location || course.room}<br />{dateLabel(m.from)} – {dateLabel(m.until)}</p>) : <p>No recurring meetings entered.</p>}<div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}>Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}>View schedule</button></div><h3>Assignments</h3>{renderAssignmentTable(items, true)}<button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}>Add assignment</button>{details.syllabusText && <details><summary>Saved syllabus source</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}<button className="secondary-button full remove-class-button" onClick={() => removeClass(course)}>Remove class</button></div></aside></div>;
   }
 
   function renderAssignmentDetail(assignment: Assignment) {
