@@ -12,6 +12,8 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronRight,
+  ChevronLeft,
+  ChevronDown,
   Circle,
   Clock3,
   Copy,
@@ -23,17 +25,22 @@ import {
   GraduationCap,
   GripVertical,
   House,
-  LayoutDashboard,
   LayoutGrid,
   List,
   Maximize2,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   MoreHorizontal,
   Pencil,
   PieChart,
   Plus,
   Quote as QuoteIcon,
   Search,
+  MessageSquare,
+  Send,
+  Save,
+  Upload,
   Settings,
   SlidersHorizontal,
   StickyNote,
@@ -54,6 +61,7 @@ import { usePrivateFiles } from "./use-private-files";
 import { FileEditor, FileList, FilePreview, PrivateImage } from "./private-files";
 import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
 import StudyWidget, { studyWidgetTypes } from "./study-widgets";
+import AnimatedWidgetGrid from "./animated-widget-grid";
 import StudyPanel from "./study-panel";
 import { useStudyStats } from "./use-study-stats";
 import { emptyStudy, settleTimer, timerAction, goalPercent, durationLabel, completedInWeek, detachStudyCourse, segmentSeconds, type StudyData, type TimerKind } from "../lib/study";
@@ -64,6 +72,7 @@ import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspac
 import ProfileEditor from "./profile-editor";
 import type { Profile } from "../lib/profile";
 import "./auth.css";
+import "./reference-ui.css";
 import {
   decodeWorkspaceState,
   encodeWorkspaceState,
@@ -76,7 +85,7 @@ import {
   type Workspace,
 } from "../lib/workspace-codec";
 
-type PageId = "home" | "dashboard" | "calendar" | "search" | "files" | "settings";
+type PageId = "home" | "dashboard" | "calendar" | "tasks" | "search" | "files" | "settings";
 type Stoplight = "overdue" | "today" | "later" | "done";
 
 type Assignment = SavedAssignment;
@@ -92,13 +101,13 @@ type WorkspaceResponse = {
 
 const navItems: { id: PageId; label: string; icon: typeof House }[] = [
   { id: "home", label: "Home", icon: House },
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "dashboard", label: "Courses", icon: BookOpen },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
-  { id: "search", label: "Search", icon: Search },
+  { id: "tasks", label: "Tasks", icon: CheckCircle2 },
   { id: "files", label: "Files", icon: FolderOpen },
 ];
 
-const pageIds = new Set<PageId>(["home", "dashboard", "calendar", "search", "files", "settings"]);
+const pageIds = new Set<PageId>(["home", "dashboard", "calendar", "tasks", "search", "files", "settings"]);
 
 function pageFromPathname(pathname: string): PageId {
   const segment = pathname.split("/").filter(Boolean)[0] as PageId | undefined;
@@ -211,6 +220,17 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const page = pageFromPathname(pathname);
   const [profile, setProfile] = useState(initialProfile);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    try { setSidebarCollapsed(window.localStorage.getItem("edu-sidebar-collapsed") === "true"); }
+    catch { /* Navigation still works when browser storage is unavailable. */ }
+  }, []);
+  const toggleSidebar = () => {
+    const collapsed = !sidebarCollapsed;
+    setSidebarCollapsed(collapsed);
+    try { window.localStorage.setItem("edu-sidebar-collapsed", String(collapsed)); }
+    catch { /* Keep the preference for this session even if it cannot be stored. */ }
+  };
   const [experimentalMenuOpen, setExperimentalMenuOpen] = useState(false);
   const [experimentalMode, setExperimentalMode] = useState<ExperimentalDensity | null>(null);
   const [experimentalRestoring, setExperimentalRestoring] = useState(false);
@@ -221,6 +241,8 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [workspaces, setWorkspaces] = useState<Workspace[]>(defaultWorkspaces);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState("my-day");
   const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
+  const [customizing, setCustomizing] = useState(false);
+  const [miniWeekOffset, setMiniWeekOffset] = useState(0);
   const [widgetSearch, setWidgetSearch] = useState("");
   const [openWidgetMenu, setOpenWidgetMenu] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -570,22 +592,23 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell reference-ui ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      <div className="mountain-backdrop" aria-hidden="true" />
 
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <aside className={`sidebar ${sidebarOpen ? "open" : ""}`} aria-label="Primary navigation">
+      <aside id="workspace-sidebar" className={`sidebar ${sidebarOpen ? "open" : ""}`} aria-label="Primary navigation">
         <div className="brand-row">
-          <div className="brand-mark"><BookOpen size={20} strokeWidth={2.5} /></div>
-          <div><strong>EduEssentials</strong><span>Student workspace</span></div>
+          <div className="brand-mark"><BookOpen size={32} strokeWidth={1.8} /></div>
+          <div className="brand-copy"><strong>EduEssentials</strong><span>Student workspace</span></div>
+          <button className="icon-button sidebar-toggle" onClick={toggleSidebar} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} aria-controls="workspace-sidebar">{sidebarCollapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}</button>
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close navigation"><X size={20} /></button>
         </div>
 
         <nav className="main-nav">
-          <p className="nav-label">Workspace</p>
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <Link key={item.id} href={`/${item.id}`} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setSidebarOpen(false)} aria-current={page === item.id ? "page" : undefined}>
+              <Link key={item.id} href={`/${item.id}`} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setSidebarOpen(false)} aria-label={item.label} title={item.label} aria-current={page === item.id ? "page" : undefined}>
                 <Icon size={19} strokeWidth={2.1} />
                 <span>{item.label}</span>
                 {item.id === "dashboard" && <span className="nav-count">{courses.length}</span>}
@@ -597,6 +620,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               className={`nav-item experimental-trigger ${experimentalMode ? "active" : ""}`}
               type="button"
               aria-label="Experimental mode"
+              title="Experimental mode"
               aria-expanded={experimentalMenuOpen}
               aria-controls="experimental-options"
               onClick={() => setExperimentalMenuOpen((open) => !open)}
@@ -619,6 +643,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           </div>
         </nav>
 
+        <button className="nav-item syllabus-nav" disabled={!saveState.ready} onClick={newReview} aria-label="Upload syllabus" title="Upload syllabus"><Upload size={22} /><span>Upload syllabus</span></button>
         <div className="sidebar-focus-card">
           <div className="focus-card-top"><span><Flame size={15} /> {stats.streak} day streak</span><strong>{study.dailyMinutes ? `${dailyPercent}%` : "No target"}</strong></div>
           <div className="tiny-progress"><span style={{ width: `${dailyPercent}%` }} /></div>
@@ -627,10 +652,10 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         </div>
 
         <div className="sidebar-bottom">
-          <Link href="/settings" className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => setSidebarOpen(false)} aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
-          <Link href="/settings" className="profile-card" onClick={() => setSidebarOpen(false)}>
+          <Link href="/settings" className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => setSidebarOpen(false)} aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
+          <Link href="/settings" className="profile-card" onClick={() => setSidebarOpen(false)} aria-label={`${studentName} — profile settings`} title={`${studentName} — profile settings`}>
             <span className="avatar">{studentName.slice(0, 1).toUpperCase()}</span>
-            <span><strong>{studentName}</strong><small>{profileMajor}</small></span>
+            <span><strong>{studentName}</strong><small>{profileMajor || "Student workspace"}</small></span>
             <MoreHorizontal size={18} />
           </Link>
         </div>
@@ -639,33 +664,23 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       {sidebarOpen && <button className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close navigation overlay" />}
 
       <header className="desktop-topbar">
-        <div className="topbar-context">
-          <span>Workspace</span>
-          <strong>{page.charAt(0).toUpperCase() + page.slice(1)}</strong>
-        </div>
-        <label className="topbar-search">
-          <Search size={17} aria-hidden="true" />
+        <div className="topbar-search" role="search">
+          <MessageSquare size={20} aria-hidden="true" />
           <input
             ref={topSearchRef}
             aria-label="Search assignments, classes, and files"
-            placeholder="Search assignments, classes, and files…"
+            placeholder="Ask EduEssentials or search…"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             onKeyDown={(event) => { if (event.key === "Enter") navigate("search"); }}
           />
           <kbd>Ctrl K</kbd>
-        </label>
+          <button className="search-send" onClick={() => navigate("search")} aria-label="Search"><Send size={18} /><span className="sr-only">Search</span></button>
+        </div>
         <div className="topbar-actions">
-          <button className="topbar-date" onClick={() => navigate("calendar")} aria-label="Open today in calendar">
-            <CalendarDays size={17} aria-hidden="true" />
-            <span><small>Today</small><strong>{dateLabel(today, { month: "short", day: "numeric" })}</strong></span>
-          </button>
           <button className="topbar-icon" onClick={() => flash("You’re all caught up")} aria-label="Open notifications">
             <Bell size={18} />
             <span className="notification-dot" />
-          </button>
-          <button className="topbar-avatar" onClick={() => navigate("settings")} aria-label="Open profile settings">
-            {studentName.slice(0, 1).toUpperCase()}
           </button>
         </div>
       </header>
@@ -674,14 +689,14 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         <header className="mobile-header">
           <button className="icon-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={22} /></button>
           <span className="mobile-brand"><span className="brand-mark small"><BookOpen size={16} /></span> EduEssentials</span>
-          <button className="icon-button" aria-label="Notifications"><Bell size={20} /><span className="notification-dot" /></button>
+          <button className="icon-button" aria-label="Notifications" onClick={() => flash(overdueAssignments.length ? `${overdueAssignments.length} overdue tasks — check Tasks for details` : "You’re all caught up")}><Bell size={20} /></button>
         </header>
 
         {experimentalMode ? <div className="experimental-banner" role="status">
           <FlaskConical size={17} />
           <span><strong>{experimentalMode.charAt(0).toUpperCase() + experimentalMode.slice(1)} experimental mode</strong> — fake data is shown only in this tab and is not saved.</span>
           <button type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit"}</button>
-        </div> : <div className="workspace-save-bar" role={["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus) ? "alert" : "status"}>
+        </div> : <div className={`workspace-save-bar ${persistenceStatus === "saved" && !profilePending ? "save-bar-quiet" : ""}`} role={["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus) ? "alert" : "status"}>
           <span>{saveState.message || (persistenceStatus === "dirty" ? "Unsaved workspace changes" : persistenceStatus === "saving" ? "Saving workspace…" : persistenceStatus === "saved" ? "Workspace saved" : "Loading your workspace…")}{profilePending && (profileSaving ? " · Saving settings…" : " · Settings have unsaved changes")}</span>
           {profilePending && page !== "settings" && <button onClick={() => navigate("settings")}>Review settings</button>}
           {persistenceStatus === "dirty" && <button onClick={() => void autosave.flush()}>Save now</button>}
@@ -695,6 +710,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         {!saveState.ready && <section className="workspace-loading"><h1>{persistenceStatus === "loading" ? "Loading your workspace" : "Your workspace could not be loaded"}</h1><p>Your saved work will be available here when the connection is restored.</p></section>}
         {saveState.ready && page === "home" && renderHome()}
         {saveState.ready && page === "dashboard" && renderDashboard()}
+        {saveState.ready && page === "tasks" && <div className="page">{renderPageHeader("Your coursework", "Tasks", "All your assignments, across every course.", <button className="primary-button" onClick={newAssignment}><Plus size={16} /> Add assignment</button>)}{renderAssignmentTable(assignments)}</div>}
         {saveState.ready && page === "calendar" && renderCalendar()}
         {saveState.ready && page === "search" && renderSearch()}
         {saveState.ready && page === "files" && renderFiles()}
@@ -734,7 +750,12 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   }
 
   function renderHome() {
-    const featuredAssignments = assignments.filter((a) => a.dateKey <= today && a.status !== "done").slice(0, 3);
+    const featuredAssignments = assignments.filter((a) => a.dateKey === today && a.status !== "done");
+    const localTime = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+    const currentHour = Number(localTime.slice(0, 2));
+    const greeting = currentHour < 12 ? "Good morning" : currentHour < 18 ? "Good afternoon" : "Good evening";
+    const nextClass = courses.flatMap((course) => (extraData.courseDetails[course.id]?.meetings ?? []).filter((meeting) => today >= meeting.from && today <= meeting.until && meeting.days.includes(new Date(today + "T12:00:00Z").getUTCDay()) && meeting.end > localTime).map((meeting) => ({ course, meeting }))).sort((a, b) => a.meeting.start.localeCompare(b.meeting.start))[0];
+    const timeLabel = (time: string) => /^\d{2}:\d{2}$/.test(time) ? `${Number(time.slice(0, 2)) % 12 || 12}:${time.slice(3)} ${Number(time.slice(0, 2)) >= 12 ? "PM" : "AM"}` : time;
     const schedule = manualEvents.filter((event) => event.dateKey === today).sort((a, b) => a.time.localeCompare(b.time)).map((event) => {
       const course = courseFor(courses, event.courseId);
       return {
@@ -752,33 +773,33 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
     return (
       <div className="page home-page">
+        <header className="home-greeting"><h1>{greeting}, {studentName}.</h1><p>{dateLabel(today, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></header>
         <section className="home-today-panel" aria-labelledby="today-panel-title">
           <header className="today-panel-header">
-            <div>
-              <h1 id="today-panel-title">Today</h1>
-              <p>The work that matters before you sign off.</p>
-            </div>
-            <button className="today-panel-link" onClick={() => navigate("dashboard")}>View all tasks <ArrowRight size={14} /></button>
+            <h2 id="today-panel-title">Today</h2>
+            <div className="today-panel-actions"><button className="today-panel-link" onClick={() => navigate("calendar")}>View calendar <ArrowRight size={14} /></button><button className="icon-button" aria-label="View all tasks" onClick={() => navigate("tasks")}><MoreHorizontal size={22} /></button></div>
           </header>
 
           <div className="today-panel-grid">
+            <section className="today-panel-section today-next-class" aria-labelledby="next-class-title">
+              <div className="today-section-heading"><span className="today-heading-icon"><GraduationCap /></span><h2 id="next-class-title">Next Class</h2></div>
+              <div className="next-class-content">{nextClass ? <button onClick={() => setSelectedClass(nextClass.course)}><div className="next-class-title"><strong>{nextClass.course.name}</strong><small>{nextClass.meeting.start <= localTime ? "Now" : "Today"}</small></div><p>{timeLabel(nextClass.meeting.start)}　|　{nextClass.course.code} · {nextClass.meeting.location || nextClass.course.room}</p></button> : <><strong>No more classes today</strong><p>Enjoy a little breathing room.</p></>}</div>
+            </section>
             <section className="today-panel-section" aria-labelledby="today-tasks-title">
               <div className="today-section-heading">
-                <h2 id="today-tasks-title">Tasks</h2>
-                <span>{featuredAssignments.length}</span>
+                <span className="today-heading-icon"><FileText /></span><h2 id="today-tasks-title">Due Today ({featuredAssignments.length})</h2>
               </div>
               <div className="today-task-list">
-                {featuredAssignments.length === 0 && <p className="today-empty">No overdue or due-today tasks.</p>}
-                {featuredAssignments.map((assignment) => {
+                {featuredAssignments.length === 0 && <p className="today-empty">Nothing due today.</p>}
+                {featuredAssignments.slice(0, 2).map((assignment) => {
                   const course = courseFor(courses, assignment.courseId);
                   return (
                     <button key={assignment.id} className="today-task-row" onClick={() => setSelectedAssignment(assignment)}>
-                      <span className={`today-urgency-line ${assignment.status}`} aria-hidden="true" />
+                      <span className="task-circle" aria-hidden="true" />
                       <span className="today-task-copy">
                         <strong>{assignment.title}</strong>
-                        <small>{course.code} · {assignment.due}</small>
+                        <small>{course.name}</small>
                       </span>
-                      <StatusBadge status={assignment.status} />
                       <ChevronRight size={16} aria-hidden="true" />
                     </button>
                   );
@@ -788,17 +809,15 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
             <section className="today-panel-section today-schedule" aria-labelledby="today-schedule-title">
               <div className="today-section-heading">
-                <h2 id="today-schedule-title">Schedule</h2>
-                <button onClick={() => navigate("calendar")}>Open calendar</button>
+                <span className="today-heading-icon"><CalendarDays /></span><h2 id="today-schedule-title">Today’s Schedule</h2>
               </div>
               <div className="today-schedule-list">
                 {schedule.length === 0 && <p className="today-empty">No events yet. Your schedule will appear here.</p>}
-                {schedule.map((item) => (
+                {schedule.slice(0, 3).map((item) => (
                   <button key={`${item.time}-${item.title}`} className="today-schedule-row" onClick={item.onOpen}>
-                    <time>{item.time}</time>
+                    <time>{timeLabel(item.time)}</time>
                     <span className="today-schedule-copy">
                       <span><i style={{ background: item.color }} aria-hidden="true" />{item.title}</span>
-                      <small>{item.detail}</small>
                     </span>
                   </button>
                 ))}
@@ -811,10 +830,11 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           <div className="workspace-bar">
             <div className="workspace-tabs" role="tablist" aria-label="Home workspaces">
               {workspaces.map((workspace) => <button key={workspace.id} role="tab" aria-selected={activeWorkspaceId === workspace.id} className={activeWorkspaceId === workspace.id ? "active" : ""} onClick={() => setActiveWorkspaceId(workspace.id)}>{workspace.name}</button>)}
-              <button className="add-tab" disabled={workspaces.length >= MAX_WORKSPACES} title={`Up to ${MAX_WORKSPACES} workspaces`} onClick={() => { setWorkspaceNameDraft(""); setWorkspaceDialog("new"); }} aria-label="Add workspace"><Plus size={16} /></button>
+              <button className="add-tab" disabled={workspaces.length >= MAX_WORKSPACES} title={`Up to ${MAX_WORKSPACES} workspaces`} onClick={() => { setWorkspaceNameDraft(""); setWorkspaceDialog("new"); }} aria-label="Add workspace">More <ChevronDown size={14} /></button>
             </div>
             <div className="workspace-actions">
-              <button className="secondary-button" onClick={() => setWidgetPickerOpen(true)}><Plus size={16} /> Add widget</button>
+              <button className="secondary-button" aria-pressed={customizing} onClick={() => setCustomizing((value) => !value)}><LayoutGrid size={17} />{customizing ? "Done customizing" : "Customize"}</button>
+              <button className="secondary-button add-widget-control" onClick={() => setWidgetPickerOpen(true)}><Plus size={16} /> Add widget</button>
               <div className="menu-wrap">
                 <button className="icon-button" onClick={() => setWorkspaceMenuOpen((open) => !open)} aria-label="Workspace options"><MoreHorizontal size={19} /></button>
                 {workspaceMenuOpen && <div className="popover workspace-menu">
@@ -837,10 +857,10 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               <button className="primary-button" onClick={() => setWidgetPickerOpen(true)}><Plus size={17} /> Browse widgets</button>
             </div>
           ) : (
-            <div className="widget-grid" aria-label={`${activeWorkspace.name} widgets`}>
+            <AnimatedWidgetGrid label={`${activeWorkspace.name} widgets`} layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${activeWorkspace.widgets.map((widget) => `${widget.instanceId}:${widget.size}`).join(",")}`}>
               {activeWorkspace.widgets.map((widget, index) => renderWidget(widget, index))}
               <button className="add-widget-tile" onClick={() => setWidgetPickerOpen(true)}><Plus size={22} /><span>Add widget</span></button>
-            </div>
+            </AnimatedWidgetGrid>
           )}
         </section>
       </div>
@@ -849,7 +869,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
   function renderWidget(widget: WidgetInstance, index: number) {
     const template = widgetTemplates.find((item) => item.type === widget.type)!;
-    const TemplateIcon = template.icon;
+    const TemplateIcon = widget.type === "today" ? BarChart3 : widget.type === "red-alerts" ? Bell : widget.type === "notes" ? FileText : template.icon;
     return (
       <article
         key={widget.instanceId}
@@ -861,7 +881,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       >
         <div className="widget-header">
           <span className={`widget-icon tone-${template.color}`}><TemplateIcon size={16} /></span>
-          <h2>{template.title}</h2>
+          <h2>{({ "daily-goal": "Daily Study Goal", today: "At a Glance", "red-alerts": "Alerts", pomodoro: "Pomodoro", "mini-calendar": "Mini Calendar", "task-completion": "Task Completion", notes: "Quick Notes" } as Record<string, string>)[widget.type] ?? template.title}</h2>
           <button className="drag-handle icon-button mini" aria-label={`Drag ${template.title}`} draggable onDragStart={(event) => { event.dataTransfer?.setData("text/plain", widget.instanceId); setDraggedWidget(widget.instanceId); }} onDragEnd={() => setDraggedWidget(null)}><GripVertical size={16} /></button>
           <div className="menu-wrap">
             <button className="icon-button mini" onClick={() => setOpenWidgetMenu(openWidgetMenu === widget.instanceId ? null : widget.instanceId)} aria-label={`${template.title} options`}><MoreHorizontal size={17} /></button>
@@ -886,13 +906,24 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
   function renderWidgetBody(widget: WidgetInstance) {
     const { type } = widget;
+    if (type === "today") {
+      const time = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+      const classesLeft = courses.filter((c) => (extraData.courseDetails[c.id]?.meetings ?? []).some((m) => today >= m.from && today <= m.until && m.days.includes(new Date(today + "T12:00:00Z").getUTCDay()) && m.end > time)).length;
+      const endOfWeek = addDays(weekStart(today, monday), 6);
+      const weekTasks = assignments.filter((a) => a.status !== "done" && a.dateKey >= today && a.dateKey <= endOfWeek).length;
+      const newFiles = experimentalMode ? 0 : fileStore.files.filter((f) => f.created_at.slice(0, 10) >= weekStart(today, monday)).length;
+      return <div className="glance-rows"><button onClick={() => navigate("dashboard")}><span className="glance-icon green"><GraduationCap size={23} /></span><strong>{classesLeft}</strong><span>classes left</span><ChevronRight size={15} /></button><button onClick={() => navigate("tasks")}><span className="glance-icon purple"><FileText size={21} /></span><strong>{weekTasks}</strong><span>tasks this week</span><ChevronRight size={15} /></button><button onClick={() => navigate("files")}><span className="glance-icon pink"><FolderOpen size={22} /></span><strong>{newFiles}</strong><span>new {newFiles === 1 ? "file" : "files"}</span><ChevronRight size={15} /></button></div>;
+    }
     if (studyWidgetTypes.includes(type)) return <StudyWidget type={type} data={study} stats={stats} courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} now={now.getTime()} system={activeGpaSystem} term={activeTerm} onOpen={() => setStudyOpen(true)} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onTimer={controlTimer} />;
     if (type === "upcoming") return <div className="compact-list">{assignments.filter((item) => item.status !== "done").slice(0, 4).map((assignment) => { const course = courseFor(courses, assignment.courseId); return <button key={assignment.id} className="compact-assignment" onClick={() => setSelectedAssignment(assignment)}><StatusBadge status={assignment.status} compact /><span><strong>{assignment.title}</strong><small>{course.code} · {assignment.due}</small></span><ChevronRight size={15} /></button>; })}</div>;
     if (type === "stoplight") return <div className="stoplight-summary"><button onClick={() => navigate("dashboard")}><span className="stoplight-count red"><AlertOctagon size={17} />{overdueAssignments.length}</span><span><strong>Overdue</strong><small>Needs attention</small></span></button><button onClick={() => navigate("dashboard")}><span className="stoplight-count amber"><Clock3 size={17} />{todayAssignments.length}</span><span><strong>Due today</strong><small>Before midnight</small></span></button><button onClick={() => navigate("dashboard")}><span className="stoplight-count green"><Circle size={17} />{assignments.filter((item) => item.status === "later").length}</span><span><strong>Upcoming</strong><small>After today</small></span></button></div>;
-    if (type === "red-alerts") return <div className="alert-widget"><div className="alert-banner"><AlertOctagon size={18} /><span><strong>{overdueAssignments.length + todayAssignments.length} tasks need attention</strong><small>{overdueAssignments.length} overdue · {todayAssignments.length} due today</small></span></div>{[...overdueAssignments, ...todayAssignments].slice(0, 2).map((assignment) => <button key={assignment.id} onClick={() => setSelectedAssignment(assignment)}><span className={`urgency-line ${assignment.status}`} /><span><strong>{assignment.title}</strong><small>{assignment.due}</small></span><ChevronRight size={15} /></button>)}</div>;
-    if (type === "mini-calendar") return <div className="mini-cal"><div className="mini-cal-month"><strong>{dateLabel(today, { month: "long", year: "numeric" })}</strong></div><div className="mini-days">{Array.from({ length: 7 }, (_, i) => addDays(weekStart(today, profile.week_starts_on === "Monday"), i)).map((date) => <button key={date} className={date === today ? "today" : ""} onClick={() => navigate("calendar")}><small>{dateLabel(date, { weekday: "short" })}</small><strong>{Number(date.slice(-2))}</strong>{(assignments.some((a) => a.dateKey === date) || manualEvents.some((e) => e.dateKey === date)) && <i />}</button>)}</div><button className="text-button" onClick={() => navigate("calendar")}>Open full calendar</button></div>;
+    if (type === "red-alerts") {
+      const next = assignments.find((a) => a.status !== "done" && a.dateKey >= today);
+      return <div className="reference-alerts">{next ? <button className="alert-upcoming" onClick={() => setSelectedAssignment(next)}><AlertOctagon size={22} /><span><strong>{next.title}</strong><small>{courseFor(courses, next.courseId).code} · {next.dateKey === today ? "Today" : next.dateKey === addDays(today, 1) ? "Tomorrow" : next.due}</small></span><ChevronRight size={15} /></button> : <div className="alert-upcoming"><Bell size={22} /><span><strong>No upcoming deadlines</strong><small>You’re all caught up</small></span></div>}<button className="alert-status" onClick={() => navigate("tasks")}><CheckCircle2 size={23} /><span>{overdueAssignments.length ? `${overdueAssignments.length} overdue ${overdueAssignments.length === 1 ? "task" : "tasks"}` : "No overdue work"}</span>{overdueAssignments.length > 0 && <ChevronRight size={15} />}</button></div>;
+    }
+    if (type === "mini-calendar") return <div className="mini-cal"><div className="mini-cal-month"><strong>{dateLabel(addDays(today, miniWeekOffset), { month: "long", year: "numeric" })}</strong><div><button aria-label="Previous week" onClick={() => setMiniWeekOffset((offset) => offset - 7)}><ChevronLeft size={16} /></button><button aria-label="Next week" onClick={() => setMiniWeekOffset((offset) => offset + 7)}><ChevronRight size={16} /></button><button className="mini-today" onClick={() => setMiniWeekOffset(0)}>Today</button></div></div><div className="mini-days">{Array.from({ length: 7 }, (_, i) => addDays(weekStart(today, profile.week_starts_on === "Monday"), i + miniWeekOffset)).map((date) => <button key={date} aria-label={dateLabel(date, { weekday: "long", month: "long", day: "numeric" })} className={date === today ? "today" : ""} onClick={() => navigate("calendar")}><small>{dateLabel(date, { weekday: "short" })}</small><strong>{Number(date.slice(-2))}</strong>{(assignments.some((a) => a.dateKey === date) || manualEvents.some((e) => e.dateKey === date)) && <i />}</button>)}</div></div>;
     if (type === "class-links") return <div className="class-link-grid">{courses.slice(0, 4).map((course) => <button key={course.id} onClick={() => { navigate("dashboard"); setSelectedClass(course); }}><CourseStamp course={course} small /><span><strong>{course.code}</strong><small>{course.name}</small></span><ChevronRight size={14} /></button>)}</div>;
-    if (type === "notes") return <div className="notes-widget"><textarea id={`note-${widget.instanceId}`} aria-label="Quick notes" value={widget.note ?? ""} maxLength={MAX_NOTES_LENGTH} onChange={(event) => updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: event.target.value } : item))} /><div><span>{persistenceStatus === "saved" ? "Saved" : persistenceStatus === "saving" ? "Saving…" : "Not saved"}</span><button disabled={!widget.note} onClick={() => { if (window.confirm("Clear this note's text?")) updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: "" } : item)); }} aria-label="Clear notes"><Trash2 size={14} /></button></div></div>;
+    if (type === "notes") return <div className="notes-widget"><textarea id={`note-${widget.instanceId}`} aria-label="Quick notes" placeholder="Write a quick reminder…" value={widget.note ?? ""} maxLength={MAX_NOTES_LENGTH} onChange={(event) => updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: event.target.value } : item))} /><div className="reference-note-footer"><span className="note-label"><FileText size={13} /> Quick note</span><button className="clear-note" disabled={!widget.note} onClick={() => { if (window.confirm("Clear this note's text?")) updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: "" } : item)); }} aria-label="Clear notes"><Trash2 size={13} /></button><button className="primary-button save-note" disabled={persistenceStatus === "saving"} onClick={() => experimentalMode ? flash("Preview note updated — nothing saved to your account") : void autosave.flush()}><Save size={14} />{persistenceStatus === "saving" ? "Saving…" : "Save note"}</button></div></div>;
     if (type === "quote") return <div className="quote-widget"><QuoteIcon size={24} /><blockquote>Small, focused steps turn heavy weeks into manageable days.</blockquote><span>— Your Edu AI reminder</span></div>;
     return <div className="spacer-widget"><span>Spacer</span><p>This tile creates breathing room. Resize it to shape your layout.</p></div>;
   }

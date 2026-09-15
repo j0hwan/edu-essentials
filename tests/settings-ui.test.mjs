@@ -240,6 +240,44 @@ async function saveAndReload() {
 }
 const cards = () => [...rootNode.querySelectorAll(".widget-card")];
 
+test("sidebar collapse keeps accessible navigation, persists locally and does not save account data", async () => {
+  window.localStorage.removeItem("edu-sidebar-collapsed");
+  reset(); const server = installWorkspaceServer();
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    assert.equal(rootNode.querySelector(".topbar-avatar"), null);
+    await clickAria("Collapse sidebar");
+    assert.ok(rootNode.querySelector(".app-shell.sidebar-collapsed"));
+    assert.equal(rootNode.querySelector(".sidebar-toggle").getAttribute("aria-expanded"), "false");
+    assert.equal(window.localStorage.getItem("edu-sidebar-collapsed"), "true");
+    for (const label of ["Home", "Courses", "Calendar", "Tasks", "Files", "Settings"]) {
+      assert.ok(rootNode.querySelector(`.sidebar a[aria-label="${label}"][title="${label}"]`));
+    }
+    await click("Tasks");
+    assert.equal(window.location.pathname, "/tasks");
+    assert.ok(rootNode.querySelector(".app-shell.sidebar-collapsed"));
+    await unmount(); reset(); await render(Workspace, { initialProfile: baseProfile });
+    assert.ok(rootNode.querySelector(".app-shell.sidebar-collapsed"));
+    await clickAria("Expand sidebar");
+    assert.equal(rootNode.querySelector(".app-shell.sidebar-collapsed"), null);
+    assert.equal(window.localStorage.getItem("edu-sidebar-collapsed"), "false");
+    assert.equal(server.writes, 0);
+  } finally { if (root) await unmount(); window.localStorage.removeItem("edu-sidebar-collapsed"); }
+});
+
+test("sidebar toggle works when browser storage is blocked", async () => {
+  const storageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+  Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("Storage blocked"); } });
+  reset(); installWorkspaceServer();
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await clickAria("Collapse sidebar");
+    assert.ok(rootNode.querySelector(".app-shell.sidebar-collapsed"));
+    await clickAria("Expand sidebar");
+    assert.equal(rootNode.querySelector(".app-shell.sidebar-collapsed"), null);
+  } finally { if (root) await unmount(); Object.defineProperty(window, "localStorage", storageDescriptor); }
+});
+
 const sampleCourse = { id: "history", code: "HIST 205", name: "History", credits: 3, instructor: "Teacher", room: "Hall", color: "#112233", soft: "#11223318", initials: "HI" };
 test("experimental mode previews each schedule without saving and restores the real workspace", async () => {
   reset(); const server = installWorkspaceServer(savedDashboard, []);
@@ -248,7 +286,7 @@ test("experimental mode previews each schedule without saving and restores the r
     await clickAria("Experimental mode"); await clickAria("Load Clear experimental data");
     assert.match(rootNode.textContent, /Clear experimental mode/);
     assert.equal(rootNode.querySelector(".nav-count").textContent, "0");
-    assert.match(rootNode.textContent, /No overdue or due-today tasks/);
+    assert.match(rootNode.textContent, /Nothing due today/);
     assert.match(rootNode.textContent, /No events yet/);
     assert.equal(server.writes, 0); assert.equal(unloadBlocked(), false);
 
@@ -319,12 +357,12 @@ test("study controls persist targets, timers, history and grades", async (t) => 
     await render(Workspace, { initialProfile: profile });
     assert.match(rootNode.querySelector(".widget-daily-goal").textContent, /1h 00m.*2h 00m.*50%/);
     assert.match(rootNode.querySelector(".widget-weekly-goal").textContent, /1h 00m.*4h 00m.*25%/);
-    assert.match(rootNode.querySelector(".widget-task-completion").textContent, /1of 3 tasks/);
+    assert.match(rootNode.querySelector(".widget-task-completion").textContent, /1 of 3 complete33%/);
     assert.match(rootNode.querySelector(".widget-assignment-pie").textContent, /2open.*HIST 205.*1.*Personal.*1/);
     assert.match(rootNode.querySelector(".widget-gpa").textContent, /3.50/); assert.match(rootNode.querySelector(".widget-streak").textContent, /2 days.*Longest: 2/);
     assert.match(rootNode.querySelector(".widget-exams").textContent, /Actual exam.*1 days.*Calendar exam.*2 days/);
-    assert.match(rootNode.querySelector(".widget-today").textContent, /Actual essay/); assert.equal(rootNode.querySelector(".nav-count").textContent, "1");
-    await click("Dashboard"); assert.match(rootNode.querySelector(".summary-strip").textContent, /1Completed this week.*25%/);
+    assert.match(rootNode.querySelector(".widget-today").textContent, /2tasks this week/); assert.equal(rootNode.querySelector(".nav-count").textContent, "1");
+    await click("Courses"); assert.match(rootNode.querySelector(".summary-strip").textContent, /1Completed this week.*25%/);
     await act(async () => rootNode.querySelector(".class-card").click()); assert.match(rootNode.querySelector('[aria-label="Class details"]').textContent, /2h 00m recorded study · 1 \/ 2 assignments complete.*Grade: 3.50 \/ 4/);
   });
   await t.test("grades create, edit, change scale and delete with account reloads", async () => {
@@ -347,7 +385,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     const initial = { ...savedDashboard, d: { ...savedDashboard.d, assignments: ["First", "Second"].map((title) => ({ id: title, title, courseId: "", dateKey: "", due: "Invalid Date", status: "later", progress: 0, description: "Keep this description", weight: "" })), manualEvents: [{ id: "legacy", title: "Old noon event", courseId: "math", dateKey: "2026-10-15", time: "12:00 PM", type: "Study block" }] } };
     const server = installWorkspaceServer(initial); await render(Workspace, { initialProfile: baseProfile });
     assert.equal(server.writes, 0); assert.equal(unloadBlocked(), true);
-    await click("Dashboard");
+    await click("Courses");
     for (const title of ["First", "Second"]) {
       const row = [...rootNode.querySelectorAll(".assignment-row")].find((node) => node.textContent.includes(title));
       await act(async () => row.click()); await click("Edit assignment"); await edit("Due date", "2026-10-15"); await click("Save assignment");
@@ -372,12 +410,12 @@ test("academic forms, syllabus review and calendar save complete account snapsho
   });
 
   await t.test("class fields and schedule survive a failed save, retry, edit, and reload", async () => {
-    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await click("Add class"); await click("Manual entry");
+    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Courses"); await click("Add class"); await click("Manual entry");
     for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location / meeting notes": "Lab 4", "Office hours": "Friday by appointment" })) await edit(key, value);
     await click("Add meeting"); await edit("First date", "2026-09-01"); await edit("Last date", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
     assert.equal(unloadBlocked(), true); await click("Save class");
     server.offline = true; await click("Save now"); assert.match(rootNode.textContent, /Offline/); assert.equal(server.courses.length, 0);
-    server.offline = false; await click("Retry save"); await saveAndReload(); await click("Dashboard");
+    server.offline = false; await click("Retry save"); await saveAndReload(); await click("Courses");
     assert.equal(server.courses.length, 1); const course = server.courses[0]; assert.equal(course.credits, 4); assert.equal(course.room, "Lab 4");
     assert.equal(server.dashboard.d.courseDetails[course.id].meetings[0].location, "Garden");
     await act(async () => rootNode.querySelector(".class-card").click()); await click("Edit class");
@@ -386,14 +424,14 @@ test("academic forms, syllabus review and calendar save complete account snapsho
   });
 
   await t.test("assignment fields, checklist, completion/reopening and deletion persist", async () => {
-    reset(); const server = installWorkspaceServer(savedDashboard, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await click("Add assignment");
+    reset(); const server = installWorkspaceServer(savedDashboard, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Courses"); await click("Add assignment");
     await edit("Assignment title", "Archival essay"); await edit("Class", "history"); await edit("Due date", "2026-10-15"); await edit("Due time", "17:00"); await edit("Type", "Project"); await edit("Description", "Use primary sources"); await edit("Weight", "25%"); await edit("Assignment notes", "Outline ready"); await edit("Progress", "37"); await edit("Review instructions", true); await click("Save assignment");
     await saveAndReload(); let a = server.dashboard.d.assignments[0]; assert.equal(a.type, "Project"); assert.equal(a.dueTime, "17:00"); assert.equal(a.notes, "Outline ready"); assert.deepEqual(a.checklist, [true, false, false]);
-    await click("Dashboard"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark complete"); await click("Close assignment"); await saveAndReload();
+    await click("Courses"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark complete"); await click("Close assignment"); await saveAndReload();
     a = server.dashboard.d.assignments[0]; assert.equal(a.progress, 100); assert.ok(a.completedAt); assert.equal(a.progressBeforeCompletion, 37);
-    await click("Dashboard"); await click("View every assignment"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark incomplete"); await click("Close assignment"); await saveAndReload();
+    await click("Courses"); await click("View every assignment"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark incomplete"); await click("Close assignment"); await saveAndReload();
     assert.equal(server.dashboard.d.assignments[0].progress, 37); assert.equal(server.dashboard.d.assignments[0].completedAt, null);
-    await click("Dashboard"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Delete assignment"); await saveAndReload(); assert.equal(server.dashboard.d.assignments.length, 0);
+    await click("Courses"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Delete assignment"); await saveAndReload(); assert.equal(server.dashboard.d.assignments.length, 0);
   });
 
   await t.test("calendar event CRUD, all views, week start and filters share saved data", async () => {
@@ -414,11 +452,11 @@ test("academic forms, syllabus review and calendar save complete account snapsho
   });
 
   await t.test("syllabus source and edited review resume, then approve exactly once after a lost response", async () => {
-    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await click("Import syllabus");
+    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Courses"); await click("Import syllabus");
     await edit("Syllabus text", "HIST 222\nEssay - 2026-10-15\nMidterm exam - 2026-11-03\nRead chapter 1 in September."); await edit("Course code", "HIST 222"); await edit("Class name", "Local history"); await click("Suggest dated items");
     assert.equal(rootNode.querySelectorAll(".meeting-editor").length, 2); await edit("Item title", "Reviewed essay"); await edit("Item weight", "20%");
     await click("Close review"); await saveAndReload(); assert.equal(server.courses.length, 0); assert.equal(server.dashboard.d.assignments.length, 0);
-    await click("Dashboard"); await click("Resume HIST 222"); assert.equal(field("Item title").value, "Reviewed essay"); assert.match(field("Syllabus text").value, /Read chapter/);
+    await click("Courses"); await click("Resume HIST 222"); assert.equal(field("Item title").value, "Reviewed essay"); assert.match(field("Syllabus text").value, /Read chapter/);
     await click("Approve class and items"); server.loseResponse = true; await click("Save now"); assert.match(rootNode.textContent, /Response lost/);
     await click("Retry save"); await saveAndReload(); assert.equal(server.courses.length, 1); assert.equal(server.dashboard.d.assignments.length, 2); assert.equal(server.dashboard.d.syllabusDrafts.length, 0);
     assert.equal(server.dashboard.d.assignments[1].type, "Exam"); assert.equal(server.dashboard.d.assignments[0].weight, "20%"); assert.match(Object.values(server.dashboard.d.courseDetails)[0].syllabusText, /Read chapter/);
@@ -426,7 +464,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
 
   await t.test("removing a class clears its assignments and schedule but retains personal events", async () => {
     reset(); const initial = { ...savedDashboard, d: { ...savedDashboard.d, calendarFilter: "history", assignments: [{ id: "a", courseId: "history", title: "Essay", dateKey: "2026-10-15", due: "", status: "later", progress: 0, description: "", weight: "" }], manualEvents: [{ id: "e", courseId: "history", title: "Keep event", dateKey: "2026-10-15", time: "", type: "Personal" }], courseDetails: { history: { officeHours: "Mondays", meetings: [] } } } };
-    const server = installWorkspaceServer(initial, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await act(async () => rootNode.querySelector(".class-card").click()); await click("Remove class"); await saveAndReload();
+    const server = installWorkspaceServer(initial, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Courses"); await act(async () => rootNode.querySelector(".class-card").click()); await click("Remove class"); await saveAndReload();
     assert.equal(server.courses.length, 0); assert.equal(server.dashboard.d.assignments.length, 0); assert.deepEqual(server.dashboard.d.courseDetails, {});
     assert.equal(server.dashboard.d.manualEvents[0].courseId, ""); assert.equal(server.dashboard.d.calendarFilter, "all");
   });
