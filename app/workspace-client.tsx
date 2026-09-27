@@ -70,6 +70,7 @@ import { dayKey, dateLabel, addDays, weekStart, assignmentStatus, legacyEventTim
 import { experimentalData, type ExperimentalDensity } from "../lib/experimental-data";
 import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
 import ProfileEditor from "./profile-editor";
+import AcademicAssistant from "./academic-assistant";
 import type { Profile } from "../lib/profile";
 import "./auth.css";
 import "./reference-ui.css";
@@ -85,7 +86,7 @@ import {
   type Workspace,
 } from "../lib/workspace-codec";
 
-type PageId = "home" | "dashboard" | "calendar" | "tasks" | "search" | "files" | "settings";
+type PageId = "home" | "dashboard" | "calendar" | "tasks" | "search" | "files" | "settings" | "assistant";
 type Stoplight = "overdue" | "today" | "later" | "done";
 
 type Assignment = SavedAssignment;
@@ -105,9 +106,10 @@ const navItems: { id: PageId; label: string; icon: typeof House }[] = [
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "tasks", label: "Tasks", icon: CheckCircle2 },
   { id: "files", label: "Files", icon: FolderOpen },
+  { id: "assistant", label: "Ask Edu", icon: MessageSquare },
 ];
 
-const pageIds = new Set<PageId>(["home", "dashboard", "calendar", "tasks", "search", "files", "settings"]);
+const pageIds = new Set<PageId>(["home", "dashboard", "calendar", "tasks", "search", "files", "settings", "assistant"]);
 
 function pageFromPathname(pathname: string): PageId {
   const segment = pathname.split("/").filter(Boolean)[0] as PageId | undefined;
@@ -222,7 +224,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useEffect(() => {
-    try { setSidebarCollapsed(window.localStorage.getItem("edu-sidebar-collapsed") === "true"); }
+    try { const collapsed = window.localStorage.getItem("edu-sidebar-collapsed") === "true"; queueMicrotask(() => setSidebarCollapsed(collapsed)); }
     catch { /* Navigation still works when browser storage is unavailable. */ }
   }, []);
   const toggleSidebar = () => {
@@ -250,6 +252,8 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
   const [draggedWidget, setDraggedWidget] = useState<string | null>(null);
   const [studyOpen, setStudyOpen] = useState(false);
+  const [aiApplying, setAiApplying] = useState(false);
+  const aiApplyLock = useRef(false);
   const [notes, setNotes] = useState("");
   const noteFocusRef = useRef<string | null>(null);
   const [dashboardView, setDashboardView] = useState<"cards" | "list">("cards");
@@ -322,7 +326,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     // same account snapshot. Ticks alone never cause database writes.
     const tick = () => {
       const time = new Date(); setNow(time);
-      if (saveState.ready) setExtraData((current) => { const next = settleTimer(current.study, time.getTime()); return next === current.study ? current : { ...current, study: next }; });
+      if (saveState.ready && !aiApplyLock.current) setExtraData((current) => { const next = settleTimer(current.study, time.getTime()); return next === current.study ? current : { ...current, study: next }; });
     };
     const interval = setInterval(tick, 1000);
     window.addEventListener("focus", tick); document.addEventListener("visibilitychange", tick);
@@ -397,6 +401,25 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     if (persistenceStatus === "saving" || profileSaving) return;
     if ((saveState.dirty || profilePending) && !window.confirm("Replace unsaved workspace and settings edits with saved data? Download your unsaved work first to keep a copy.")) return;
     setReloadAttempt((attempt) => attempt + 1);
+  };
+
+  const prepareAssistant = async () => {
+    if (experimentalMode || profilePending || editor || syllabusId || fileStore.busy) throw new Error("Save and close pending editors before asking the assistant.");
+    await autosave.flush();
+    const current = autosave.getSnapshot();
+    if (!current.ready || current.dirty || current.status !== "saved") throw new Error("Wait for saving to finish, or resolve the workspace save message first.");
+  };
+  const applyAssistant = async (id: string) => {
+    if (aiApplyLock.current) return;
+    await prepareAssistant();
+    aiApplyLock.current = true; setAiApplying(true);
+    try {
+      const response = await accountFetch("/api/ai/proposals", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "apply" }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "The changes could not be applied.");
+      // Stop the old writer before hydration. Other tabs receive ordinary 409 conflicts.
+      autosave.loading(); setReloadAttempt((n) => n + 1);
+    } finally { aiApplyLock.current = false; setAiApplying(false); }
   };
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
@@ -669,7 +692,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           <input
             ref={topSearchRef}
             aria-label="Search assignments, classes, and files"
-            placeholder="Ask EduEssentials or search…"
+            placeholder="Search your workspace…"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             onKeyDown={(event) => { if (event.key === "Enter") navigate("search"); }}
@@ -714,6 +737,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         {saveState.ready && page === "calendar" && renderCalendar()}
         {saveState.ready && page === "search" && renderSearch()}
         {saveState.ready && page === "files" && renderFiles()}
+        {page === "assistant" && <AcademicAssistant profileId={initialProfile.id} prepare={prepareAssistant} apply={applyAssistant} experimental={!!experimentalMode} />}
         {saveState.ready && <div key={reloadAttempt} hidden={page !== "settings"}>{renderSettings()}</div>}
       </main>
 
@@ -726,6 +750,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       </nav>
 
       {children}
+      {aiApplying && <div className="assistant-apply-overlay" role="status">Applying your reviewed changes…</div>}
       {studyOpen && <StudyPanel data={study} courses={courses} system={activeGpaSystem} term={activeTerm} studyGoal={profile.study_goal} timezone={profile.timezone} now={now.getTime()} onChange={commitStudy} onTimer={controlTimer} onClose={() => setStudyOpen(false)} />}
       {widgetPickerOpen && renderWidgetPicker()}
       {workspaceDialog && renderWorkspaceDialog()}
@@ -783,7 +808,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           <div className="today-panel-grid">
             <section className="today-panel-section today-next-class" aria-labelledby="next-class-title">
               <div className="today-section-heading"><span className="today-heading-icon"><GraduationCap /></span><h2 id="next-class-title">Next Class</h2></div>
-              <div className="next-class-content">{nextClass ? <button onClick={() => setSelectedClass(nextClass.course)}><div className="next-class-title"><strong>{nextClass.course.name}</strong><small>{nextClass.meeting.start <= localTime ? "Now" : "Today"}</small></div><p>{timeLabel(nextClass.meeting.start)}　|　{nextClass.course.code} · {nextClass.meeting.location || nextClass.course.room}</p></button> : <><strong>No more classes today</strong><p>Enjoy a little breathing room.</p></>}</div>
+              <div className="next-class-content">{nextClass ? <button onClick={() => setSelectedClass(nextClass.course)}><div className="next-class-title"><strong>{nextClass.course.name}</strong><small>{nextClass.meeting.start <= localTime ? "Now" : "Today"}</small></div><p>{timeLabel(nextClass.meeting.start)} | {nextClass.course.code} · {nextClass.meeting.location || nextClass.course.room}</p></button> : <><strong>No more classes today</strong><p>Enjoy a little breathing room.</p></>}</div>
             </section>
             <section className="today-panel-section" aria-labelledby="today-tasks-title">
               <div className="today-section-heading">

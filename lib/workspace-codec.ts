@@ -57,7 +57,7 @@ export type SavedAssignment = {
   notes?: string; checklist?: boolean[];
   type?: "Assignment" | "Exam" | "Project"; dueTime?: string; completedAt?: string | null; progressBeforeCompletion?: number;
 };
-export type SavedEvent = { id: string; title: string; courseId: string; dateKey: string; time: string; type: string; description?: string };
+export type SavedEvent = { id: string; title: string; courseId: string; dateKey: string; time: string; type: string; description?: string; durationMinutes?: number };
 export type WorkspaceData = {
   assignments: SavedAssignment[]; manualEvents: SavedEvent[];
   dashboardView: "cards" | "list"; calendarView: "month" | "week" | "day";
@@ -230,6 +230,7 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
     if (!isRecord(item)) throw new Error("Invalid calendar event.");
     for (const key of ["id", "title", "courseId", "dateKey", "time", "type"]) bounded(item, key);
     if (!item.id || !item.title) throw new Error("Invalid calendar event.");
+    if (item.durationMinutes !== undefined && (!Number.isInteger(item.durationMinutes) || Number(item.durationMinutes) < 1 || Number(item.durationMinutes) > 1440)) throw new Error("Invalid event duration.");
   }
   if (JSON.stringify(value).length > 500000) throw new Error("Workspace data is too large.");
   for (const items of [value.assignments, value.manualEvents]) {

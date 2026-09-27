@@ -6,7 +6,7 @@ async function read(path, key = secret) {
   return { status: response.status, body: await response.json() };
 }
 const schema = await read("/rest/v1/");
-const tables = ["app_profiles", "courses", "dashboard_state", "user_files"];
+const tables = ["app_profiles", "courses", "dashboard_state", "user_files", "ai_access", "ai_conversations", "ai_messages", "ai_proposals", "ai_sources", "ai_chunks", "ai_budget", "ai_metrics"];
 const report = { schemaStatus: schema.status, tables: {}, functions: Object.keys(schema.body.paths ?? {}).filter((path) => path.startsWith("/rpc/")) };
 for (const table of tables) {
   const definition = schema.body.definitions?.[table];

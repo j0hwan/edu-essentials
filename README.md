@@ -2,6 +2,13 @@
 
 A student workspace built with React, Vinext, Cloudflare Workers, and Supabase.
 
+## Academic AI pilot
+
+See [ACADEMIC_AI.md](ACADEMIC_AI.md) for the implemented assistant, model selection,
+usage-based cost estimates, AI migrations, server configuration, evaluation commands,
+and production release gates. Free Gemini testing is limited to explicitly enabled
+adults with fictional-data accounts. AI is disabled by default.
+
 ## Local development
 
 Requires Node.js 22.13 or later.

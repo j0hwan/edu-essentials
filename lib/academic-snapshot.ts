@@ -39,6 +39,7 @@ function buildSnapshot(courses: unknown, dashboard: unknown, unchanged?: Workspa
     }
     for (const e of data.manualEvents) {
       owned(e.courseId);
+      if (e.durationMinutes !== undefined && (!e.time || Number(e.time.slice(0, 2)) * 60 + Number(e.time.slice(3)) + e.durationMinutes > 1440)) throw new Error("Timed events must end on the same day.");
       if (unchanged && JSON.stringify(e) === JSON.stringify(unchanged.manualEvents.find((old) => old.id === e.id))) continue;
       if (!e.title.trim() || !isDate(e.dateKey) || (e.time && !isTime(e.time)) || !eventTypes.includes(e.type as typeof eventTypes[number]) || (e.description !== undefined && (typeof e.description !== "string" || e.description.length > 20000))) throw new Error(`Set valid event details for ${e.title}.`);
     }
