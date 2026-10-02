@@ -401,8 +401,8 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     const initial = { ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { history: { officeHours: "", meetings: [{ id: "m", days: [1, 3], start: "09:30", end: "11:00", from: "2026-10-01", until: "2026-10-31", location: "Hall 2" }] } } } };
     installWorkspaceServer(initial, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Calendar");
     await edit("Go to date", "2026-10-05");
-    assert.match(rootNode.querySelector('[aria-label="2026-10-05"]').textContent, /09:30.*HIST 205 class.*Hall 2/);
-    assert.ok(!rootNode.querySelector('[aria-label="2026-10-06"]').textContent.includes("HIST 205 class"));
+    assert.match(rootNode.querySelector('[aria-label="2026-10-05"]').textContent, /History.*9:30 AM.*11:00 AM.*HIST 205.*Hall 2/);
+    assert.ok(!rootNode.querySelector('[aria-label="2026-10-06"]').textContent.includes("HIST 205"));
     await click("Week"); assert.equal(rootNode.querySelectorAll(".calendar-chip").length, 2);
     await click("Day"); assert.equal(rootNode.querySelectorAll(".calendar-chip").length, 1);
     await act(async () => rootNode.querySelector(".calendar-chip").click()); assert.match(rootNode.querySelector('[aria-label="Class details"]').textContent, /Hall 2/);
@@ -439,7 +439,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     const server = installWorkspaceServer(savedDashboard, [sampleCourse], profile); await render(Workspace, { initialProfile: profile }); await click("Calendar"); await click("Add event");
     await edit("Event name", "Personal appointment"); await edit("Event date", "2026-10-15"); await edit("Time", "15:45"); await edit("Description", "Bring notes"); await click("Save event"); await saveAndReload(); await click("Calendar");
     assert.equal(server.dashboard.d.manualEvents[0].courseId, "");
-    await edit("Go to date", "2026-10-15"); assert.equal(rootNode.querySelector(".calendar-weekdays span").textContent, "Mon");
+    await edit("Go to date", "2026-10-15"); await click("Month"); assert.equal(rootNode.querySelector(".calendar-weekdays span").textContent, "Mon");
     assert.match(rootNode.querySelector(".academic-calendar").textContent, /Personal appointment/);
     await click("Week"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 7); assert.match(rootNode.querySelector(".academic-calendar").textContent, /Personal appointment/);
     await click("Day"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 1);
@@ -447,7 +447,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.equal(field("Description").value, "Bring notes"); await edit("Event name", "Revised appointment"); await click("Save event");
     await edit("Class filter", "history"); assert.ok(!rootNode.querySelector(".academic-calendar").textContent.includes("Revised appointment"));
     await edit("Class filter", "personal"); await saveAndReload(); await click("Calendar");
-    assert.equal(field("Class filter").value, "personal"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 1);
+    assert.equal(field("Class filter").value, "personal"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 7);
     await edit("Go to date", "2026-10-15"); await act(async () => rootNode.querySelector(".calendar-chip").click()); await click("Delete event"); await saveAndReload(); assert.equal(server.dashboard.d.manualEvents.length, 0);
   });
 

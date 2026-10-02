@@ -573,7 +573,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     return accepted;
   };
   const newAssignment = () => setEditor({ assignment: { id: uid("assignment"), title: "", courseId: "", due: "", dateKey: today, dueTime: "", type: "Assignment", status: "later", progress: 0, description: "", weight: "", notes: "", checklist: [false, false, false] } });
-  const newEvent = () => setEditor({ event: { id: uid("event"), title: "", courseId: "", dateKey: today, time: "", type: "Personal", description: "" } });
+  const newEvent = (date = today) => setEditor({ event: { id: uid("event"), title: "", courseId: "", dateKey: date, time: "", type: "Personal", description: "" } });
   const newReview = () => createReview();
   const createReview = (file?: PrivateFile, sourceText = "") => {
     const draft: SyllabusDraft = { id: uid("review"), sourceText, sourceName: file?.name ?? "", ...(file ? { sourceFileId: file.id } : {}), course: emptyCourse(uid("course")), items: [] };
@@ -980,7 +980,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   }
 
   function renderCalendar() {
-    return <AcademicCalendar courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} monday={profile.week_starts_on === "Monday"} timezone={profile.timezone} view={calendarView} filter={calendarFilter} onView={setCalendarView} onFilter={setCalendarFilter} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onAdd={newEvent} />;
+    return <AcademicCalendar courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} monday={profile.week_starts_on === "Monday"} timezone={profile.timezone} filter={calendarFilter} onView={setCalendarView} onFilter={setCalendarFilter} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onAdd={newEvent} />;
   }
 
   function renderSearch() {
