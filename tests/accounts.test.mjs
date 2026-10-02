@@ -78,6 +78,15 @@ const dbStub = moduleUrl('export const getSupabaseAdmin = () => globalThis.__acc
 const authUrl = await compile("lib/auth.ts", { "@supabase/ssr": sdk, "next/headers": cookieStub, "./supabase-server": dbStub, "./auth-policy": policyUrl, "./profile": profileUrl });
 const workspace = await import(await compile("app/api/workspace/route.ts", { "../../../lib/auth": authUrl, "../../../lib/academic-snapshot": await clientModule("lib/academic-snapshot.ts"), "../../../lib/supabase-server": dbStub, "../../../lib/persistence-request": requestUrl }));
 const profileApi = await import(await compile("app/api/profile/route.ts", { "../../../lib/auth": authUrl, "../../../lib/profile": profileUrl, "../../../lib/supabase-server": dbStub, "../../../lib/persistence-request": requestUrl }));
+const aiApi = await import(await compile("lib/ai/server.ts", {
+  zod: import.meta.resolve("zod"), "../auth": authUrl, "../persistence-request": requestUrl, "../supabase-server": dbStub,
+  "../workspace-server": moduleUrl('export const readAcademicWorkspace = () => { throw new Error("Unauthorized context read"); };'),
+  "../academic-snapshot": await clientModule("lib/academic-snapshot.ts"),
+  "./config": moduleUrl('export const aiConfig = () => ({enabled:true,apiKey:"fictional",allowlist:["profile-a"],mode:"synthetic"});'),
+  "./contracts": await clientModule("lib/ai/contracts.ts"), "./provider": await clientModule("lib/ai/provider.ts"),
+  "./runner": await clientModule("lib/ai/runner.ts"), "./academic-tools": await clientModule("lib/ai/academic-tools.ts"),
+  "./retrieval": moduleUrl('export const searchAcademicDocuments = () => { throw new Error("Unauthorized document search"); };'),
+}));
 const origin = "https://edu.example";
 function reset() {
   state.user = { id: "user-a", email: "alex@example.com", app_metadata: { provider: "google" } };
@@ -85,6 +94,19 @@ function reset() {
   state.authError = null; state.calls = [];
 }
 function request(method, body, path = "/api/workspace") { return new Request(origin + path, { method, headers: { origin, "content-type": "application/json", cookie: "eduessentials_profile=profile-b" }, ...(body ? { body: JSON.stringify({ baseRevision: revision, ...body }) } : {}) }); }
+
+test("AI endpoints enforce authentication, same-origin writes, account scope and consent before context access", async () => {
+  reset(); state.user = null;
+  assert.equal((await aiApi.aiRoute(request("GET"), "conversations")).status, 401);
+  reset();
+  assert.equal((await aiApi.aiRoute(new Request(origin + "/api/ai/messages", { method: "POST", headers: { origin: "https://attacker.invalid" } }), "messages")).status, 403);
+  assert.equal((await aiApi.aiRoute(new Request(origin + "/api/ai/conversations", { headers: { "x-profile-id": "profile-b" } }), "conversations")).status, 401);
+  state.profile.age = 17;
+  assert.equal((await aiApi.aiRoute(request("GET"), "conversations")).status, 403);
+  state.profile.age = 20;
+  assert.equal((await aiApi.aiRoute(request("GET"), "conversations")).status, 403);
+  assert.ok(!state.calls.some(c => ["ai_messages", "ai_proposals", "ai_chunks"].includes(c.table)));
+});
 
 test("workspace API rejects unverified users even without middleware", async () => {
   for (const user of [null, { id: "user-a", app_metadata: { provider: "email" } }]) {

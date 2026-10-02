@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     const { data, error } = await getSupabaseAdmin().rpc("export_account", { p_profile_id: profile.id, p_auth_user_id: profile.auth_user_id }); if (error) throw error;
     const files = data.files as PrivateFile[];
     if (files.some((f) => f.state !== "ready")) return fileJson({ error: "Finish or remove pending uploads/deletions before exporting the complete account." }, 409);
-    const manifest = { format: "eduessentials-account-v1", exportedAt: new Date().toISOString(), profile: data.profile, courses: data.courses, workspace: data.workspace, files: files.map((f) => ({ ...f, archivePath: `files/${f.id}/${archiveName(f.name)}` })) };
+    const manifest = { format: "eduessentials-account-v1", exportedAt: new Date().toISOString(), profile: data.profile, courses: data.courses, workspace: data.workspace, assistant: data.assistant ?? null, files: files.map((f) => ({ ...f, archivePath: `files/${f.id}/${archiveName(f.name)}` })) };
     return new Response(zipStream([{ name: "account.json", bytes: async () => new TextEncoder().encode(JSON.stringify(manifest, null, 2)) }, ...manifest.files.map((file) => ({ name: file.archivePath, bytes: async () => {
       const result = await privateStorage().download(objectPath(profile.id, file.id)); if (result.error || !result.data) throw new Error("A file changed during export. Retry the complete download.");
       const bytes = new Uint8Array(await result.data.arrayBuffer());

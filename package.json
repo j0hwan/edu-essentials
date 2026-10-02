@@ -11,7 +11,11 @@
     "start": "vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "ai:test": "node --test tests/ai*.test.mjs",
+    "ai:verify": "node --env-file=.env scripts/verify-gemini.mjs",
+    "ai:eval": "node --env-file=.env scripts/evaluate-ai.mjs",
+    "ai:worker:check": "wrangler deploy --dry-run --config worker/ai-ingestion.wrangler.jsonc --outdir .wrangler/ai-build"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.5",
@@ -19,12 +23,15 @@
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.31.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "unpdf": "^1.8.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
     "@cloudflare/workers-types": "^4.20260702.1",
     "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-pgvector": "^0.0.9",
     "@eslint/js": "9.39.4",
     "@next/eslint-plugin-next": "16.2.6",
     "@tailwindcss/postcss": "4.2.1",

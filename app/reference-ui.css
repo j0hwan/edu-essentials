@@ -1,9 +1,9 @@
 /* Screenshot reference: midnight-blue workspace, compact cards, luminous indigo controls. */
 .reference-ui {
-  /* One bounded, rem-aware scale drives text, controls, and geometry together. */
-  --ui-unit: clamp(0.0625rem, calc(100vw / 1440), 0.09375rem);
+  /* Keep desktop density consistent across monitors while respecting text preferences. */
+  --ui-unit: 0.0703125rem;
   --sidebar-width: calc(210 * var(--ui-unit));
-  --page-gutter: clamp(calc(14 * var(--ui-unit)), 1.4vw, calc(24 * var(--ui-unit)));
+  --page-gutter: calc(20 * var(--ui-unit));
   --content-offset: calc(calc(8 * var(--ui-unit)) + var(--sidebar-width) + var(--page-gutter));
   --layout-gap: calc(12 * var(--ui-unit));
   --canvas: #061222;
@@ -73,7 +73,7 @@
 .reference-ui .topbar-actions { grid-column: 3; justify-self: end; margin-left: 0; }
 .reference-ui .topbar-icon { background: none; border: none; color: #b9cbed; }
 .reference-ui .main-content { margin-left: var(--content-offset); min-width: 0; min-height: calc(100svh - calc(70 * var(--ui-unit))); padding: 0 var(--page-gutter) var(--page-gutter) 0; container: workspace / inline-size; }
-.reference-ui .page { width: min(100%, calc(1280 * var(--ui-unit))); padding: calc(20 * var(--ui-unit)) 0; max-width: none; }
+.reference-ui .page { width: 100%; margin: 0; padding: calc(20 * var(--ui-unit)) 0; max-width: none; }
 .reference-ui .home-page { padding: calc(6 * var(--ui-unit)) 0 0; }
 .reference-ui .save-bar-quiet { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); border: 0; }
 .reference-ui .experimental-banner { font-size: calc(12 * var(--ui-unit)); margin: calc(5 * var(--ui-unit)) 0; padding: calc(5 * var(--ui-unit)) calc(10 * var(--ui-unit)); }
@@ -242,6 +242,8 @@
   .reference-ui .today-panel-section { padding-inline: calc(12 * var(--ui-unit)); }
 }
 @media (min-width: 821px) {
+  /* Compact page contents independently of the sidebar and outer gutters. */
+  .reference-ui .page { --ui-unit: 0.06640625rem; --layout-gap: calc(12 * var(--ui-unit)); font-size: calc(14 * var(--ui-unit)); }
   .reference-ui.sidebar-collapsed { --sidebar-width: calc(64 * var(--ui-unit)); }
   .reference-ui .sidebar { transform: none; }
   .reference-ui .sidebar-close { display: none !important; }
@@ -261,7 +263,7 @@
 }
 /* Keep the drawer breakpoint aligned with the existing mobile navigation. */
 @media (max-width: 820px) {
-  .reference-ui { --content-offset: 0px; }
+  .reference-ui { --ui-unit: 0.0625rem; --content-offset: 0px; }
   .reference-ui .sidebar { width: calc(220 * var(--ui-unit)); inset: calc(8 * var(--ui-unit)) auto calc(8 * var(--ui-unit)) calc(8 * var(--ui-unit)); transform: translateX(calc(-240 * var(--ui-unit))); }
   .reference-ui .sidebar.open { transform: translateX(0); }
   .reference-ui .sidebar-toggle { display: none; }

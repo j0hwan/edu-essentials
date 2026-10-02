@@ -18,6 +18,7 @@ test("calendar time formatting handles midnight, noon and partial hours", () => 
   assert.equal(calendarTime("00:00"), "12:00 AM");
   assert.equal(calendarTime("12:00"), "12:00 PM");
   assert.equal(calendarTime("23:59"), "11:59 PM");
+  assert.equal(calendarTime("24:00"), "12:00 AM");
   assert.equal(timeMinutes("09:30"), 570);
 });
 test("overlapping blocks get independent lanes without moving their start times", () => {

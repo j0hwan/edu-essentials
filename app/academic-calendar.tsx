@@ -39,7 +39,11 @@ export default function AcademicCalendar({ courses, assignments, events, details
     const courseMap = new Map(courses.map((course) => [course.id, course]));
     const put = (item: Item) => { if (visibleKinds[item.kind]) result.set(item.date, [...(result.get(item.date) ?? []), item]); };
     for (const a of assignments) if (a.dateKey && matches(a.courseId)) put({ id: `assignment-${a.id}`, date: a.dateKey, time: a.dueTime ?? "", title: a.title, subtitle: courseMap.get(a.courseId)?.code ?? "Personal", color: "#ffcf62", kind: "deadline", allDay: true, done: a.status === "done", source: a });
-    for (const e of events) if (matches(e.courseId)) put({ id: `event-${e.id}`, date: e.dateKey, time: e.time, title: e.title, subtitle: courseMap.get(e.courseId)?.code ?? e.type, color: e.type === "Exam" ? "#ffcf62" : courseMap.get(e.courseId)?.color ?? "#8ae6a4", kind: e.type === "Exam" ? "deadline" : "event", allDay: !e.time, source: e });
+    for (const e of events) if (matches(e.courseId)) {
+      const endMinutes = e.time && e.durationMinutes ? timeMinutes(e.time) + e.durationMinutes : undefined;
+      const endTime = endMinutes === undefined ? undefined : `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+      put({ id: `event-${e.id}`, date: e.dateKey, time: e.time, endTime, title: e.title, subtitle: courseMap.get(e.courseId)?.code ?? e.type, color: e.type === "Exam" ? "#ffcf62" : courseMap.get(e.courseId)?.color ?? "#8ae6a4", kind: e.type === "Exam" ? "deadline" : "event", allDay: !e.time, source: e });
+    }
     // Generate only the visible range plus the sidebar's next 30 days.
     const dates = new Set([...days, selected, ...Array.from({ length: 30 }, (_, i) => addDays(selected, i + 1))]);
     for (const date of dates) for (const c of courses) if (matches(c.id)) {
@@ -63,7 +67,7 @@ export default function AcademicCalendar({ courses, assignments, events, details
   };
   const period = view === "month" ? dateLabel(first, { month: "long", year: "numeric" }) : view === "day" ? dateLabel(anchor, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : start.slice(0, 7) === last.slice(0, 7) ? `${dateLabel(start, { month: "long", day: "numeric" })} – ${Number(last.slice(-2))}, ${last.slice(0, 4)}` : `${dateLabel(start)} – ${dateLabel(last)}`;
   const timedItems = days.flatMap((date) => rows(date).filter((item) => !item.allDay));
-  // Events have a start time only. A one-hour display slot is not a saved duration.
+  // Honor saved event durations; older events retain a one-hour display slot.
   const timed = (item: Item) => ({ ...item, start: timeMinutes(item.time), end: item.endTime ? timeMinutes(item.endTime) : Math.min(1440, timeMinutes(item.time) + 60) });
   const firstHour = Math.min(8, ...timedItems.map((item) => Math.floor(timeMinutes(item.time) / 60)));
   const lastHour = Math.min(24, Math.max(21, ...timedItems.map((item) => Math.ceil(timed(item).end / 60))));

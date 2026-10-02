@@ -1,0 +1,14 @@
+{
+  "name": "eduessentials-ai-ingestion",
+  "main": "ai-ingestion.ts",
+  "compatibility_date": "2026-09-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "triggers": { "crons": ["* * * * *"] },
+  "limits": { "cpu_ms": 30000 },
+  "vars": {
+    "AI_ENABLED": "false",
+    "AI_DATA_MODE": "synthetic",
+    "AI_CHAT_MODEL": "gemini-3.8-flash",
+    "AI_EMBEDDING_MODEL": "gemini-embedding-2"
+  }
+}

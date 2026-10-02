@@ -16,7 +16,7 @@ export function timeMinutes(time: string): number {
 export function calendarTime(time: string): string {
   if (!time) return "All day";
   const [hours, minutes] = time.split(":").map(Number);
-  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours % 24 >= 12 ? "PM" : "AM"}`;
 }
 
 /** Partition connected overlap groups into lanes; adjacent meetings share a lane. */

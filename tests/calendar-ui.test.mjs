@@ -68,4 +68,17 @@ test("calendar interactions", async (t) => {
     assert.ok(!node.querySelector(".planner-deadlines").textContent.includes("Early exam"));
     for (const block of node.querySelectorAll(".planner-time-event")) assert.ok(parseFloat(block.style.top) + parseFloat(block.style.height) <= 100.001);
   });
+  await t.test("saved event durations control block height and remain editable in both views", async () => {
+    const durationEvent = { ...event, durationMinutes: 135 };
+    let opened;
+    await mount({ events: [durationEvent], onEvent: (item) => { opened = item; } });
+    const block = [...node.querySelectorAll(".planner-time-event")].find((n) => n.textContent.includes("Study group"));
+    assert.ok(Math.abs(parseFloat(block.style.height) - 135 / (13 * 60) * 100) < .01);
+    assert.match(block.textContent, /4:00 PM.*6:15 PM/);
+    await act(async () => block.click()); assert.equal(opened, durationEvent);
+    await click("Month");
+    const monthItem = [...node.querySelectorAll(".planner-month-item")].find((n) => n.textContent.includes("Study group"));
+    assert.match(monthItem.title, /6:15 PM/);
+    await act(async () => monthItem.click()); assert.equal(opened.durationMinutes, 135);
+  });
 });

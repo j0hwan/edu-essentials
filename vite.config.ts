@@ -44,6 +44,9 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    // Refresh browser dependency versions on startup after app changes.
+    // Stale client code can otherwise hydrate against newer server markup.
+    optimizeDeps: { force: true },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
