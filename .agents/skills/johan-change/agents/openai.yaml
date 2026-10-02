@@ -1,0 +1,4 @@
+interface:
+  display_name: "JohanChange"
+  short_description: "Resolve a GitHub issue assigned to j0hwan"
+  default_prompt: "Use $johan-change to assign j0hwan and implement, review, and test the specified GitHub issue, then update verified boxes and open a PR that closes it on merge."

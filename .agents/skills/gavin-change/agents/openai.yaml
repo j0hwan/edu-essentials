@@ -1,0 +1,4 @@
+interface:
+  display_name: "GavinChange"
+  short_description: "Resolve a GitHub issue assigned to GavinCopley"
+  default_prompt: "Use $gavin-change to assign GavinCopley and implement, review, and test the specified GitHub issue, then update verified boxes and open a PR that closes it on merge."
