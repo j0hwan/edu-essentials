@@ -159,11 +159,29 @@ content never silently adopts another session's revision. Account-scoped client
 requests refuse to send an old draft to a different signed-in account.
 See PERSISTENCE_SETTINGS.md for the completed Step 3 review and local test evidence.
 
+## Dashboard widget layout
+
+Widgets wrap in saved order and each row fills the available workspace width. On
+wide workspaces, small, medium, and large widgets prefer one quarter, one half,
+and one half of a row, with preferred heights of one, one, and two units (roughly
+16rem per unit, scaled with the theme, plus the row gap for large widgets).
+Extra row width is shared according to those size weights, so a row with one
+widget still fills the workspace. Cards in the same row stretch to the tallest
+widget's preferred height; longer content scrolls inside its card. At 60rem of
+workspace width, small widgets prefer half a row and medium and large widgets
+use a full row. At 38rem, all widgets use one column, while large widgets keep
+their two-unit height plus the row gap. Stretching intentionally lets the same
+size tier have different dimensions in differently composed rows.
+
 ## Validation
 
 - npm run build: production Worker build.
 - npx tsc --noEmit: TypeScript check.
 - npm run lint: lint and accessibility checks.
+- node scripts/verify-widget-layout.mjs: optional Chrome layout checks and local
+  screenshots using all 18 production widget types. Requires Playwright tooling;
+  set PLAYWRIGHT_MODULE to its index.mjs path when using an external bundle, and
+  CHROME_EXECUTABLE when Chrome is outside its standard installation location.
 - npm test: build, account/API tests with a fake Supabase adapter, and HTTP route
   integration tests against a temporary local development server.
 - tests/persistence-foundation.test.mjs additionally executes all app migrations
