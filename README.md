@@ -159,11 +159,39 @@ content never silently adopts another session's revision. Account-scoped client
 requests refuse to send an old draft to a different signed-in account.
 See PERSISTENCE_SETTINGS.md for the completed Step 3 review and local test evidence.
 
+## Dashboard widget layout
+
+Widgets use a responsive grid in saved order, with a default minimum width of
+260px and a board width capped at 1680px. Small, medium, and large cards have
+minimum heights of 220px, 244px, and 284px. Content expands the card by default;
+short cards do not inherit the height of their neighbors. Empty columns retain
+their width, so the final card does not stretch across a whole desktop row.
+
+Widget customization, beside Customize, opens an appearance studio with Basic
+and Advanced controls. Six presets and 32 controls cover card size, spacing,
+surfaces, opacity, colors, borders, shadows, blur, texture, gradients, typography,
+headers, icons, hover effects, motion timing, and optional scrolling inside cards.
+Try desktop, tablet, and phone previews, enlarge the preview for a closer look,
+compare the saved and draft looks, and undo or redo changes before applying.
+Cancel discards the draft.
+
+Appearance defaults apply across the account, with optional overrides for an
+individual widget. Board width and spacing controls apply to all widgets.
+Duplicating a widget or workspace copies its appearance; removing it cleans up
+its override. Applied appearance saves in dashboard_state.payload.d.widgetAppearance
+alongside existing account data. Older clients cannot erase saved appearance.
+Experimental workspaces let you try styles with sample data without saving them
+to the account. System and account reduced-motion preferences remain respected.
+
 ## Validation
 
 - npm run build: production Worker build.
 - npx tsc --noEmit: TypeScript check.
 - npm run lint: lint and accessibility checks.
+- node scripts/verify-widget-layout.mjs: optional Chrome layout checks and local
+  screenshots using all 18 production widget types. Requires Playwright tooling;
+  set PLAYWRIGHT_MODULE to its index.mjs path when using an external bundle, and
+  CHROME_EXECUTABLE when Chrome is outside its standard installation location.
 - npm test: build, account/API tests with a fake Supabase adapter, and HTTP route
   integration tests against a temporary local development server.
 - tests/persistence-foundation.test.mjs additionally executes all app migrations
@@ -174,6 +202,9 @@ See PERSISTENCE_SETTINGS.md for the completed Step 3 review and local test evide
   recovery. tests/settings-ui.test.mjs mounts the actual React editors in JSDOM,
   with simulated API responses, to test settings, workspace and widget controls,
   independent notes, search navigation, recovery and draft protection.
+- tests/widget-appearance.test.mjs validates appearance fields and safe CSS values;
+  tests/widget-customization-ui.test.mjs exercises studio controls, draft history,
+  cancellation, account persistence, per-widget overrides, and experimental previews.
 - tests/workspaces.test.mjs covers v1 upgrades, stable IDs, independent note copies,
   maximum legacy layouts, note references, and UTF-8 storage limits. The foundation
   suite also verifies v2 saves and downgrade protection through PostgreSQL queries.

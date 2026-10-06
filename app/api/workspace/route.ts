@@ -46,13 +46,14 @@ export async function PUT(request: Request) {
     const revision = requireSaveRevision(body.baseRevision);
     if (body.courses === undefined) return upgrade();
     const snapshot = validate(body.courses, body.dashboard);
-    const incoming = body.dashboard as { v?: number; d?: { study?: unknown; filePreferences?: unknown } };
-    if (incoming?.v === 1 || incoming?.d?.study === undefined || incoming?.d?.filePreferences === undefined) {
+    const incoming = body.dashboard as { v?: number; d?: { study?: unknown; filePreferences?: unknown; widgetAppearance?: unknown } };
+    if (incoming?.v === 1 || incoming?.d?.study === undefined || incoming?.d?.filePreferences === undefined || incoming?.d?.widgetAppearance === undefined) {
       const current = await getSupabaseAdmin().from("dashboard_state").select("payload").eq("profile_id", profile.id).maybeSingle();
       if (current.error) throw current.error;
       if (incoming?.v === 1 && current.data?.payload?.v === 2) return upgrade();
       if (incoming?.d?.study === undefined && current.data?.payload?.d?.study !== undefined) return upgrade();
       if (incoming?.d?.filePreferences === undefined && current.data?.payload?.d?.filePreferences !== undefined) return upgrade();
+      if (incoming?.d?.widgetAppearance === undefined && current.data?.payload?.d?.widgetAppearance !== undefined) return upgrade();
     }
     const { data, error } = await getSupabaseAdmin().rpc("save_account_workspace", { p_profile_id: profile.id, p_auth_user_id: profile.auth_user_id, p_expected_revision: revision, p_courses: snapshot.courses.map(toRow), p_dashboard: snapshot.dashboard });
     if (error) throw error;

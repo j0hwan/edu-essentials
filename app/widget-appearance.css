@@ -1,0 +1,148 @@
+/* Appearance is scoped to widgets; navigation and editors keep their own theme. */
+.reference-ui .widget-grid {
+  --widget-gap: var(--wa-gap, 16px);
+  --widget-unit: var(--wa-min-height, 220px);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--wa-min-width, 260px)), 1fr));
+  align-items: start;
+  gap: var(--widget-gap);
+  max-width: 1680px;
+}
+.reference-ui .widget-card {
+  --ui-unit: calc(var(--wa-font-size, 14px) / 14);
+  --ink: var(--wa-text-color, #edf1ff);
+  --muted: var(--wa-muted-color, #a5bbdf);
+  --brand: var(--wa-accent, #6674ff);
+  --brand-dark: var(--wa-accent, #6674ff);
+  --border: var(--wa-border-color, #28405f);
+  --surface: var(--wa-surface, #0d1b30);
+  --surface-2: color-mix(in srgb, var(--wa-surface, #0d1b30) 90%, var(--wa-accent, #6674ff));
+  --surface-3: color-mix(in srgb, var(--wa-surface, #0d1b30) 80%, var(--wa-accent, #6674ff));
+  --border-strong: var(--wa-border-color, #28405f);
+  --subtle: var(--wa-muted-color, #a5bbdf);
+  --brand-soft: color-mix(in srgb, var(--wa-accent, #6674ff) 12%, var(--wa-surface, #0d1b30));
+  contain: none;
+  container: widget / inline-size;
+  height: auto;
+  max-height: none;
+  min-height: var(--wa-min-height, 220px);
+  border: var(--wa-border-width, 1px) var(--wa-border-style, solid) var(--wa-border-color, #28405f);
+  border-radius: var(--wa-radius, 14px);
+  padding: var(--wa-padding, 16px);
+  background: var(--wa-background, #0d1b30);
+  color: var(--wa-text-color, #edf1ff);
+  box-shadow: var(--wa-shadow, none);
+  backdrop-filter: blur(var(--wa-blur, 0px));
+  font-size: var(--wa-font-size, 14px);
+  line-height: var(--wa-line-height, 1.45);
+  letter-spacing: var(--wa-letter-spacing, 0em);
+  transition: transform var(--wa-transition-ms, 180ms) ease, border-color var(--wa-transition-ms, 180ms) ease, box-shadow var(--wa-transition-ms, 180ms) ease;
+}
+.reference-ui .widget-card[data-size="medium"] { min-height: calc(var(--wa-min-height, 220px) + 24px); }
+.reference-ui .widget-card[data-size="large"] { min-height: calc(var(--wa-min-height, 220px) + 64px); }
+.reference-ui .widget-card[data-wa-texture="dots"] { background-size: 16px 16px, auto; }
+.reference-ui .widget-card[data-wa-texture="grid"] { background-size: 22px 22px, 22px 22px, auto; }
+.reference-ui .widget-card .widget-header {
+  align-items: center;
+  min-height: calc(var(--wa-icon-size, 28px) + 4px);
+  flex-shrink: 0;
+  margin-bottom: 14px;
+}
+.reference-ui .widget-card .widget-header h2 {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--wa-title-size, 14px);
+  font-weight: var(--wa-title-weight, 600);
+  line-height: var(--wa-line-height, 1.45);
+  text-align: var(--wa-title-align, left);
+  color: var(--wa-text-color, #edf1ff);
+}
+.reference-ui .widget-card .widget-header .widget-icon {
+  width: var(--wa-icon-size, 28px);
+  height: var(--wa-icon-size, 28px);
+  border-radius: calc(var(--wa-radius, 14px) * .65);
+  color: var(--wa-accent, #6674ff);
+  background: color-mix(in srgb, var(--wa-accent, #6674ff) 16%, transparent);
+}
+.reference-ui .widget-card .widget-header .widget-icon svg { width: 65%; height: 65%; }
+.reference-ui .widget-card[data-wa-icon-style="outline"] .widget-header .widget-icon { border: 1px solid var(--wa-accent); background: transparent; }
+.reference-ui .widget-card[data-wa-icon-style="minimal"] .widget-header .widget-icon { background: transparent; border: none; }
+.reference-ui .widget-card[data-wa-show-icons="false"] .widget-header > .widget-icon { display: none; }
+.reference-ui .widget-card[data-wa-header-divider="true"] .widget-header { padding-bottom: 12px; border-bottom: 1px solid var(--wa-border-color); }
+.reference-ui .widget-card[data-wa-accent-edge="top"] { border-top: 3px solid var(--wa-accent); }
+.reference-ui .widget-card[data-wa-accent-edge="left"] { border-left: 3px solid var(--wa-accent); }
+.reference-ui .widget-card .widget-body {
+  min-height: auto;
+  min-width: 0;
+  overflow: visible;
+  font-size: var(--wa-font-size, 14px);
+  line-height: var(--wa-line-height, 1.45);
+  gap: 10px;
+}
+.reference-ui .widget-card .widget-body :is(strong, blockquote) { color: var(--wa-text-color, #edf1ff); }
+.reference-ui .widget-card .widget-body :is(p, small, .form-hint, time) { color: var(--wa-muted-color, #a5bbdf); }
+.reference-ui .widget-card .widget-body :is(p, strong, small, blockquote, button) { line-height: var(--wa-line-height, 1.45); letter-spacing: var(--wa-letter-spacing, 0em); }
+.reference-ui .widget-card .primary-button { background: var(--wa-accent, #6674ff); }
+.reference-ui .widget-card .reference-ring .ring-value { stroke: var(--wa-accent, #6674ff); }
+.reference-ui .widget-card .completion-track > span { background: var(--wa-accent, #6674ff); }
+.reference-ui .widget-card .notes-widget textarea {
+  color: var(--wa-text-color, #edf1ff);
+  font-size: var(--wa-font-size, 14px);
+  border-color: var(--wa-border-color, #28405f);
+  background: color-mix(in srgb, var(--wa-surface, #0d1b30) 85%, var(--wa-accent, #6674ff));
+  min-height: 110px;
+}
+.reference-ui .widget-card .notes-widget textarea::placeholder { color: var(--wa-muted-color, #a5bbdf); }
+/* Inner controls follow the chosen palette, including the light presets. */
+.reference-ui .widget-card :is(.secondary-button, .timer-icon-button, .note-label, .goal-bottom button, .alert-status, .mini-cal-month .mini-today) {
+  color: var(--wa-text-color);
+  border-color: var(--wa-border-color);
+  background: color-mix(in srgb, var(--wa-accent) 8%, var(--wa-surface));
+}
+.reference-ui .widget-card :is(.text-button, .mini-cal-month button, .notes-widget .clear-note, .widget-header .mini) { color: var(--wa-muted-color); }
+.reference-ui .widget-card .widget-body .primary-button,
+.reference-ui .widget-card .notes-widget .save-note { background: var(--wa-accent); color: white; }
+.reference-ui .widget-card .reference-ring .ring-track { stroke: color-mix(in srgb, var(--wa-accent) 18%, var(--wa-surface)); }
+.reference-ui .widget-card .completion-track { background: color-mix(in srgb, var(--wa-accent) 18%, var(--wa-surface)); }
+.reference-ui .widget-card .glance-rows > button { border-color: var(--wa-border-color); }
+.reference-ui .widget-card .reference-alerts { grid-template-columns: minmax(0, 1fr); }
+.reference-ui .widget-card .reference-alerts > * { min-width: 0; }
+.reference-ui .widget-card .mini-days button {
+  color: var(--wa-text-color);
+  border-color: var(--wa-border-color);
+  background: color-mix(in srgb, var(--wa-accent) 8%, var(--wa-surface));
+}
+.reference-ui .widget-card .mini-days .today { color: white; border-color: var(--wa-accent); background: var(--wa-accent); }
+.reference-ui .widget-card .mini-days .today :is(strong, small) { color: white; }
+.reference-ui .widget-card .popover {
+  color: var(--wa-text-color);
+  border-color: var(--wa-border-color);
+  background: var(--surface-2);
+}
+.reference-ui .widget-card[data-wa-content-mode="scroll"] {
+  height: calc(var(--wa-min-height, 220px) + 36px);
+  min-height: 0;
+  contain: size;
+}
+.reference-ui .widget-card[data-wa-content-mode="scroll"][data-size="medium"] { height: calc(var(--wa-min-height, 220px) + 60px); }
+.reference-ui .widget-card[data-wa-content-mode="scroll"][data-size="large"] { height: calc(var(--wa-min-height, 220px) + 100px); }
+.reference-ui .widget-card[data-wa-content-mode="scroll"] .widget-body { min-height: 0; overflow: auto; }
+.reference-ui .widget-card[data-wa-hover="none"]:hover { border-color: var(--wa-border-color); box-shadow: var(--wa-shadow); }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  html:not([data-motion="reduced"]) .reference-ui .widget-card[data-wa-hover="lift"]:hover { transform: translateY(-3px); }
+  .reference-ui .widget-card[data-wa-hover="glow"]:hover { box-shadow: 0 0 0 1px var(--wa-accent), var(--wa-shadow); }
+}
+html[data-motion="reduced"] .reference-ui .widget-card { transition: none; }
+@media (prefers-reduced-motion: reduce) { .reference-ui .widget-card { transition: none; } }
+.reference-ui .workspace-actions { flex-wrap: wrap; row-gap: 10px; }
+.reference-ui .workspace-actions > .widget-customization-trigger {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 7px 11px;
+  color: var(--ink);
+  background: var(--surface-2);
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+.reference-ui .widget-customization-trigger:hover { border-color: var(--brand); }
