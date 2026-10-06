@@ -66,6 +66,19 @@ test("rapid size changes cancel previous motion and clean up on unmount", async 
   assert.ok(calls.every(({ animation }) => animation.cancelled));
 });
 
+test("individual appearance timing disables one card while animating its neighbor", async () => {
+  const { calls, render, cleanup } = setup();
+  try {
+    await render("small");
+    document.querySelector('[data-widget-id="a"]').style.setProperty("--wa-transition-ms", "0ms");
+    document.querySelector('[data-widget-id="b"]').style.setProperty("--wa-transition-ms", "350ms");
+    await render("large");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].id, "b");
+    assert.equal(calls[0].options.duration, 350);
+  } finally { await cleanup(); }
+});
+
 test("system and account reduced-motion preferences disable layout animation", async () => {
   const { calls, render, cleanup } = setup();
   try {

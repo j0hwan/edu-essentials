@@ -10,9 +10,10 @@ const screenshotDir = resolve(repoRoot, ".vinext/verify-widget-layout");
 // if Playwright is not installed in this repository; set CHROME_EXECUTABLE if
 // Chrome is installed outside Playwright's standard "chrome" channel lookup.
 // PowerShell example: $env:PLAYWRIGHT_MODULE = 'C:/path/to/playwright/index.mjs'; node scripts/verify-widget-layout.mjs
-const [globalCss, referenceCss, playwright] = await Promise.all([
+const [globalCss, referenceCss, widgetAppearanceCss, playwright] = await Promise.all([
   readFile(resolve(repoRoot, "app/globals.css"), "utf8"),
   readFile(resolve(repoRoot, "app/reference-ui.css"), "utf8"),
+  readFile(resolve(repoRoot, "app/widget-appearance.css"), "utf8"),
   (async () => {
     try {
       return process.env.PLAYWRIGHT_MODULE
@@ -93,11 +94,11 @@ async function renderActualWidgetMarkup() {
 
 const cardsMarkup = await renderActualWidgetMarkup();
 
-// This opt-in browser fixture uses the real styles and the same card class/data-size
-// contract as Workspace. Existing settings-ui tests cover the React control/state path.
-const documentHtml = `<!doctype html><html data-theme="dark" style='--font-geist-sans:"Segoe UI";--font-geist-mono:Consolas,monospace'><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+// This opt-in browser fixture combines actual Workspace markup with production CSS.
+const documentHtml = `<!doctype html><html data-theme="dark" data-motion="reduced" style='--font-geist-sans:"Segoe UI";--font-geist-mono:Consolas,monospace'><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
 ${globalCss.replace(/^@import[^;]+;\s*/m, "")}
 ${referenceCss}
+${widgetAppearanceCss}
 </style></head><body><div class="app-shell reference-ui" id="app">
   <aside class="sidebar"><div class="brand-row"><div class="brand-mark">E</div><div class="brand-copy"><strong>EduEssentials</strong><span>Fictional workspace</span></div><button class="sidebar-toggle" aria-label="Collapse sidebar">≡</button></div><nav class="main-nav"><a class="nav-item active"><span>Home</span></a><a class="nav-item"><span>Courses</span></a></nav><div class="sidebar-bottom"><div class="profile-card"><span class="avatar">F</span><span><strong>Fictional profile</strong><small>example.invalid</small></span></div></div></aside>
   <main class="main-content"><div class="page home-page"><header class="home-greeting"><h1>Good morning, Alex</h1><p>A local layout fixture with fictional records.</p></header><section class="workspace-section"><div class="workspace-bar"><div class="workspace-tabs"><button class="active">My Day</button></div><div class="workspace-actions"><button class="secondary-button">Customize</button><button class="secondary-button add-widget-control">Add widget</button></div></div><div class="widget-grid" aria-label="My Day widgets">${cardsMarkup}</div></section><div class="fixture-footer" style="min-height:620px;padding:30px"><h2>Long page area</h2><p>Scroll content to verify the widget menu remains on top.</p></div></div></main>
@@ -125,14 +126,27 @@ function near(actual, expected, message, tolerance = 1.5) {
 }
 
 async function snapshotLayout(page) {
+  // Container-query styles and their dependent tracks settle during rendering.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   return page.evaluate(() => {
     const grid = document.querySelector(".widget-grid").getBoundingClientRect();
+    const scrollX = window.scrollX, scrollY = window.scrollY;
     const cards = [...document.querySelectorAll(".widget-card")].map((card) => {
       const rect = card.getBoundingClientRect();
-      return { id: card.dataset.widgetId, size: card.dataset.size, x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom };
+      return { id: card.dataset.widgetId, size: card.dataset.size, x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height, right: rect.right + scrollX, bottom: rect.bottom + scrollY };
     });
-    return { grid: { x: grid.x, y: grid.y, width: grid.width, right: grid.right }, cards, workspaceWidth: document.querySelector(".main-content").clientWidth, viewportWidth: innerWidth, scrollWidth: document.documentElement.scrollWidth };
+    return { grid: { x: grid.x + scrollX, y: grid.y + scrollY, width: grid.width, right: grid.right + scrollX }, cards, workspaceWidth: document.querySelector(".main-content").clientWidth, viewportWidth: innerWidth, scrollWidth: document.documentElement.scrollWidth };
   });
+}
+
+async function settleGrid(page, expectedWidth, expectedColumns) {
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.waitForFunction(({ width, columns }) => {
+    const grid = document.querySelector(".widget-grid");
+    const rectWidth = grid.getBoundingClientRect().width;
+    const tracks = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length;
+    return Math.abs(rectWidth - width) < 1 && tracks === columns;
+  }, { width: expectedWidth, columns: expectedColumns }, { timeout: 5000 });
 }
 
 function assertRows(layout, label) {
@@ -147,11 +161,20 @@ function assertRows(layout, label) {
   assert.deepEqual(visualOrder, layout.cards.map((card) => card.id), `${label}: visual order must match saved/DOM order`);
   for (const [index, row] of rows.entries()) {
     row.cards.sort((a, b) => a.x - b.x);
-    for (const card of row.cards) near(card.height, row.cards[0].height, `${label} row ${index + 1} card heights`);
-    near(row.cards[0].x, layout.grid.x, `${label} row ${index + 1} starts at grid edge`);
-    near(row.cards.at(-1).right, layout.grid.right, `${label} row ${index + 1} fills grid width`);
+    for (const card of row.cards) {
+      assert.ok(card.x >= layout.grid.x - 1.5, `${label} row ${index + 1} begins inside the grid`);
+      assert.ok(card.right <= layout.grid.right + 1.5, `${label} row ${index + 1} ends inside the grid`);
+    }
     for (let i = 1; i < row.cards.length; i++) {
       assert.ok(row.cards[i].x >= row.cards[i - 1].right, `${label} row ${index + 1} cards overlap`);
+    }
+  }
+  const firstRow = rows[0].cards;
+  for (const [rowIndex, row] of rows.entries()) {
+    for (const card of row.cards) {
+      const column = firstRow.find((candidate) => Math.abs(candidate.x - card.x) <= 1.5);
+      assert.ok(column, `${label} row ${rowIndex + 1} keeps each card in a stable grid column`);
+      near(card.width, column.width, `${label} cards have balanced column widths`, 2);
     }
   }
   return rows;
@@ -166,6 +189,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 980 }, deviceScaleFactor: 1 });
   await page.setContent(documentHtml, { waitUntil: "load" });
   await page.evaluate(() => document.fonts.ready);
+  const naturalCardHeights = await page.evaluate(() => Object.fromEntries(["quote", "spacer"].map((id) => [id, document.querySelector(`[data-widget-id="${id}"]`).getBoundingClientRect().height])));
   await page.evaluate((copy) => {
     for (const id of ["quote", "spacer"]) {
       const paragraph = document.createElement("p");
@@ -175,31 +199,58 @@ try {
     }
   }, longText);
 
-  // Wide container: small cards occupy quarter rows; medium/large cards use half rows.
+  // Use an extra layout-only card to verify that a partial final grid row never
+  // stretches a lone card across the full board width.
+  await page.locator('[data-widget-id="spacer"]').evaluate((card) => {
+    const copy = card.cloneNode(true);
+    copy.dataset.widgetId = "layout-single";
+    document.querySelector(".widget-grid").append(copy);
+  });
+
+  // Wide container: the actual widget size only changes card height. Bounded
+  // min-width controls set an equal-column grid with ordinary row-major order.
   let layout = await snapshotLayout(page);
   assert.ok(layout.workspaceWidth > 960, `wide fixture should exceed 60rem, got ${layout.workspaceWidth}px`);
   let rows = assertRows(layout, "wide workspace");
-  const fourSmallRow = rows.find((row) => row.cards.some((card) => card.id === "notes"));
-  assert.equal(fourSmallRow.cards.length, 4, "four fitting small cards should share one wide row");
-  for (const card of fourSmallRow.cards) near(card.width, fourSmallRow.cards[0].width, "same-size small cards have equal width");
-  const mixedRow = rows.find((row) => row.cards.some((card) => card.id === "overview"));
-  assert.equal(mixedRow.cards.length, 3, "large plus two small cards should fill a wide mixed row");
-  near(mixedRow.cards.find((card) => card.id === "overview").width, 2 * mixedRow.cards.find((card) => card.id === "calendar").width, "large cards keep twice the preferred width of small cards", 20);
+  const gridDisplay = await page.locator(".widget-grid").evaluate((grid) => getComputedStyle(grid).display);
+  assert.equal(gridDisplay, "grid", "production widget layout uses CSS grid");
+  const wideSingleCards = rows.flatMap((row) => row.cards.length === 1 ? row.cards : []);
+  for (const card of wideSingleCards) assert.ok(card.width < layout.grid.width * 0.6, `a lone ${card.id} card stays within one grid column`);
 
-  const beforeShortNote = await page.locator('[data-widget-id="notes"]').evaluate((card) => card.getBoundingClientRect().height);
-  await page.locator('[data-widget-id="notes"] textarea').fill("Short note");
-  const afterShortNote = await page.locator('[data-widget-id="notes"]').evaluate((card) => card.getBoundingClientRect().height);
-  near(afterShortNote, beforeShortNote, "textarea content does not resize its row");
   await page.locator('[data-widget-id="notes"] textarea').fill(longText);
   const noteOverflow = await page.locator('[data-widget-id="notes"] textarea').evaluate((area) => ({ scrollHeight: area.scrollHeight, clientHeight: area.clientHeight }));
-  const afterLongNote = await page.locator('[data-widget-id="notes"]').evaluate((card) => card.getBoundingClientRect().height);
-  near(afterLongNote, beforeShortNote, "long notes do not resize their row");
   assert.ok(noteOverflow.scrollHeight > noteOverflow.clientHeight, "long note fixture should exercise textarea overflow");
 
-  const scrollReachability = await page.evaluate(() => ["quote", "spacer"].map((id) => {
+  const expandedContent = await page.evaluate((naturalHeights) => ["quote", "spacer"].map((id) => {
+    const card = document.querySelector(`[data-widget-id="${id}"]`);
     const body = document.querySelector(`[data-widget-id="${id}"] .widget-body`);
     const copy = body.querySelector(".fixture-overflow-copy");
-    const before = { scrollHeight: body.scrollHeight, clientHeight: body.clientHeight, overflowY: getComputedStyle(body).overflowY };
+    const bounds = body.getBoundingClientRect();
+    const copyRect = copy.getBoundingClientRect();
+    return {
+      id, mode: card.dataset.waContentMode, bodyOverflowY: getComputedStyle(body).overflowY,
+      cardHeight: card.getBoundingClientRect().height, naturalHeight: naturalHeights[id],
+      bodyHeight: bounds.height, bodyScrollHeight: body.scrollHeight,
+      trailingContentVisible: copyRect.bottom <= bounds.bottom + 1,
+    };
+  }), naturalCardHeights);
+  for (const result of expandedContent) {
+    assert.equal(result.mode, "expand", `${result.id} uses the default content mode`);
+    assert.equal(result.bodyOverflowY, "visible", `${result.id} body does not clip default content`);
+    assert.ok(result.cardHeight > result.naturalHeight + 100, `${result.id} card expands to fit long content`);
+    assert.ok(result.trailingContentVisible, `${result.id} trailing content is visible without scrolling`);
+  }
+
+  // Exercise the saved scroll mode against the same long fixture and ensure it
+  // keeps both leading and trailing content reachable through the card body.
+  await page.evaluate(() => {
+    for (const id of ["quote", "spacer", "upcoming", "links", "widget-13"]) document.querySelector(`[data-widget-id="${id}"]`).dataset.waContentMode = "scroll";
+  });
+  const scrollReachability = await page.evaluate(() => ["quote", "spacer"].map((id) => {
+    const card = document.querySelector(`[data-widget-id="${id}"]`);
+    const body = card.querySelector(".widget-body");
+    const copy = body.querySelector(".fixture-overflow-copy");
+    const before = { scrollHeight: body.scrollHeight, clientHeight: body.clientHeight, overflowY: getComputedStyle(body).overflowY, mode: card.dataset.waContentMode };
     const bounds = body.getBoundingClientRect();
     body.scrollTop = 0;
     const firstRect = copy.getBoundingClientRect();
@@ -213,6 +264,8 @@ try {
     return { id, ...before, scrollTop: body.scrollTop, visibleTop, visibleBottom: copyRect.bottom <= bodyRect.bottom + 1 && copy.contains(lastTarget) };
   }));
   for (const result of scrollReachability) {
+    assert.equal(result.mode, "scroll", `${result.id} uses the selected scroll mode`);
+    assert.equal(result.overflowY, "auto", `${result.id} scroll mode creates a reachable scroll region`);
     assert.ok(result.scrollHeight > result.clientHeight, `${result.id} body should contain overflow`);
     assert.ok(result.scrollTop > 0, `${result.id} body should be scrollable`);
     assert.ok(result.visibleTop, `${result.id} leading content should be hit-testable at the top`);
@@ -250,45 +303,66 @@ try {
     assert.ok(result.lastReachable, `${result.id} last item should be hit-testable after scrolling to the bottom: ${JSON.stringify(result)}`);
   }
 
+  // A 560px board with the 240px minimum supports two balanced cards; increasing
+  // to 380px at 800px leaves two balanced columns and does not stretch its last card.
+  await page.locator(".widget-grid").evaluate((grid) => { grid.style.width = "560px"; grid.style.setProperty("--wa-min-width", "240px"); });
+  await settleGrid(page, 560, 2);
+  let boundedLayout = await snapshotLayout(page);
+  let boundedRows = assertRows(boundedLayout, "560px available board at 240px minimum");
+  assert.ok(boundedLayout.grid.width >= 560, `available board width should reach 560px, got ${boundedLayout.grid.width}px`);
+  assert.ok(boundedRows[0].cards.length >= 2, "two widgets fit the 560px board at the 240px minimum");
+
+  await page.locator(".widget-grid").evaluate((grid) => { grid.style.width = "800px"; grid.style.setProperty("--wa-min-width", "240px"); });
+  await settleGrid(page, 800, 3);
+  const narrowMinimum = await snapshotLayout(page);
+  const narrowMinimumRows = assertRows(narrowMinimum, "800px board at 240px minimum");
+  assert.ok(narrowMinimumRows[0].cards.length >= 3, "240px minimum allows three balanced columns at 800px");
+  await page.locator(".widget-grid").evaluate((grid) => grid.style.setProperty("--wa-min-width", "380px"));
+  await settleGrid(page, 800, 2);
+  const wideMinimum = await snapshotLayout(page);
+  const wideMinimumRows = assertRows(wideMinimum, "800px board at 380px minimum");
+  assert.equal(wideMinimumRows[0].cards.length, 2, "380px minimum reflows the board to two balanced columns");
+  const singleItemRow = wideMinimumRows.at(-1);
+  assert.equal(singleItemRow.cards.length, 1, "the test fixture ends with a single card at this column count");
+  near(singleItemRow.cards[0].width, wideMinimumRows[0].cards[0].width, "a lone final card remains one column wide");
+  assert.ok(singleItemRow.cards[0].width < wideMinimum.grid.width * 0.6, "a lone card never stretches across the wide grid");
+  await page.locator(".widget-grid").evaluate((grid) => { grid.style.removeProperty("width"); grid.style.setProperty("--wa-min-width", "260px"); });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
   // Repeated size changes use the same data-size DOM contract as the real controls.
   const originalOrder = layout.cards.map((card) => card.id);
   for (const size of ["medium", "large", "small", "large", "medium"]) {
     await page.locator('[data-widget-id="timer"] .widget-header .menu-wrap > button').click();
     await page.getByRole("button", { name: `${size} widget` }).click();
+    await page.mouse.move(2, 2);
     const current = await snapshotLayout(page);
     assertRows(current, `after timer resize to ${size}`);
     assert.deepEqual(current.cards.map((card) => card.id), originalOrder, "resizing preserves DOM order");
   }
   await page.locator('[data-widget-id="timer"] .widget-header .menu-wrap > button').click();
   await page.getByRole("button", { name: "small widget" }).click();
+  await page.mouse.move(2, 2);
   layout = await snapshotLayout(page);
   assertRows(layout, "restored default sizes");
 
-  // At 1160px the expanded sidebar leaves a sub-60rem workspace; collapsing it
-  // crosses the container breakpoint while the viewport remains unchanged.
+  // Sidebar collapse releases width and the auto-fill grid takes another column.
   await page.setViewportSize({ width: 1160, height: 980 });
   layout = await snapshotLayout(page);
-  assert.ok(layout.workspaceWidth <= 960, `expanded workspace should be at or below 60rem, got ${layout.workspaceWidth}px`);
-  rows = assertRows(layout, "two-column workspace");
-  const notesWidthNarrow = layout.cards.find((card) => card.id === "notes").width;
-  const narrowGap = layout.cards[1].x - layout.cards[0].right;
-  near(notesWidthNarrow, (layout.grid.width - narrowGap) / 2, "small cards use half the two-column workspace", 3);
+  rows = assertRows(layout, "expanded-sidebar workspace");
+  const expandedSidebarColumns = rows[0].cards.length;
   await page.locator(".sidebar-toggle").click();
   const collapsedLayout = await snapshotLayout(page);
   assert.ok(collapsedLayout.workspaceWidth > layout.workspaceWidth, "sidebar collapse releases content width");
-  assert.ok(collapsedLayout.workspaceWidth > 960, `collapsed workspace should cross 60rem, got ${collapsedLayout.workspaceWidth}px`);
-  rows = assertRows(collapsedLayout, "sidebar-collapsed wide workspace");
-  const wideGap = collapsedLayout.cards[1].x - collapsedLayout.cards[0].right;
-  near(collapsedLayout.cards.find((card) => card.id === "notes").width, (collapsedLayout.grid.width - 3 * wideGap) / 4, "small cards return to quarter width after sidebar collapse", 3);
+  rows = assertRows(collapsedLayout, "sidebar-collapsed workspace");
+  assert.ok(rows[0].cards.length >= expandedSidebarColumns, "released width preserves or adds grid columns");
   await page.locator("#app").evaluate((app) => app.classList.remove("sidebar-collapsed"));
 
-  // Phone: container query makes every tier full width, with no page overflow.
-  await page.setViewportSize({ width: 390, height: 844 });
+  // Phone: a narrow viewport stays within the screen and keeps each card reachable.
+  await page.setViewportSize({ width: 320, height: 844 });
   await page.evaluate(() => window.scrollTo(0, 0));
   layout = await snapshotLayout(page);
-  assert.ok(layout.workspaceWidth <= 608, `phone workspace should be below 38rem, got ${layout.workspaceWidth}px`);
-  rows = assertRows(layout, "phone workspace");
-  for (const card of layout.cards) near(card.width, layout.grid.width, `phone ${card.id} uses full width`, 1.5);
+  rows = assertRows(layout, "320px phone workspace");
+  assert.ok(layout.grid.width <= layout.viewportWidth, `phone board exceeds the viewport width: ${layout.grid.width}px > ${layout.viewportWidth}px`);
   assert.ok(layout.scrollWidth <= layout.viewportWidth, `phone page overflows horizontally: ${layout.scrollWidth}px > ${layout.viewportWidth}px`);
 
   await page.evaluate(() => document.querySelectorAll(".widget-body").forEach((body) => { body.scrollTop = 0; }));
@@ -319,7 +393,7 @@ try {
 
   console.log(JSON.stringify({
     result: "PASS",
-    fixture: "actual app/globals.css and app/reference-ui.css with Workspace-matching widget class/data-size markup",
+    fixture: "actual app/globals.css, app/reference-ui.css, and app/widget-appearance.css with Workspace-matching widget markup",
     screenshots: [".vinext/verify-widget-layout/desktop.png", ".vinext/verify-widget-layout/phone.png"],
     noteOverflow,
     scrollReachability,

@@ -403,5 +403,38 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       assert.equal(after.email, "updated@example.invalid");
       assert.equal(after.display_name, before.display_name);
     });
+
+    await t.test("widget appearance round-trips, rejects unsafe values, and guards older clients without affecting another account", async () => {
+      const { validateWidgetAppearanceState } = await import(await clientModule("lib/widget-appearance.ts"));
+      runtime.user = userB;
+      const beforeB = await getWorkspace();
+      runtime.user = userA;
+      const original = await getWorkspace();
+      const appearance = validateWidgetAppearanceState({
+        defaults: { minWidth: 320, accent: "#123456", contentMode: "scroll" },
+        overrides: { notes: { minWidth: 300, accent: "#abcdef" } },
+      });
+      const dashboard = { ...original.dashboard, d: { ...original.dashboard.d, widgetAppearance: appearance } };
+      const savedResponse = await workspace.PUT(request({ courses: original.courses, dashboard, baseRevision: original.revision }));
+      assert.equal(savedResponse.status, 200);
+      const saved = await getWorkspace();
+      assert.deepEqual(saved.dashboard.d.widgetAppearance, appearance, "GET returns normalized defaults and instance overrides");
+
+      const unsafeCss = { ...saved.dashboard, d: { ...saved.dashboard.d, widgetAppearance: { ...appearance, defaults: { ...appearance.defaults, accent: "var(--unsafe)" } } } };
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: unsafeCss, baseRevision: saved.revision }))).status, 400);
+      const invalidRange = { ...saved.dashboard, d: { ...saved.dashboard.d, widgetAppearance: { ...appearance, defaults: { ...appearance.defaults, minWidth: 1000 } } } };
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: invalidRange, baseRevision: saved.revision }))).status, 400);
+
+      const olderClient = structuredClone(saved.dashboard);
+      delete olderClient.d.widgetAppearance;
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: olderClient, baseRevision: saved.revision }))).status, 426);
+      const unchanged = await getWorkspace();
+      assert.equal(unchanged.revision, saved.revision, "rejected appearance edits do not advance the saved revision");
+      assert.deepEqual(unchanged.dashboard.d.widgetAppearance, appearance, "rejected writes preserve the committed appearance");
+
+      runtime.user = userB;
+      assert.deepEqual(await getWorkspace(), beforeB, "appearance data and revision remain isolated to its account");
+      runtime.user = userA;
+    });
   } finally { delete globalThis.__foundationTest; await pg.close(); }
 });

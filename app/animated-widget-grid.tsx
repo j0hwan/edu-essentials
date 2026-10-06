@@ -1,8 +1,8 @@
 "use client";
 
-import { Component, createRef, type ReactNode } from "react";
+import { Component, createRef, type ReactNode, type CSSProperties } from "react";
 
-type Props = { layoutKey: string; label: string; children: ReactNode };
+type Props = { layoutKey: string; label: string; children: ReactNode; style?: CSSProperties };
 type Snapshot = Map<string, DOMRect> | null;
 
 /** FLIP measures the old layout before React changes it, including interrupted motion. */
@@ -33,13 +33,16 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
     for (const { card, rect } of destinations) {
       const old = snapshot.get(card.dataset.widgetId!);
       if (!old || !rect.width || !rect.height || !old.width || !old.height || typeof card.animate !== "function") continue;
+      const configuredDuration = Number.parseFloat(window.getComputedStyle(card).getPropertyValue("--wa-transition-ms"));
+      const duration = Number.isFinite(configuredDuration) ? configuredDuration : 280;
+      if (duration <= 0) continue;
       const x = old.left - rect.left, y = old.top - rect.top;
       const sx = old.width / rect.width, sy = old.height / rect.height;
       if (Math.abs(x) < 0.5 && Math.abs(y) < 0.5 && Math.abs(old.width - rect.width) < 0.5 && Math.abs(old.height - rect.height) < 0.5) continue;
       const animation = card.animate([
         { transform: `translate(${x}px, ${y}px) scale(${sx}, ${sy})`, transformOrigin: "top left" },
         { transform: "none", transformOrigin: "top left" },
-      ], { duration: 280, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+      ], { duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
       this.animations.add(animation);
       animation.onfinish = animation.oncancel = () => this.animations.delete(animation);
     }
@@ -53,6 +56,6 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
   componentWillUnmount() { this.cancelAnimations(); }
 
   render() {
-    return <div ref={this.grid} className="widget-grid" aria-label={this.props.label}>{this.props.children}</div>;
+    return <div ref={this.grid} className="widget-grid" style={this.props.style} aria-label={this.props.label}>{this.props.children}</div>;
   }
 }

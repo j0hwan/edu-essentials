@@ -1,5 +1,6 @@
 import { validateCourseDetails, validateDraft, type CourseDetails, type SyllabusDraft } from "./academics";
 import { validateStudy, type StudyData } from "./study";
+import { validateWidgetAppearanceState, type WidgetAppearanceState } from "./widget-appearance";
 export const widgetTypes = [
   "daily-goal",
   "weekly-goal",
@@ -64,6 +65,7 @@ export type WorkspaceData = {
   calendarFilter?: string; courseDetails?: Record<string, CourseDetails>; syllabusDrafts?: SyllabusDraft[];
   study?: StudyData;
   filePreferences?: { filter: string; view: "list" | "grid" };
+  widgetAppearance?: WidgetAppearanceState;
 };
 
 export type DecodedWorkspaceState = {
@@ -241,7 +243,7 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
   if (value.filePreferences !== undefined && (!isRecord(value.filePreferences) || typeof value.filePreferences.filter !== "string" || value.filePreferences.filter.length > 120 || !["list", "grid"].includes(String(value.filePreferences.view)))) throw new Error("Invalid file preferences.");
   if (value.courseDetails !== undefined) { if (!isRecord(value.courseDetails) || Object.keys(value.courseDetails).length > 100) throw new Error("Invalid class details."); Object.values(value.courseDetails).forEach(validateCourseDetails); }
   if (value.syllabusDrafts !== undefined) { if (!Array.isArray(value.syllabusDrafts) || value.syllabusDrafts.length > 10) throw new Error("Keep at most 10 syllabus reviews."); value.syllabusDrafts.forEach(validateDraft); if (new Set(value.syllabusDrafts.map((d) => d.id)).size !== value.syllabusDrafts.length) throw new Error("Duplicate syllabus review ID."); }
-  return value as WorkspaceData;
+  return { ...value, ...(value.widgetAppearance !== undefined ? { widgetAppearance: validateWidgetAppearanceState(value.widgetAppearance) } : {}) } as WorkspaceData;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

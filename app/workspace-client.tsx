@@ -50,7 +50,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
@@ -62,6 +62,8 @@ import { FileEditor, FileList, FilePreview, PrivateImage } from "./private-files
 import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
 import StudyWidget, { studyWidgetTypes } from "./study-widgets";
 import AnimatedWidgetGrid from "./animated-widget-grid";
+import WidgetCustomization from "./widget-customization";
+import { resolveWidgetAppearance, widgetAppearanceStyle, type WidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
 import StudyPanel from "./study-panel";
 import { useStudyStats } from "./use-study-stats";
 import { emptyStudy, settleTimer, timerAction, goalPercent, durationLabel, completedInWeek, detachStudyCourse, segmentSeconds, type StudyData, type TimerKind } from "../lib/study";
@@ -74,6 +76,7 @@ import AcademicAssistant from "./academic-assistant";
 import type { Profile } from "../lib/profile";
 import "./auth.css";
 import "./reference-ui.css";
+import "./widget-appearance.css";
 import {
   decodeWorkspaceState,
   encodeWorkspaceState,
@@ -90,6 +93,19 @@ type PageId = "home" | "dashboard" | "calendar" | "tasks" | "search" | "files" |
 type Stoplight = "overdue" | "today" | "later" | "done";
 
 type Assignment = SavedAssignment;
+
+function appearanceAttributes(appearance: WidgetAppearance) {
+  return {
+    "data-wa-icon-style": appearance.iconStyle,
+    "data-wa-show-icons": String(appearance.showIcons),
+    "data-wa-header-divider": String(appearance.headerDivider),
+    "data-wa-accent-edge": appearance.accentEdge,
+    "data-wa-hover": appearance.hover,
+    "data-wa-content-mode": appearance.contentMode,
+    "data-wa-title-align": appearance.titleAlign,
+    "data-wa-texture": appearance.texture,
+  };
+}
 
 type WorkspaceResponse = {
   initialized: boolean;
@@ -244,6 +260,8 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [activeWorkspaceId, setActiveWorkspaceId] = useState("my-day");
   const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const closeAppearance = useCallback(() => setAppearanceOpen(false), []);
   const [miniWeekOffset, setMiniWeekOffset] = useState(0);
   const [widgetSearch, setWidgetSearch] = useState("");
   const [openWidgetMenu, setOpenWidgetMenu] = useState<string | null>(null);
@@ -262,7 +280,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [addClassOpen, setAddClassOpen] = useState(false);
   const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent } | null>(null);
   const [syllabusId, setSyllabusId] = useState<string | null>(null);
-  const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: { filter: string; view: "list" | "grid" } }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: { filter: "all", view: "list" } });
+  const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: { filter: string; view: "list" | "grid" }; widgetAppearance?: WidgetAppearanceState }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: { filter: "all", view: "list" } });
   const [now, setNow] = useState(() => new Date());
   const today = dayKey(now, profile.timezone);
   const assignments = storedAssignments.map((item) => ({ ...item, status: assignmentStatus(item, today), due: dateLabel(item.dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
@@ -343,12 +361,12 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     const focusSearch = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        topSearchRef.current?.focus();
+        if (!appearanceOpen) topSearchRef.current?.focus();
       }
     };
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
-  }, []);
+  }, [appearanceOpen]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -380,7 +398,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         setCourses(data.courses ?? []); setWorkspaces(decoded.workspaces);
         setActiveWorkspaceId(decoded.activeWorkspaceId); setNotes(decoded.notes);
         setAssignments(details.assignments); setManualEvents(details.manualEvents);
-        setDashboardView(details.dashboardView); setCalendarView(details.calendarView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: details.syllabusDrafts, study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setEditor(null); setSyllabusId(null);
+        setDashboardView(details.dashboardView); setCalendarView(details.calendarView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: details.syllabusDrafts, study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences, widgetAppearance: details.widgetAppearance }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setAppearanceOpen(false); setEditor(null); setSyllabusId(null);
         setSelectedClass(null); setSelectedAssignment(null);
         setExperimentalMode(null); setExperimentalMenuOpen(false); setExperimentalRestoring(false);
         autosave.hydrate(canonicalJson({ courses: [...(data.courses ?? [])].sort((a, b) => a.id.localeCompare(b.id)), dashboard: encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, details) }), data.revision ?? null);
@@ -452,6 +470,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       syllabusDrafts: [],
       study: demo.study,
       filePreferences: extraData.filePreferences,
+      widgetAppearance: extraData.widgetAppearance,
     };
     try {
       academicSnapshot(demo.courses, encodeWorkspaceState(demo.workspaces, demo.activeWorkspaceId, demo.notes, demoDetails));
@@ -469,7 +488,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     setDashboardView("cards");
     setCalendarView("month");
     setCalendarFilter("all");
-    setExtraData({ courseDetails: demo.courseDetails, syllabusDrafts: [], study: demo.study, filePreferences: extraData.filePreferences });
+    setExtraData({ courseDetails: demo.courseDetails, syllabusDrafts: [], study: demo.study, filePreferences: extraData.filePreferences, widgetAppearance: extraData.widgetAppearance });
     setExperimentalMenuOpen(false);
     setSelectedAssignment(null); setSelectedClass(null); setEditor(null); setStudyOpen(false); setSyllabusId(null);
     navigate("home");
@@ -490,10 +509,13 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   }, [page, activeWorkspaceId, workspaces]);
 
   // Validate the entire candidate before accepting a change that cannot be saved.
-  const commitWorkspaces = (next: Workspace[], active = activeWorkspaceId, recoveredNotes = notes) => {
-    try { academicSnapshot(courses, encodeWorkspaceState(next, active, recoveredNotes, { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData })); }
+  const commitWorkspaces = (next: Workspace[], active = activeWorkspaceId, recoveredNotes = notes, appearance = extraData.widgetAppearance) => {
+    const ids = new Set(next.flatMap((workspace) => workspace.widgets.map((widget) => widget.instanceId)));
+    const cleanedAppearance = appearance && { ...appearance, overrides: Object.fromEntries(Object.entries(appearance.overrides).filter(([id]) => ids.has(id))) };
+    try { academicSnapshot(courses, encodeWorkspaceState(next, active, recoveredNotes, { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData, widgetAppearance: cleanedAppearance })); }
     catch (error) { flash(error instanceof Error ? error.message : "This layout cannot be saved."); return false; }
     setWorkspaces(next); setActiveWorkspaceId(active); setNotes(recoveredNotes);
+    if (appearance) setExtraData((current) => ({ ...current, widgetAppearance: cleanedAppearance }));
     return true;
   };
 
@@ -542,7 +564,12 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const duplicateWorkspace = () => {
     const id = uid("workspace");
     const copy: Workspace = { id, name: `${activeWorkspace.name.slice(0, 75)} copy`, widgets: activeWorkspace.widgets.map((widget) => ({ ...widget, instanceId: uid("widget") })) };
-    if (!commitWorkspaces([...workspaces, copy], id)) return;
+    const appearance = extraData.widgetAppearance && { ...extraData.widgetAppearance, overrides: { ...extraData.widgetAppearance.overrides } };
+    if (appearance) copy.widgets.forEach((widget, index) => {
+      const original = appearance.overrides[activeWorkspace.widgets[index].instanceId];
+      if (original) appearance.overrides[widget.instanceId] = { ...original };
+    });
+    if (!commitWorkspaces([...workspaces, copy], id, notes, appearance)) return;
     setWorkspaceMenuOpen(false);
     flash("Workspace duplicated");
   };
@@ -575,7 +602,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     try { validateAcademicEdit(nextCourses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, data), { assignments: storedAssignments, manualEvents, dashboardView, calendarView }); }
     catch (error) { flash(error instanceof Error ? error.message : "Review the academic data."); return false; }
     setCourses(nextCourses); setAssignments(data.assignments); setManualEvents(data.manualEvents); setCalendarFilter(data.calendarFilter);
-    setExtraData({ courseDetails: data.courseDetails, syllabusDrafts: data.syllabusDrafts, study: data.study, filePreferences: data.filePreferences }); return true;
+    setExtraData({ courseDetails: data.courseDetails, syllabusDrafts: data.syllabusDrafts, study: data.study, filePreferences: data.filePreferences, widgetAppearance: data.widgetAppearance }); return true;
   };
   const commitStudy = (patch: Partial<StudyData>) => commitAcademic(courses, { study: { ...study, ...patch } });
   const controlTimer = (action: "start" | "pause" | "resume" | "finish" | "reset", kind: TimerKind) => {
@@ -753,6 +780,10 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       {aiApplying && <div className="assistant-apply-overlay" role="status">Applying your reviewed changes…</div>}
       {studyOpen && <StudyPanel data={study} courses={courses} system={activeGpaSystem} term={activeTerm} studyGoal={profile.study_goal} timezone={profile.timezone} now={now.getTime()} onChange={commitStudy} onTimer={controlTimer} onClose={() => setStudyOpen(false)} />}
       {widgetPickerOpen && renderWidgetPicker()}
+      {appearanceOpen && <WidgetCustomization value={extraData.widgetAppearance} widgets={activeWorkspace.widgets.map((widget) => ({ instanceId: widget.instanceId, title: widgetTemplates.find((template) => template.type === widget.type)!.title, size: widget.size }))} onClose={closeAppearance} onApply={(next) => {
+        if (aiApplying || !saveState.ready || !commitAcademic(courses, { widgetAppearance: next })) return false;
+        setAppearanceOpen(false); flash(experimentalMode ? "Appearance preview updated — nothing saved to your account" : "Widget appearance applied"); return true;
+      }} />}
       {workspaceDialog && renderWorkspaceDialog()}
       {selectedClass && renderClassDetail(selectedClass)}
       {selectedAssignment && renderAssignmentDetail(selectedAssignment)}
@@ -858,6 +889,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               <button className="add-tab" disabled={workspaces.length >= MAX_WORKSPACES} title={`Up to ${MAX_WORKSPACES} workspaces`} onClick={() => { setWorkspaceNameDraft(""); setWorkspaceDialog("new"); }} aria-label="Add workspace">More <ChevronDown size={14} /></button>
             </div>
             <div className="workspace-actions">
+              <button className="secondary-button widget-customization-trigger" aria-haspopup="dialog" onClick={() => setAppearanceOpen(true)}><SlidersHorizontal size={17} /> Widget customization</button>
               <button className="secondary-button" aria-pressed={customizing} onClick={() => setCustomizing((value) => !value)}><LayoutGrid size={17} />{customizing ? "Done customizing" : "Customize"}</button>
               <button className="secondary-button add-widget-control" onClick={() => setWidgetPickerOpen(true)}><Plus size={16} /> Add widget</button>
               <div className="menu-wrap">
@@ -882,7 +914,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               <button className="primary-button" onClick={() => setWidgetPickerOpen(true)}><Plus size={17} /> Browse widgets</button>
             </div>
           ) : (
-            <AnimatedWidgetGrid label={`${activeWorkspace.name} widgets`} layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${activeWorkspace.widgets.map((widget) => `${widget.instanceId}:${widget.size}`).join(",")}`}>
+            <AnimatedWidgetGrid label={`${activeWorkspace.name} widgets`} style={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties} layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}:${activeWorkspace.widgets.map((widget) => `${widget.instanceId}:${widget.size}`).join(",")}`}>
               {activeWorkspace.widgets.map((widget, index) => renderWidget(widget, index))}
               <button className="add-widget-tile" onClick={() => setWidgetPickerOpen(true)}><Plus size={22} /><span>Add widget</span></button>
             </AnimatedWidgetGrid>
@@ -894,6 +926,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
   function renderWidget(widget: WidgetInstance, index: number) {
     const template = widgetTemplates.find((item) => item.type === widget.type)!;
+    const appearance = resolveWidgetAppearance(extraData.widgetAppearance, widget.instanceId);
     const TemplateIcon = widget.type === "today" ? BarChart3 : widget.type === "red-alerts" ? Bell : widget.type === "notes" ? FileText : template.icon;
     return (
       <article
@@ -901,6 +934,8 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         className={`widget-card widget-${widget.type} ${draggedWidget === widget.instanceId ? "dragging" : ""}`}
         data-size={widget.size}
         data-widget-id={widget.instanceId}
+        style={widgetAppearanceStyle(appearance) as CSSProperties}
+        {...appearanceAttributes(appearance)}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => { event.preventDefault(); if (draggedWidget !== null) moveWidget(activeWorkspace.widgets.findIndex((item) => item.instanceId === draggedWidget), index); setDraggedWidget(null); }}
       >
@@ -918,7 +953,13 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
                 </div>
                 <button onClick={() => moveWidget(index, index - 1)} disabled={index === 0}><ArrowLeft size={15} /> Move earlier</button>
                 <button onClick={() => moveWidget(index, index + 1)} disabled={index === activeWorkspace.widgets.length - 1}><ArrowRight size={15} /> Move later</button>
-                <button disabled={activeWorkspace.widgets.length >= MAX_WIDGETS_PER_WORKSPACE} onClick={() => { updateWorkspaceWidgets((widgets) => [...widgets, { ...widget, instanceId: uid("widget") }]); setOpenWidgetMenu(null); }}><Copy size={15} /> Duplicate</button>
+                <button disabled={activeWorkspace.widgets.length >= MAX_WIDGETS_PER_WORKSPACE} onClick={() => {
+                  const copy = { ...widget, instanceId: uid("widget") };
+                  const appearance = extraData.widgetAppearance && { ...extraData.widgetAppearance, overrides: { ...extraData.widgetAppearance.overrides } };
+                  if (appearance?.overrides[widget.instanceId]) appearance.overrides[copy.instanceId] = { ...appearance.overrides[widget.instanceId] };
+                  commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: [...workspace.widgets, copy] } : workspace), activeWorkspaceId, notes, appearance);
+                  setOpenWidgetMenu(null);
+                }}><Copy size={15} /> Duplicate</button>
                 <button className="danger" onClick={() => { if (widget.note && !window.confirm("Remove this notes widget and its text?")) return; if (updateWorkspaceWidgets((widgets) => widgets.filter((item) => item.instanceId !== widget.instanceId))) { setOpenWidgetMenu(null); flash("Widget removed"); } }}><Trash2 size={15} /> Remove</button>
               </div>
             )}

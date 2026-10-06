@@ -1,0 +1,363 @@
+import assert from "node:assert/strict";
+import test, { after, afterEach } from "node:test";
+import { JSDOM } from "jsdom";
+import { clientModule } from "./helpers/client-modules.mjs";
+
+const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/" });
+for (const name of ["window", "document", "HTMLElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "KeyboardEvent"]) globalThis[name] = dom.window[name];
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no layout engine. Model visible controls through offsetParent so the
+// dialog's actual focus trap can still be exercised by keyboard events.
+Object.defineProperty(dom.window.HTMLElement.prototype, "offsetParent", {
+  configurable: true,
+  get() {
+    if (!this.isConnected) return null;
+    for (let node = this.parentElement; node; node = node.parentElement) {
+      if (node.tagName === "DETAILS" && !node.open) return null;
+      if (node.hidden) return null;
+    }
+    return dom.window.document.body;
+  },
+});
+after(() => dom.window.close());
+afterEach(async () => { if (root) await unmount(); });
+
+const [{ createElement, act }, { createRoot }, { default: Workspace }, { default: WidgetCustomization }, { validateProfile }, { encodeWorkspaceState, decodeWorkspaceState }, { academicSnapshot }, { emptyStudy }] = await Promise.all([
+  import("react"),
+  import("react-dom/client"),
+  import(await clientModule("app/workspace-client.tsx")),
+  import(await clientModule("app/widget-customization.tsx")),
+  import(await clientModule("lib/profile.ts")),
+  import(await clientModule("lib/workspace-codec.ts")),
+  import(await clientModule("lib/academic-snapshot.ts")),
+  import(await clientModule("lib/study.ts")),
+]);
+
+const baseProfile = {
+  ...validateProfile({ display_name: "Alex", major: "History", study_goal: "Read every day" }),
+  id: "profile-a", auth_user_id: "user-a", email: "alex@example.invalid", avatar_url: null,
+  initialized: true, updated_at: "2026-10-01T00:00:00.000Z", onboarding_completed_at: "2026-09-30T00:00:00.000Z",
+};
+const course = { id: "history", code: "HIST 205", name: "History", credits: 3, instructor: "Teacher", room: "Hall", color: "#112233", soft: "#11223318", initials: "HI" };
+const savedAssignment = { id: "essay", title: "Archive analysis", courseId: "history", due: "2099-10-08", dateKey: "2099-10-08", status: "later", progress: 30, description: "Saved academic work", weight: "", type: "Assignment" };
+const savedEvent = { id: "seminar", title: "Research seminar", courseId: "history", dateKey: "2099-10-09", time: "10:00", type: "Study block" };
+const savedStudy = { ...emptyStudy(), dailyMinutes: 45, weeklyMinutes: 240, grades: [{ id: "grade-a", courseId: "history", system: "4.0 scale", term: "Fall", max: 4, value: 3.5 }] };
+const savedDashboard = encodeWorkspaceState([
+  { id: "day", name: "My Day", widgets: [
+    { instanceId: "notes", type: "notes", size: "large", note: "Saved notes" },
+    { instanceId: "alerts", type: "red-alerts", size: "small" },
+    { instanceId: "timer", type: "pomodoro", size: "medium" },
+  ] },
+], "day", "", {
+  assignments: [savedAssignment], manualEvents: [savedEvent], dashboardView: "cards", calendarView: "month",
+  calendarFilter: "all", study: savedStudy, filePreferences: { filter: "all", view: "list" },
+});
+
+const rootNode = document.getElementById("root");
+let root, fetcher, server, filesFetcher;
+globalThis.fetch = (...args) => String(args[0]).startsWith("/api/files")
+  ? filesFetcher ? filesFetcher(...args) : Response.json({ files: [] })
+  : fetcher(...args);
+window.confirm = () => true;
+window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+window.scrollTo = () => {};
+
+function reset({ preserveServer = false } = {}) {
+  window.history.replaceState({}, "", "/home");
+  rootNode.innerHTML = "";
+  if (!preserveServer) server = undefined;
+  filesFetcher = undefined;
+  root = createRoot(rootNode);
+}
+async function render(component, props) { await act(async () => { root.render(createElement(component, props)); await new Promise((resolve) => setTimeout(resolve, 0)); }); }
+async function unmount() { await act(async () => root.unmount()); root = undefined; rootNode.innerHTML = ""; }
+function installServer(dashboard = savedDashboard, courses = [course]) {
+  server = { dashboard: structuredClone(dashboard), courses: structuredClone(courses), profile: structuredClone(baseProfile), revision: baseProfile.updated_at, writes: 0 };
+  fetcher = async (_url, init = {}) => {
+    if (init.method === "PUT") {
+      const body = JSON.parse(init.body);
+      if (body.baseRevision !== server.revision) return Response.json({}, { status: 409 });
+      const snapshot = academicSnapshot(body.courses, body.dashboard);
+      server.dashboard = snapshot.dashboard;
+      server.courses = snapshot.courses;
+      server.writes++;
+      server.revision = new Date(Date.parse(server.revision) + 1000).toISOString();
+      return Response.json({ ok: true, revision: server.revision });
+    }
+    return Response.json({ initialized: true, courses: server.courses, dashboard: server.dashboard, revision: server.revision, profile: server.profile });
+  };
+  return server;
+}
+function button(text, scope = rootNode) {
+  const found = [...scope.querySelectorAll("button")].find((node) => node.textContent.trim() === text);
+  assert.ok(found, `Missing button ${text}`);
+  return found;
+}
+async function click(text, scope = rootNode) {
+  const control = button(text, scope);
+  await act(async () => control.click());
+}
+async function clickAria(label, scope = rootNode) {
+  const control = [...scope.querySelectorAll("button")].find((node) => node.getAttribute("aria-label") === label);
+  assert.ok(control, `Missing button ${label}`);
+  await act(async () => control.click());
+}
+function labeledControl(label, scope = rootNode) {
+  const labelNode = [...scope.querySelectorAll("label")].find((node) => node.textContent.trim() === label);
+  assert.ok(labelNode, `Missing control label ${label}`);
+  const id = labelNode.htmlFor;
+  const control = scope.querySelector(`[id="${id}"]`);
+  assert.ok(control, `Missing input for ${label}`);
+  return control;
+}
+async function edit(label, value, scope = rootNode) {
+  const input = labeledControl(label, scope);
+  await act(async () => {
+    if (input.type === "checkbox") {
+      if (input.checked !== value) input.click();
+    } else {
+      const prototype = input.tagName === "SELECT" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, "value").set.call(input, value);
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+      input.dispatchEvent(new window.Event("change", { bubbles: true }));
+    }
+  });
+}
+async function clickSaveIfNeeded() {
+  if ([...rootNode.querySelectorAll("button")].some((node) => node.textContent.trim() === "Save now")) await click("Save now");
+}
+async function saveAndReload() {
+  await clickSaveIfNeeded();
+  assert.equal(rootNode.querySelector(".workspace-save-bar")?.textContent.includes("Unsaved workspace changes"), false);
+  await unmount();
+  reset({ preserveServer: true });
+  await render(Workspace, { initialProfile: baseProfile });
+}
+async function saveCurrent() {
+  const previousWrites = server.writes;
+  await clickSaveIfNeeded();
+  assert.equal(server.writes, previousWrites + 1, "the workspace autosave should write one revision");
+}
+function dashboardData() { return decodeWorkspaceState(server.dashboard).data; }
+function appearanceDialog() { return rootNode.querySelector('[role="dialog"][aria-labelledby="wa-title"]'); }
+async function setScope(id, scope = appearanceDialog()) {
+  const select = scope.querySelector("#wa-scope");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(select, id);
+    select.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+}
+async function openWidgetMenu(instanceId) {
+  const card = rootNode.querySelector(`[data-widget-id="${instanceId}"]`);
+  assert.ok(card, `Missing widget ${instanceId}`);
+  await clickAria(card.querySelector(".widget-header .menu-wrap > button").getAttribute("aria-label"));
+  return rootNode.querySelector(`[data-widget-id="${instanceId}"] .widget-menu`);
+}
+
+test("widget appearance opens from the workspace toolbar and exposes its complete accessible studio", async () => {
+  reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
+
+  const actions = rootNode.querySelector(".workspace-actions");
+  assert.equal(actions.querySelectorAll("button")[0].classList.contains("widget-customization-trigger"), true);
+  assert.equal(actions.querySelectorAll("button")[1].textContent.trim(), "Customize");
+  await act(async () => { actions.querySelector(".widget-customization-trigger").focus(); actions.querySelector(".widget-customization-trigger").click(); });
+  const dialog = appearanceDialog();
+  assert.ok(dialog, "toolbar action should open the appearance dialog");
+  assert.equal(document.activeElement.id, "wa-tab-basic", "initial keyboard focus enters the studio");
+  assert.match(dialog.textContent, /Changes stay in this draft until you apply them/);
+  assert.equal(dialog.querySelectorAll("#wa-panel-basic .wa-control").length, 8);
+  assert.equal(rootNode.querySelectorAll(".wa-preview-card").length, 3);
+  assert.equal(server.writes, 0);
+
+  await click("Advanced", dialog);
+  const advanced = dialog.querySelector("#wa-panel-advanced");
+  assert.equal(advanced.querySelectorAll(".wa-control").length, 24, "all advanced controls should be available");
+  assert.ok(labeledControl("Minimum card width", advanced));
+  assert.ok(labeledControl("Content overflow", advanced));
+  assert.equal(advanced.querySelector(".wa-control-group").querySelector('input[type="range"]').min, "240");
+  assert.equal(advanced.querySelector(".wa-control-group").querySelector('input[type="range"]').max, "380");
+
+  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true })));
+  assert.notEqual(document.activeElement, rootNode.querySelector('[aria-label="Search assignments, classes, and files"]'), "Ctrl+K must not move focus out of an open studio");
+  assert.ok(appearanceDialog(), "Ctrl+K keeps the appearance studio open");
+
+  // Exercise the real focus boundary handlers with the jsdom visibility shim.
+  const focusable = [...dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter((node) => node.offsetParent !== null);
+  const first = focusable[0], last = focusable.at(-1);
+  last.focus();
+  await act(async () => last.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
+  assert.equal(document.activeElement, first, "Tab from the final control wraps to the first control");
+  first.focus();
+  await act(async () => first.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, shiftKey: true })));
+  assert.equal(document.activeElement, last, "Shift+Tab from the first control wraps to the final control");
+
+  await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(appearanceDialog(), null, "Escape closes the studio");
+  assert.equal(document.activeElement, actions.querySelector(".widget-customization-trigger"), "focus returns to the toolbar action");
+  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true })));
+  assert.equal(document.activeElement, rootNode.querySelector('[aria-label="Search assignments, classes, and files"]'), "Ctrl+K focuses workspace search after the studio closes");
+  assert.equal(server.writes, 0);
+});
+
+test("appearance drafts preview without writing, cancel discards, and Apply saves through reload", async () => {
+  reset(); const initial = installServer();
+  await render(Workspace, { initialProfile: baseProfile });
+
+  await click("Widget customization");
+  await edit("Accent color", "#e32655", appearanceDialog());
+  assert.equal(appearanceDialog().querySelector(".wa-preview-card").style.getPropertyValue("--wa-accent"), "#e32655");
+  await clickAria("Enlarge preview", appearanceDialog());
+  assert.equal(appearanceDialog().querySelector(".wa-controls-panel").hidden, true, "enlarged preview hides the controls pane");
+  assert.equal(appearanceDialog().querySelector(".wa-preview-card").style.getPropertyValue("--wa-accent"), "#e32655", "enlarging preserves the live draft preview");
+  await clickAria("Show appearance controls", appearanceDialog());
+  assert.equal(appearanceDialog().querySelector(".wa-controls-panel").hidden, false);
+  assert.equal(labeledControl("Accent color", appearanceDialog()).value, "#e32655", "restoring controls preserves the edited draft value");
+  assert.equal(server.writes, 0, "editing a preview does not persist");
+  await click("Cancel", appearanceDialog());
+  assert.equal(appearanceDialog(), null);
+  await click("Widget customization");
+  assert.equal(labeledControl("Accent color", appearanceDialog()).value, "#6674ff", "reopening starts from the saved appearance after Cancel");
+  assert.equal(server.writes, 0);
+
+  await edit("Corner radius", "24", appearanceDialog());
+  assert.equal(appearanceDialog().querySelector(".wa-preview-card").style.getPropertyValue("--wa-radius"), "24px");
+  await click("Apply appearance", appearanceDialog());
+  assert.equal(appearanceDialog(), null, "Apply closes the dialog after accepting the draft");
+  assert.equal(server.writes, 0, "Apply enters the ordinary workspace autosave flow");
+  assert.ok([...rootNode.querySelectorAll("button")].some((node) => node.textContent.trim() === "Save now"));
+  await saveAndReload();
+
+  assert.equal(server.writes, 1);
+  assert.equal(dashboardData().widgetAppearance.defaults.radius, 24);
+  assert.equal(rootNode.querySelector('[data-widget-id="notes"]').style.getPropertyValue("--wa-radius"), "24px");
+  assert.equal(server.profile.major, initial.profile.major);
+  assert.equal(server.profile.study_goal, initial.profile.study_goal);
+  assert.deepEqual(server.courses, [course]);
+  assert.deepEqual(dashboardData().assignments, [savedAssignment]);
+  assert.deepEqual(dashboardData().manualEvents, [savedEvent]);
+  assert.deepEqual(dashboardData().study.grades, savedStudy.grades);
+  assert.equal(dashboardData().study.dailyMinutes, savedStudy.dailyMinutes);
+});
+
+test("appearance history, per-widget overrides, and board reset stay scoped", async () => {
+  reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
+  await click("Widget customization");
+  const dialog = appearanceDialog();
+  await edit("Accent color", "#e32655", dialog);
+  assert.equal(dialog.querySelector(".wa-preview-card").style.getPropertyValue("--wa-accent"), "#e32655");
+  await clickAria("Undo appearance change", dialog);
+  assert.equal(labeledControl("Accent color", dialog).value, "#6674ff");
+  await clickAria("Redo appearance change", dialog);
+  assert.equal(labeledControl("Accent color", dialog).value, "#e32655");
+  await clickAria("Undo appearance change", dialog);
+  assert.equal(labeledControl("Accent color", dialog).value, "#6674ff");
+
+  await setScope("notes", dialog);
+  assert.equal(labeledControl("Accent color", dialog).value, "#6674ff", "new widget scope starts from its inherited appearance");
+  await edit("Accent color", "#1759d1", dialog);
+  assert.equal(dialog.querySelector('.wa-preview-card[data-wa-show-icons]')?.style.getPropertyValue("--wa-accent"), "#1759d1");
+  await click("Apply appearance", dialog);
+  await saveAndReload();
+
+  const state = dashboardData().widgetAppearance;
+  assert.equal(state.defaults.accent, "#6674ff", "editing one widget does not change the board default");
+  assert.equal(state.overrides.notes.accent, "#1759d1");
+  assert.equal(rootNode.querySelector('[data-widget-id="notes"]').style.getPropertyValue("--wa-accent"), "#1759d1");
+  assert.equal(rootNode.querySelector('[data-widget-id="alerts"]').style.getPropertyValue("--wa-accent"), "#6674ff");
+
+  await click("Widget customization");
+  await click("Reset all widgets", appearanceDialog());
+  assert.equal(labeledControl("Accent color", appearanceDialog()).value, "#6674ff");
+  assert.equal(labeledControl("Corner radius", appearanceDialog()).value, "14");
+  await click("Apply appearance", appearanceDialog());
+  await saveAndReload();
+  assert.equal(dashboardData().widgetAppearance.defaults.radius, 14);
+  assert.deepEqual(dashboardData().widgetAppearance.overrides, {}, "global reset clears every per-widget override");
+});
+
+test("widget and workspace duplicates copy overrides, while removing widgets prunes them", async () => {
+  reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
+
+  await click("Widget customization");
+  await setScope("notes");
+  await edit("Accent color", "#1759d1", appearanceDialog());
+  await click("Apply appearance", appearanceDialog());
+  await saveCurrent();
+  assert.equal(dashboardData().widgetAppearance.overrides.notes.accent, "#1759d1");
+
+  let menu = await openWidgetMenu("notes");
+  await click("Duplicate", menu);
+  let notes = [...rootNode.querySelectorAll(".widget-card.widget-notes")];
+  assert.equal(notes.length, 2);
+  const copiedWidgetId = notes.find((card) => card.dataset.widgetId !== "notes").dataset.widgetId;
+  assert.equal(notes.find((card) => card.dataset.widgetId === copiedWidgetId).style.getPropertyValue("--wa-accent"), "#1759d1");
+  await saveCurrent();
+  assert.equal(dashboardData().widgetAppearance.overrides[copiedWidgetId].accent, "#1759d1", "duplicating a widget copies its override to the new identity");
+
+  await clickAria("Workspace options");
+  await click("Duplicate", rootNode.querySelector(".workspace-menu"));
+  assert.ok(rootNode.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes("copy"));
+  notes = [...rootNode.querySelectorAll(".widget-card.widget-notes")];
+  assert.equal(notes.length, 2, "the duplicated workspace contains both note widgets");
+  assert.ok(notes.every((card) => card.style.getPropertyValue("--wa-accent") === "#1759d1"), "workspace duplicate copies each source widget override");
+  const copiedWorkspaceWidgetIds = notes.map((card) => card.dataset.widgetId);
+  await saveCurrent();
+  for (const id of copiedWorkspaceWidgetIds) assert.equal(dashboardData().widgetAppearance.overrides[id].accent, "#1759d1");
+
+  await click("My Day");
+  notes = [...rootNode.querySelectorAll(".widget-card.widget-notes")];
+  assert.equal(notes.length, 2, "the source workspace retains its original note widgets");
+  assert.ok(notes.every((card) => card.style.getPropertyValue("--wa-accent") === "#1759d1"));
+  menu = await openWidgetMenu("notes");
+  await click("Remove", menu);
+  await saveCurrent();
+  assert.equal(dashboardData().widgetAppearance.overrides.notes, undefined, "removing a widget prunes only that widget's override");
+  assert.equal(dashboardData().widgetAppearance.overrides[copiedWidgetId].accent, "#1759d1");
+
+  menu = await openWidgetMenu(copiedWidgetId);
+  await click("Remove", menu);
+  await saveCurrent();
+  assert.equal(dashboardData().widgetAppearance.overrides[copiedWidgetId], undefined);
+
+  const copiedWorkspaceTab = [...rootNode.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent.includes("copy"));
+  assert.ok(copiedWorkspaceTab);
+  await act(async () => copiedWorkspaceTab.click());
+  for (const id of copiedWorkspaceWidgetIds) {
+    menu = await openWidgetMenu(id);
+    await click("Remove", menu);
+    await saveCurrent();
+  }
+  assert.deepEqual(dashboardData().widgetAppearance.overrides, {}, "removing the remaining overridden widgets prunes their entries");
+});
+
+test("appearance applies in experimental mode only to the preview and never writes", async () => {
+  reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
+  await clickAria("Experimental mode");
+  await clickAria("Load Clear experimental data");
+  assert.match(rootNode.textContent, /Clear experimental mode/);
+  await click("Widget customization");
+  await edit("Accent color", "#b12fc1", appearanceDialog());
+  await click("Apply appearance", appearanceDialog());
+  assert.match(rootNode.textContent, /Appearance preview updated — nothing saved to your account/);
+  assert.equal(server.writes, 0);
+  assert.equal(appearanceDialog(), null);
+});
+
+test("a rejected Apply keeps the edited draft open for correction", async () => {
+  reset();
+  let calls = 0;
+  await render(WidgetCustomization, {
+    value: undefined,
+    widgets: [{ instanceId: "notes", title: "Quick Notes", size: "large" }],
+    onClose: () => { calls++; },
+    onApply: () => false,
+  });
+  const dialog = appearanceDialog();
+  await edit("Accent color", "#e32655", dialog);
+  await click("Apply appearance", dialog);
+  assert.ok(appearanceDialog(), "failed Apply leaves the studio open");
+  assert.equal(labeledControl("Accent color", appearanceDialog()).value, "#e32655", "the draft remains available for retry");
+  assert.match(dialog.querySelector('[role="status"]').textContent, /Unable to apply/);
+  assert.equal(calls, 0, "rejected Apply does not close the studio");
+});
