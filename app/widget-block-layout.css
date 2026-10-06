@@ -1,0 +1,54 @@
+/* One small block is two half-rows. Gaps are included in every span. */
+:is(.reference-ui .widget-grid, .wa-preview-cards) {
+  --widget-gap: var(--wa-gap, 16px);
+  --widget-unit: var(--wa-min-height, 220px);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--wa-min-width, 260px), calc((100% - var(--widget-gap)) / 2)), 1fr));
+  grid-auto-rows: calc((var(--widget-unit) - var(--widget-gap)) / 2);
+  grid-auto-flow: row dense;
+  align-items: stretch;
+  gap: var(--widget-gap);
+  min-width: 0;
+}
+
+:is(.reference-ui .widget-card, .wa-preview-card) {
+  grid-column: span 1;
+  grid-row: span 2;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+}
+
+:is(.reference-ui .widget-card, .wa-preview-card)[data-size="mini"] { grid-row: span 1; }
+:is(.reference-ui .widget-card, .wa-preview-card)[data-size="medium"] { grid-column: span 2; }
+:is(.reference-ui .widget-card, .wa-preview-card)[data-size="medium-vertical"] { grid-row: span 4; }
+:is(.reference-ui .widget-card, .wa-preview-card)[data-size="large"] { grid-column: span 2; grid-row: span 4; }
+
+/* One shared viewport keeps even the smallest variant usable without scaling content. */
+.reference-ui .widget-card .widget-frame,
+.wa-preview-card .wa-preview-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.reference-ui .widget-card .widget-header h2 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wa-preview-card .wa-preview-card__header { flex-shrink: 0; }
+
+/* Content keeps its existing styling; overflow cannot change the block footprint. */
+.reference-ui .widget-card .widget-body,
+.wa-preview-card .wa-preview-card__body {
+  flex: 1 0 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: visible;
+}

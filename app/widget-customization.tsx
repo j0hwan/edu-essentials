@@ -11,9 +11,10 @@ import {
   type WidgetAppearance,
   type WidgetAppearanceState,
 } from "../lib/widget-appearance";
+import type { WidgetSize } from "../lib/widget-layout";
 import "./widget-customization.css";
 
-type WidgetOption = { instanceId: string; title: string; size: "small" | "medium" | "large" };
+type WidgetOption = { instanceId: string; title: string; size: WidgetSize };
 type Props = {
   value: WidgetAppearanceState | undefined;
   widgets: WidgetOption[];
@@ -43,21 +44,12 @@ const BASIC_CONTROLS: Control[] = [
 const ADVANCED_GROUPS: { title: string; description: string; controls: Control[]; boardOnly?: boolean }[] = [
   {
     title: "Board layout",
-    description: "Set the card grid rhythm across the whole board.",
+    description: "Set block width, height, and spacing for the whole board. Content stays inside each fixed-size block.",
     boardOnly: true,
     controls: [
-      { key: "minWidth", label: "Minimum card width", kind: "range", min: 240, max: 380, step: 10, unit: "px" },
+      { key: "minWidth", label: "Block width", kind: "range", min: 240, max: 380, step: 10, unit: "px" },
+      { key: "minHeight", label: "Block height", kind: "range", min: 180, max: 360, step: 10, unit: "px" },
       { key: "gap", label: "Space between cards", kind: "range", min: 8, max: 32, unit: "px" },
-    ],
-  },
-  {
-    title: "Card sizing",
-    description: "Let content lead, or give every widget more room.",
-    controls: [
-      { key: "minHeight", label: "Minimum card height", kind: "range", min: 180, max: 360, step: 10, unit: "px" },
-      { key: "contentMode", label: "Content overflow", kind: "select", choices: [
-        { value: "expand", label: "Expand to fit" }, { value: "scroll", label: "Scroll inside card" },
-      ] },
     ],
   },
   {
@@ -132,7 +124,10 @@ const ADVANCED_GROUPS: { title: string; description: string; controls: Control[]
 
 const DEVICE_WIDTHS = { desktop: 860, tablet: 580, phone: 390 } as const;
 type Device = keyof typeof DEVICE_WIDTHS;
-type DemoCard = { id?: string; title: string; kind: "schedule" | "focus" | "progress"; size: WidgetOption["size"] };
+type DemoCard = { id?: string; title: string; kind: "schedule" | "focus" | "progress"; size: WidgetSize };
+
+const PREVIEW_SIZE_GALLERY: readonly WidgetSize[] = ["mini", "mini", "small", "medium", "medium-vertical", "large"];
+const PREVIEW_TITLES = ["Next up", "Focus session", "Weekly progress"] as const;
 
 function initialState(value: WidgetAppearanceState | undefined) {
   try {
@@ -154,11 +149,15 @@ function WidgetIcon({ kind }: { kind: DemoCard["kind"] }) {
 }
 
 function PreviewCard({ card, appearance }: { card: DemoCard; appearance: WidgetAppearance }) {
-  const style = widgetAppearanceStyle(appearance) as CSSProperties;
+  const style = widgetAppearanceStyle(appearance);
+  delete style["--wa-min-width"];
+  delete style["--wa-min-height"];
+  delete style["--wa-gap"];
   return (
     <article
-      className={`wa-preview-card wa-preview-card--${card.size}`}
-      style={style}
+      className="wa-preview-card"
+      style={style as CSSProperties}
+      data-size={card.size}
       data-wa-texture={appearance.texture}
       data-wa-gradient={appearance.gradient}
       data-wa-icon-style={appearance.iconStyle}
@@ -166,9 +165,9 @@ function PreviewCard({ card, appearance }: { card: DemoCard; appearance: WidgetA
       data-wa-header-divider={String(appearance.headerDivider)}
       data-wa-accent-edge={appearance.accentEdge}
       data-wa-hover={appearance.hover}
-      data-wa-content-mode={appearance.contentMode}
       data-wa-title-align={appearance.titleAlign}
     >
+      <div className="wa-preview-frame">
       <div className="wa-preview-card__header">
         <span className="wa-preview-card__icon"><WidgetIcon kind={card.kind} /></span>
         <h4>{card.title}</h4>
@@ -177,6 +176,7 @@ function PreviewCard({ card, appearance }: { card: DemoCard; appearance: WidgetA
       {card.kind === "schedule" && <div className="wa-preview-card__body"><strong>Biology · Lecture</strong><p>Today, 10:30 AM <span>·</span> Room 204</p><span className="wa-preview-card__tag">Up next</span><div className="wa-preview-card__more"><span>Lab prep <time>1:15 PM</time></span><span>Read chapter 8 <time>3:00 PM</time></span><span>Study group <time>4:30 PM</time></span></div></div>}
       {card.kind === "focus" && <div className="wa-preview-card__body wa-preview-card__focus"><strong>50:00</strong><p>Deep work block</p><div className="wa-preview-card__progress" role="img" aria-label="Focus session is 62 percent complete"><span /></div><small>Break in 17 minutes</small><div className="wa-preview-card__more"><span>Review lecture notes</span><span>Finish problem set</span><span>Plan tomorrow</span></div></div>}
       {card.kind === "progress" && <div className="wa-preview-card__body"><div className="wa-preview-card__metric"><strong>12.5 hrs</strong><span>This week</span></div><div className="wa-preview-card__bars" role="img" aria-label="Study time across five days"><i /><i /><i /><i /><i /></div><p>Study goal · 16 hours</p><div className="wa-preview-card__more"><span>3 assignments finished</span><span>4-day study streak</span><span>Goal is on track</span></div></div>}
+      </div>
     </article>
   );
 }
@@ -350,22 +350,37 @@ export default function WidgetCustomization({ value, widgets, onApply, onClose }
     document.getElementById(`wa-tab-${nextMode}`)?.focus();
   };
 
-  let demoCards: DemoCard[] = widgets.slice(0, 3).map((widget, index) => ({
-    id: widget.instanceId,
-    title: widget.title,
-    kind: (["schedule", "focus", "progress"] as const)[index % 3],
-    size: widget.size,
-  }));
-  if (targetId && !demoCards.some((card) => card.id === targetId) && selectedWidget) {
-    const targetCard: DemoCard = { id: selectedWidget.instanceId, title: selectedWidget.title, kind: "schedule", size: selectedWidget.size };
-    demoCards = demoCards.length >= 3 ? [...demoCards.slice(0, 2), targetCard] : [...demoCards, targetCard];
-  }
-  if (demoCards.length === 0) {
-    demoCards = [
-      { title: "Next up", kind: "schedule", size: "medium" },
-      { title: "Focus session", kind: "focus", size: "medium" },
-      { title: "Weekly progress", kind: "progress", size: "medium" },
-    ];
+  let demoCards: DemoCard[];
+  if (!targetId) {
+    const unusedWidgets = [...widgets];
+    demoCards = PREVIEW_SIZE_GALLERY.map((size, index) => {
+      const widgetIndex = unusedWidgets.findIndex((widget) => widget.size === size);
+      const widget = widgetIndex === -1 ? undefined : unusedWidgets.splice(widgetIndex, 1)[0];
+      return {
+        id: widget?.instanceId,
+        title: widget?.title ?? PREVIEW_TITLES[index % PREVIEW_TITLES.length],
+        kind: (["schedule", "focus", "progress"] as const)[index % 3],
+        size,
+      };
+    });
+  } else {
+    demoCards = widgets.slice(0, 3).map((widget, index) => ({
+      id: widget.instanceId,
+      title: widget.title,
+      kind: (["schedule", "focus", "progress"] as const)[index % 3],
+      size: widget.size,
+    }));
+    if (!demoCards.some((card) => card.id === targetId) && selectedWidget) {
+      const targetCard: DemoCard = { id: selectedWidget.instanceId, title: selectedWidget.title, kind: "schedule", size: selectedWidget.size };
+      demoCards = demoCards.length >= 3 ? [...demoCards.slice(0, 2), targetCard] : [...demoCards, targetCard];
+    }
+    if (demoCards.length === 0) {
+      demoCards = PREVIEW_SIZE_GALLERY.slice(0, 3).map((size, index) => ({
+        title: PREVIEW_TITLES[index],
+        kind: (["schedule", "focus", "progress"] as const)[index],
+        size,
+      }));
+    }
   }
 
   const appearanceFor = (state: WidgetAppearanceState, card: DemoCard) => resolveWidgetAppearance(state, card.id);
@@ -450,7 +465,7 @@ export default function WidgetCustomization({ value, widgets, onApply, onClose }
               <DeviceStage device={device} label="Saved look">{renderPreviewCards(saved, "saved")}</DeviceStage>
               <DeviceStage device={device} label="Draft look">{renderPreviewCards(draft, "draft")}</DeviceStage>
             </div> : <DeviceStage device={device} label="Draft look">{renderPreviewCards(draft, "draft")}</DeviceStage>}
-            <p className="wa-preview-note"><Clock3 size={14} /> Preview cards use sample study details.</p>
+            <p className="wa-preview-note"><Clock3 size={14} /> Sample content stays inside each fixed-size block.</p>
           </section>
 
           <section className="wa-controls-panel" id="wa-settings" aria-label="Appearance controls" hidden={previewExpanded}>
@@ -468,7 +483,7 @@ export default function WidgetCustomization({ value, widgets, onApply, onClose }
             <div className="wa-mode-tabs" role="tablist" aria-label="Appearance control detail" tabIndex={-1} onKeyDown={handleTabKeyDown}>
               <button type="button" role="tab" id="wa-tab-basic" aria-selected={mode === "basic"} tabIndex={mode === "basic" ? 0 : -1} aria-controls="wa-panel-basic" onClick={() => setMode("basic")} data-initial-focus>Basic</button>
               <button type="button" role="tab" id="wa-tab-advanced" aria-selected={mode === "advanced"} tabIndex={mode === "advanced" ? 0 : -1} aria-controls="wa-panel-advanced" onClick={() => setMode("advanced")}>Advanced</button>
-              <span>32 appearance controls</span>
+              <span>31 appearance controls</span>
             </div>
 
             {mode === "basic" ? <div id="wa-panel-basic" role="tabpanel" aria-labelledby="wa-tab-basic" className="wa-controls-content">

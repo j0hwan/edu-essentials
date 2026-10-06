@@ -151,7 +151,9 @@ async function setScope(id, scope = appearanceDialog()) {
 async function openWidgetMenu(instanceId) {
   const card = rootNode.querySelector(`[data-widget-id="${instanceId}"]`);
   assert.ok(card, `Missing widget ${instanceId}`);
-  await clickAria(card.querySelector(".widget-header .menu-wrap > button").getAttribute("aria-label"));
+  const trigger = card.querySelector(".widget-header .menu-wrap > button");
+  assert.ok(trigger, `Missing widget menu trigger for ${instanceId}`);
+  await act(async () => trigger.click());
   return rootNode.querySelector(`[data-widget-id="${instanceId}"] .widget-menu`);
 }
 
@@ -167,14 +169,20 @@ test("widget appearance opens from the workspace toolbar and exposes its complet
   assert.equal(document.activeElement.id, "wa-tab-basic", "initial keyboard focus enters the studio");
   assert.match(dialog.textContent, /Changes stay in this draft until you apply them/);
   assert.equal(dialog.querySelectorAll("#wa-panel-basic .wa-control").length, 8);
-  assert.equal(rootNode.querySelectorAll(".wa-preview-card").length, 3);
+  assert.equal(rootNode.querySelectorAll(".wa-preview-card").length, 6);
+  assert.deepEqual(
+    [...rootNode.querySelectorAll(".wa-preview-card")].map((card) => card.dataset.size),
+    ["mini", "mini", "small", "medium", "medium-vertical", "large"],
+    "the board preview gallery demonstrates all five footprints, with two mini cards",
+  );
   assert.equal(server.writes, 0);
 
   await click("Advanced", dialog);
   const advanced = dialog.querySelector("#wa-panel-advanced");
-  assert.equal(advanced.querySelectorAll(".wa-control").length, 24, "all advanced controls should be available");
-  assert.ok(labeledControl("Minimum card width", advanced));
-  assert.ok(labeledControl("Content overflow", advanced));
+  assert.equal(advanced.querySelectorAll(".wa-control").length, 23, "all advanced controls should be available");
+  assert.ok(labeledControl("Block width", advanced));
+  assert.ok(labeledControl("Block height", advanced));
+  assert.equal(advanced.textContent.includes("Content overflow"), false, "content behavior is not a per-widget sizing control");
   assert.equal(advanced.querySelector(".wa-control-group").querySelector('input[type="range"]').min, "240");
   assert.equal(advanced.querySelector(".wa-control-group").querySelector('input[type="range"]').max, "380");
 
@@ -240,6 +248,71 @@ test("appearance drafts preview without writing, cancel discards, and Apply save
   assert.equal(dashboardData().study.dailyMinutes, savedStudy.dailyMinutes);
 });
 
+test("all five size choices persist across reload, and note duplication or deletion preserves academic work", async () => {
+  reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
+
+  const choices = [
+    { value: "mini", label: "Mini" },
+    { value: "small", label: "Small" },
+    { value: "medium", label: "Medium horizontal" },
+    { value: "large", label: "Large" },
+    { value: "medium-vertical", label: "Medium vertical" },
+  ];
+  const expectedLabels = ["Mini widget", "Small widget", "Medium horizontal widget", "Medium vertical widget", "Large widget"];
+  let decoded;
+  let noteWidget;
+  for (const choice of choices) {
+    const menu = await openWidgetMenu("notes");
+    assert.deepEqual(
+      [...menu.querySelectorAll(".size-options button")].map((control) => control.getAttribute("aria-label")),
+      expectedLabels,
+      "the widget menu exposes all five named footprints",
+    );
+    const control = [...menu.querySelectorAll(".size-options button")].find((item) => item.getAttribute("aria-label") === `${choice.label} widget`);
+    assert.ok(control, `Missing ${choice.label} size option`);
+    await act(async () => control.click());
+    assert.equal(rootNode.querySelector('[data-widget-id="notes"]').dataset.size, choice.value, `${choice.label} updates the selected widget`);
+
+    await saveAndReload();
+    decoded = decodeWorkspaceState(server.dashboard);
+    noteWidget = decoded.workspaces.flatMap((workspace) => workspace.widgets).find((widget) => widget.instanceId === "notes");
+    assert.equal(noteWidget.size, choice.value, `${choice.label} survives save and reload`);
+    assert.equal(noteWidget.note, "Saved notes", `${choice.label} preserves the note text`);
+    assert.equal(rootNode.querySelector('[data-widget-id="notes"] textarea')?.value, "Saved notes");
+  }
+
+  let menu = await openWidgetMenu("notes");
+  await click("Duplicate", menu);
+  const duplicatedNotes = [...rootNode.querySelectorAll(".widget-card.widget-notes")];
+  assert.equal(duplicatedNotes.length, 2);
+  const duplicateId = duplicatedNotes.find((card) => card.dataset.widgetId !== "notes").dataset.widgetId;
+  assert.equal(rootNode.querySelector(`[data-widget-id="${duplicateId}"]`).dataset.size, "medium-vertical");
+  assert.equal(rootNode.querySelector(`[data-widget-id="${duplicateId}"] textarea`)?.value, "Saved notes");
+  await saveAndReload();
+
+  decoded = decodeWorkspaceState(server.dashboard);
+  let widgets = decoded.workspaces.flatMap((workspace) => workspace.widgets);
+  const duplicateWidget = widgets.find((widget) => widget.instanceId === duplicateId);
+  assert.equal(duplicateWidget?.size, "medium-vertical", "a duplicate keeps the source footprint after reload");
+  assert.equal(duplicateWidget?.note, "Saved notes", "a duplicate keeps the source note after reload");
+
+  menu = await openWidgetMenu(duplicateId);
+  await click("Remove", menu);
+  await saveAndReload();
+  decoded = decodeWorkspaceState(server.dashboard);
+  widgets = decoded.workspaces.flatMap((workspace) => workspace.widgets);
+  assert.equal(widgets.some((widget) => widget.instanceId === duplicateId), false, "removing the duplicate deletes that note widget");
+  noteWidget = widgets.find((widget) => widget.instanceId === "notes");
+  assert.equal(noteWidget?.size, "medium-vertical", "deleting a duplicate leaves the source footprint intact");
+  assert.equal(noteWidget?.note, "Saved notes", "deleting a duplicate leaves the source note intact");
+
+  assert.deepEqual(server.courses, [course]);
+  assert.deepEqual(dashboardData().assignments, [savedAssignment]);
+  assert.deepEqual(dashboardData().manualEvents, [savedEvent]);
+  assert.deepEqual(dashboardData().study.grades, savedStudy.grades);
+  assert.equal(dashboardData().study.dailyMinutes, savedStudy.dailyMinutes);
+});
+
 test("appearance history, per-widget overrides, and board reset stay scoped", async () => {
   reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
   await click("Widget customization");
@@ -255,6 +328,13 @@ test("appearance history, per-widget overrides, and board reset stay scoped", as
 
   await setScope("notes", dialog);
   assert.equal(labeledControl("Accent color", dialog).value, "#6674ff", "new widget scope starts from its inherited appearance");
+  await click("Advanced", dialog);
+  const boardLayout = [...dialog.querySelectorAll(".wa-control-group")].find((group) => group.querySelector("summary strong")?.textContent === "Board layout");
+  assert.ok(boardLayout, "advanced settings include board layout controls");
+  for (const label of ["Block width", "Block height", "Space between cards"]) {
+    assert.equal(labeledControl(label, boardLayout).disabled, true, `${label} is disabled when editing one widget`);
+  }
+  await click("Basic", dialog);
   await edit("Accent color", "#1759d1", dialog);
   assert.equal(dialog.querySelector('.wa-preview-card[data-wa-show-icons]')?.style.getPropertyValue("--wa-accent"), "#1759d1");
   await click("Apply appearance", dialog);

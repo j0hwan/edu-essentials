@@ -1,6 +1,10 @@
 import { validateCourseDetails, validateDraft, type CourseDetails, type SyllabusDraft } from "./academics";
 import { validateStudy, type StudyData } from "./study";
 import { validateWidgetAppearanceState, type WidgetAppearanceState } from "./widget-appearance";
+import { widgetSizes, type WidgetSize } from "./widget-layout";
+export { widgetSizes };
+export type { WidgetSize };
+
 export const widgetTypes = [
   "daily-goal",
   "weekly-goal",
@@ -22,10 +26,7 @@ export const widgetTypes = [
   "spacer",
 ] as const;
 
-export const widgetSizes = ["small", "medium", "large"] as const;
-
 export type WidgetType = (typeof widgetTypes)[number];
-export type WidgetSize = (typeof widgetSizes)[number];
 
 export type WidgetInstance = {
   instanceId: string;

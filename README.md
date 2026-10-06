@@ -161,22 +161,27 @@ See PERSISTENCE_SETTINGS.md for the completed Step 3 review and local test evide
 
 ## Dashboard widget layout
 
-Widgets use a responsive grid in saved order, with a default minimum width of
-260px and a board width capped at 1680px. Small, medium, and large cards have
-minimum heights of 220px, 244px, and 284px. Content expands the card by default;
-short cards do not inherit the height of their neighbors. Empty columns retain
-their width, so the final card does not stretch across a whole desktop row.
+Every widget supports the same five block footprints: mini (1 × ½), small
+(1 × 1), medium horizontal (2 × 1), medium vertical (1 × 2), and large (2 × 2).
+The shared small block defaults to 220px high and a target width of 260px; the
+board is capped at 1680px. Spans include the space between blocks, so two stacked
+minis align with one small and a large aligns with four smalls. Dense placement
+fills available spaces while retaining the saved widget order in the DOM.
+The grid retains at least two fluid columns on narrow screens so horizontal
+variants keep their footprint. Content scrolls inside the fixed card; padding,
+icons, and content styling stay the same across sizes.
 
 Widget customization, beside Customize, opens an appearance studio with Basic
-and Advanced controls. Six presets and 32 controls cover card size, spacing,
+and Advanced controls. Six presets and 31 controls cover block size, spacing,
 surfaces, opacity, colors, borders, shadows, blur, texture, gradients, typography,
-headers, icons, hover effects, motion timing, and optional scrolling inside cards.
+headers, icons, hover effects, and motion timing.
 Try desktop, tablet, and phone previews, enlarge the preview for a closer look,
 compare the saved and draft looks, and undo or redo changes before applying.
 Cancel discards the draft.
 
 Appearance defaults apply across the account, with optional overrides for an
-individual widget. Board width and spacing controls apply to all widgets.
+individual widget. Block width, block height, and spacing apply to the entire board;
+individual appearance overrides cannot change those shared dimensions.
 Duplicating a widget or workspace copies its appearance; removing it cleans up
 its override. Applied appearance saves in dashboard_state.payload.d.widgetAppearance
 alongside existing account data. Older clients cannot erase saved appearance.
