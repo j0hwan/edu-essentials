@@ -512,7 +512,7 @@ test("workspace controls persist configurations and independent notes", async (t
     for (const button of pickerButtons) await act(async () => button.click());
     await click("Done"); assert.equal(cards().length, 18);
     const ids = cards().map((card) => card.dataset.widgetId);
-    await clickAria("Quick notes options"); await clickAria("large widget");
+    await clickAria("Quick notes options"); await clickAria("Large widget");
     await clickAria("Quick notes options"); await click("Move earlier");
     await click("Move later"); await clickAria("Quick notes options");
     const source = cards()[0], destination = cards()[17];

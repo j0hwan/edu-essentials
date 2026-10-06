@@ -276,7 +276,7 @@
   .reference-ui .topbar-search kbd { display: none; }
 }
 
-/* Content-led sizing: longer records may grow a card, never stretch to viewport height. */
+/* Shared content styling stays the same across every block footprint. */
 .reference-ui .widget-card:has(.widget-menu) { z-index: 10; }
 .reference-ui .widget-header { align-items: flex-start; }
 .reference-ui .widget-header h2 { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; font-size: calc(14 * var(--ui-unit)); }
@@ -287,7 +287,7 @@
 .reference-ui .widget-body .text-button,
 .reference-ui .widget-menu button,
 .reference-ui .widget-menu p { font-size: calc(14 * var(--ui-unit)); }
-.reference-ui .widget-menu { min-width: calc(180 * var(--ui-unit)); max-width: min(calc(240 * var(--ui-unit)), 85vw); }
+.reference-ui .widget-menu { width: min(240px, 85vw); min-width: min(240px, 85vw); max-width: 85vw; }
 .reference-ui .widget-menu .size-options button { min-height: calc(32 * var(--ui-unit)); }
 .reference-ui .widget-body :is(.compact-assignment, .class-link-grid > button, .exam-list > button) { min-height: calc(48 * var(--ui-unit)); padding-block: calc(8 * var(--ui-unit)); gap: calc(9 * var(--ui-unit)); }
 .reference-ui :is(.compact-assignment, .class-link-grid, .exam-list) strong { font-size: calc(14 * var(--ui-unit)); white-space: normal; overflow-wrap: anywhere; }
@@ -335,7 +335,6 @@
 .reference-ui .completion-summary { flex-wrap: wrap; gap: calc(8 * var(--ui-unit)); }
 .reference-ui .completion-widget .legend-row { justify-content: flex-start; }
 .reference-ui .notes-widget textarea { min-height: calc(90 * var(--ui-unit)); font-size: max(1rem, calc(14 * var(--ui-unit))); }
-.reference-ui .widget-notes[data-size="large"] textarea { min-height: calc(150 * var(--ui-unit)); }
 .reference-ui .reference-note-footer { flex-wrap: wrap; }
 .reference-ui .notes-widget .save-note { font-size: calc(14 * var(--ui-unit)); }
 .reference-ui .today-task-copy strong, .reference-ui .today-schedule-row time,
@@ -347,12 +346,6 @@
 .reference-ui .next-class-title { flex-wrap: wrap; }
 .reference-ui .brand-copy span { white-space: normal; }
 
-@container widget (max-width: 22rem) {
-  .reference-ui .stoplight-summary { grid-template-columns: 1fr; }
-  .reference-ui .stoplight-summary button { flex-direction: row; align-items: center; }
-  .reference-ui .stoplight-count { gap: calc(8 * var(--ui-unit)); }
-  .reference-ui .mini-days { gap: 2px; }
-}
 @media (prefers-reduced-motion: reduce) {
   .reference-ui .widget-card { transition: none; }
 }

@@ -1,11 +1,5 @@
 /* Appearance is scoped to widgets; navigation and editors keep their own theme. */
 .reference-ui .widget-grid {
-  --widget-gap: var(--wa-gap, 16px);
-  --widget-unit: var(--wa-min-height, 220px);
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--wa-min-width, 260px)), 1fr));
-  align-items: start;
-  gap: var(--widget-gap);
   max-width: 1680px;
 }
 .reference-ui .widget-card {
@@ -23,9 +17,7 @@
   --brand-soft: color-mix(in srgb, var(--wa-accent, #6674ff) 12%, var(--wa-surface, #0d1b30));
   contain: none;
   container: widget / inline-size;
-  height: auto;
-  max-height: none;
-  min-height: var(--wa-min-height, 220px);
+  min-height: 0;
   border: var(--wa-border-width, 1px) var(--wa-border-style, solid) var(--wa-border-color, #28405f);
   border-radius: var(--wa-radius, 14px);
   padding: var(--wa-padding, 16px);
@@ -38,8 +30,6 @@
   letter-spacing: var(--wa-letter-spacing, 0em);
   transition: transform var(--wa-transition-ms, 180ms) ease, border-color var(--wa-transition-ms, 180ms) ease, box-shadow var(--wa-transition-ms, 180ms) ease;
 }
-.reference-ui .widget-card[data-size="medium"] { min-height: calc(var(--wa-min-height, 220px) + 24px); }
-.reference-ui .widget-card[data-size="large"] { min-height: calc(var(--wa-min-height, 220px) + 64px); }
 .reference-ui .widget-card[data-wa-texture="dots"] { background-size: 16px 16px, auto; }
 .reference-ui .widget-card[data-wa-texture="grid"] { background-size: 22px 22px, 22px 22px, auto; }
 .reference-ui .widget-card .widget-header {
@@ -72,9 +62,9 @@
 .reference-ui .widget-card[data-wa-accent-edge="top"] { border-top: 3px solid var(--wa-accent); }
 .reference-ui .widget-card[data-wa-accent-edge="left"] { border-left: 3px solid var(--wa-accent); }
 .reference-ui .widget-card .widget-body {
-  min-height: auto;
+  min-height: 0;
   min-width: 0;
-  overflow: visible;
+  overflow: auto;
   font-size: var(--wa-font-size, 14px);
   line-height: var(--wa-line-height, 1.45);
   gap: 10px;
@@ -119,14 +109,6 @@
   border-color: var(--wa-border-color);
   background: var(--surface-2);
 }
-.reference-ui .widget-card[data-wa-content-mode="scroll"] {
-  height: calc(var(--wa-min-height, 220px) + 36px);
-  min-height: 0;
-  contain: size;
-}
-.reference-ui .widget-card[data-wa-content-mode="scroll"][data-size="medium"] { height: calc(var(--wa-min-height, 220px) + 60px); }
-.reference-ui .widget-card[data-wa-content-mode="scroll"][data-size="large"] { height: calc(var(--wa-min-height, 220px) + 100px); }
-.reference-ui .widget-card[data-wa-content-mode="scroll"] .widget-body { min-height: 0; overflow: auto; }
 .reference-ui .widget-card[data-wa-hover="none"]:hover { border-color: var(--wa-border-color); box-shadow: var(--wa-shadow); }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   html:not([data-motion="reduced"]) .reference-ui .widget-card[data-wa-hover="lift"]:hover { transform: translateY(-3px); }

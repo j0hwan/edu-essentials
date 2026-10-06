@@ -77,6 +77,8 @@ import type { Profile } from "../lib/profile";
 import "./auth.css";
 import "./reference-ui.css";
 import "./widget-appearance.css";
+import "./widget-block-layout.css";
+import { widgetSizeOptions } from "../lib/widget-layout";
 import {
   decodeWorkspaceState,
   encodeWorkspaceState,
@@ -265,6 +267,30 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [miniWeekOffset, setMiniWeekOffset] = useState(0);
   const [widgetSearch, setWidgetSearch] = useState("");
   const [openWidgetMenu, setOpenWidgetMenu] = useState<string | null>(null);
+  const widgetMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const menu = widgetMenuRef.current;
+    if (!openWidgetMenu || !menu) return;
+    const card = menu.parentElement!;
+    const anchor = card.querySelector<HTMLElement>(".widget-header .menu-wrap > button")!;
+    const grid = menu.closest(".widget-grid");
+    const placeMenu = () => {
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const width = menu.offsetWidth || Math.min(240, viewportWidth * .85);
+      const rect = anchor.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const left = Math.max(12, Math.min(rect.right - width, viewportWidth - width - 12));
+      menu.style.left = `${left - cardRect.left - card.clientLeft}px`;
+      menu.style.right = "auto";
+      menu.style.top = `${rect.bottom - cardRect.top - card.clientTop + 4}px`;
+    };
+    placeMenu();
+    window.addEventListener("resize", placeMenu);
+    card.addEventListener("scroll", placeMenu, true);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(placeMenu);
+    if (grid) observer?.observe(grid);
+    return () => { window.removeEventListener("resize", placeMenu); card.removeEventListener("scroll", placeMenu, true); observer?.disconnect(); };
+  }, [openWidgetMenu, sidebarCollapsed]);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDialog, setWorkspaceDialog] = useState<"new" | "rename" | null>(null);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
@@ -939,17 +965,22 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => { event.preventDefault(); if (draggedWidget !== null) moveWidget(activeWorkspace.widgets.findIndex((item) => item.instanceId === draggedWidget), index); setDraggedWidget(null); }}
       >
+        <div className="widget-frame">
         <div className="widget-header">
           <span className={`widget-icon tone-${template.color}`}><TemplateIcon size={16} /></span>
           <h2>{({ "daily-goal": "Daily Study Goal", today: "At a Glance", "red-alerts": "Alerts", pomodoro: "Pomodoro", "mini-calendar": "Mini Calendar", "task-completion": "Task Completion", notes: "Quick Notes" } as Record<string, string>)[widget.type] ?? template.title}</h2>
           <button className="drag-handle icon-button mini" aria-label={`Drag ${template.title}`} draggable onDragStart={(event) => { event.dataTransfer?.setData("text/plain", widget.instanceId); setDraggedWidget(widget.instanceId); }} onDragEnd={() => setDraggedWidget(null)}><GripVertical size={16} /></button>
           <div className="menu-wrap">
             <button className="icon-button mini" onClick={() => setOpenWidgetMenu(openWidgetMenu === widget.instanceId ? null : widget.instanceId)} aria-label={`${template.title} options`}><MoreHorizontal size={17} /></button>
+          </div>
+        </div>
+        <div className="widget-body">{renderWidgetBody(widget)}</div>
+        </div>
             {openWidgetMenu === widget.instanceId && (
-              <div className="popover widget-menu">
+              <div className="popover widget-menu" ref={widgetMenuRef}>
                 <p>Widget size</p>
                 <div className="size-options">
-                  {(["small", "medium", "large"] as WidgetSize[]).map((size) => <button key={size} aria-label={`${size} widget`} aria-pressed={widget.size === size} className={widget.size === size ? "active" : ""} onClick={() => resizeWidget(widget.instanceId, size)}>{size.slice(0, 1).toUpperCase()}</button>)}
+                  {widgetSizeOptions.map(({ value, label, footprint }) => <button key={value} aria-label={`${label} widget`} aria-pressed={widget.size === value} className={widget.size === value ? "active" : ""} onClick={() => resizeWidget(widget.instanceId, value)}><span>{label}</span><small>{footprint.width} × {footprint.height === 0.5 ? "½" : footprint.height}</small></button>)}
                 </div>
                 <button onClick={() => moveWidget(index, index - 1)} disabled={index === 0}><ArrowLeft size={15} /> Move earlier</button>
                 <button onClick={() => moveWidget(index, index + 1)} disabled={index === activeWorkspace.widgets.length - 1}><ArrowRight size={15} /> Move later</button>
@@ -963,9 +994,6 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
                 <button className="danger" onClick={() => { if (widget.note && !window.confirm("Remove this notes widget and its text?")) return; if (updateWorkspaceWidgets((widgets) => widgets.filter((item) => item.instanceId !== widget.instanceId))) { setOpenWidgetMenu(null); flash("Widget removed"); } }}><Trash2 size={15} /> Remove</button>
               </div>
             )}
-          </div>
-        </div>
-        <div className="widget-body">{renderWidgetBody(widget)}</div>
       </article>
     );
   }

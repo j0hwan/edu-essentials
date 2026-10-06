@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clientModule } from "./helpers/client-modules.mjs";
-const { encodeWorkspaceState: encode, decodeWorkspaceState: decode, widgetTypes, MAX_WORKSPACE_BYTES } = await import(await clientModule("lib/workspace-codec.ts"));
+const { encodeWorkspaceState: encode, decodeWorkspaceState: decode, widgetTypes, widgetSizes, MAX_WORKSPACE_BYTES } = await import(await clientModule("lib/workspace-codec.ts"));
+const { widgetSizeOptions } = await import(await clientModule("lib/widget-layout.ts"));
 const pack = (state) => encode(state.workspaces, state.activeWorkspaceId, state.notes, state.data);
 const legacy = { v: 1, a: "second", w: [["first", "First", widgetTypes.map((_, i) => [i, i % 3])], ["second", "Second", [[12, 2], [12, 0]]]], n: "Shared legacy text\nKeep every line." };
 
@@ -12,9 +13,50 @@ test("v1 migration preserves every layout and note, with deterministic persisten
   assert.deepEqual(decode(source), loaded); assert.deepEqual(decode(upgraded), loaded);
   assert.equal(loaded.activeWorkspaceId, "second"); assert.equal(loaded.notes, "");
   assert.deepEqual(loaded.workspaces[0].widgets.map((widget) => widget.type), widgetTypes);
+  assert.deepEqual(widgetSizes, ["small", "medium", "large", "mini", "medium-vertical"]);
+  assert.deepEqual(loaded.workspaces[0].widgets.slice(0, 3).map((widget) => widget.size), ["small", "medium", "large"]);
   for (const workspace of loaded.workspaces) for (const widget of workspace.widgets) if (widget.type === "notes") assert.equal(widget.note, legacy.n);
   assert.equal(upgraded.t.length, 1);
   assert.equal(new Set(loaded.workspaces.flatMap((w) => w.widgets.map((v) => v.instanceId))).size, 20);
+});
+
+test("all widget types round-trip with all five stable size indices", () => {
+  const widgets = widgetTypes.flatMap((type) => widgetSizes.map((size) => ({
+    instanceId: `${type}-${size}`,
+    type,
+    size,
+    ...(type === "notes" ? { note: `Text for ${size}` } : {}),
+  })));
+  const data = { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" };
+  const compact = encode([{ id: "all", name: "All sizes", widgets }], "all", "Standalone notes", data);
+  const loaded = decode(compact);
+
+  assert.equal(compact.v, 2);
+  assert.deepEqual(compact.w[0][2].map((widget) => widget[1]), Array.from({ length: widgetTypes.length }, () => [0, 1, 2, 3, 4]).flat());
+  assert.deepEqual(loaded.workspaces[0].widgets, widgets);
+  assert.equal(loaded.notes, "Standalone notes");
+  assert.deepEqual(loaded.data, data);
+  assert.equal(new Set(loaded.workspaces[0].widgets.map((widget) => widget.instanceId)).size, 18 * 5);
+  assert.deepEqual(loaded.workspaces[0].widgets.map((widget) => widgetSizes.indexOf(widget.size)), widgets.map((widget) => widgetSizes.indexOf(widget.size)));
+});
+
+test("widget size options expose the five labeled block footprints", () => {
+  assert.deepEqual(widgetSizeOptions, [
+    { value: "mini", label: "Mini", footprint: { width: 1, height: 0.5 } },
+    { value: "small", label: "Small", footprint: { width: 1, height: 1 } },
+    { value: "medium", label: "Medium horizontal", footprint: { width: 2, height: 1 } },
+    { value: "medium-vertical", label: "Medium vertical", footprint: { width: 1, height: 2 } },
+    { value: "large", label: "Large", footprint: { width: 2, height: 2 } },
+  ]);
+});
+
+test("compact workspace decoder rejects size indices outside the five supported values", () => {
+  const good = pack(decode(legacy));
+  for (const size of [-1, 5, 0.5, "mini", null]) {
+    const broken = structuredClone(good);
+    broken.w[0][2][0][1] = size;
+    assert.throws(() => decode(broken), /widget layout/);
+  }
 });
 
 test("independent edits, copies, clearing, deletion and reorder survive repeated reloads", () => {
