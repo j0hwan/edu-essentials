@@ -1,7 +1,4 @@
 /* Appearance is scoped to widgets; navigation and editors keep their own theme. */
-.reference-ui .widget-grid {
-  max-width: 1680px;
-}
 .reference-ui .widget-card {
   --ui-unit: calc(var(--wa-font-size, 14px) / 14);
   --ink: var(--wa-text-color, #edf1ff);

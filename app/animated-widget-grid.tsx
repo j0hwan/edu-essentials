@@ -2,13 +2,159 @@
 
 import { Component, createRef, type ReactNode, type CSSProperties } from "react";
 
-type Props = { layoutKey: string; label: string; children: ReactNode; style?: CSSProperties };
+type Props = { layoutKey: string; label: string; children: ReactNode; style?: CSSProperties; className?: string; animateLayout?: boolean };
 type Snapshot = Map<string, DOMRect> | null;
+
+export type WidgetUnitInput = {
+  gridWidth: number;
+  gap: number;
+  columns: 2 | 4;
+};
+
+export type WidgetPlacement = {
+  column: number;
+  columnSpan: number;
+  row: number;
+  rowSpan: number;
+};
+
+/** The base cell is square and uses the exact available width after column gaps. */
+export function calculateWidgetUnit({ gridWidth, gap, columns }: WidgetUnitInput): number {
+  return Math.max(0, (gridWidth - gap * (columns - 1)) / columns);
+}
+
+/** Place full small-cell footprints row-major, pairing mini cards in one cell. */
+export function calculateWidgetPlacements(sizes: readonly string[], columns: 2 | 4): WidgetPlacement[] {
+  const widgetCellFootprints: Record<string, { width: number; height: number }> = {
+    small: { width: 1, height: 1 },
+    medium: { width: 2, height: 1 },
+    "medium-vertical": { width: 1, height: 2 },
+    large: { width: 2, height: 2 },
+  };
+  const occupied: boolean[][] = [];
+  let pendingMini: { column: number; row: number } | null = null;
+
+  const findFreeCell = (width: number, height: number) => {
+    for (let row = 0; ; row += 1) {
+      for (let column = 0; column <= columns - width; column += 1) {
+        let free = true;
+        for (let offsetY = 0; offsetY < height && free; offsetY += 1) {
+          for (let offsetX = 0; offsetX < width; offsetX += 1) {
+            if (occupied[row + offsetY]?.[column + offsetX]) {
+              free = false;
+              break;
+            }
+          }
+        }
+        if (free) return { column, row };
+      }
+    }
+  };
+
+  const reserve = (column: number, row: number, width: number, height: number) => {
+    for (let offsetY = 0; offsetY < height; offsetY += 1) {
+      occupied[row + offsetY] ??= Array.from({ length: columns }, () => false);
+      for (let offsetX = 0; offsetX < width; offsetX += 1) occupied[row + offsetY][column + offsetX] = true;
+    }
+  };
+
+  return sizes.map((size) => {
+    if (size === "mini") {
+      if (pendingMini) {
+        const placement = {
+          column: pendingMini.column + 1,
+          columnSpan: 1,
+          row: pendingMini.row * 2 + 2,
+          rowSpan: 1,
+        };
+        pendingMini = null;
+        return placement;
+      }
+
+      const cell = findFreeCell(1, 1);
+      reserve(cell.column, cell.row, 1, 1);
+      pendingMini = cell;
+      return {
+        column: cell.column + 1,
+        columnSpan: 1,
+        row: cell.row * 2 + 1,
+        rowSpan: 1,
+      };
+    }
+
+    const footprint = widgetCellFootprints[size] ?? widgetCellFootprints.small;
+    const cell = findFreeCell(footprint.width, footprint.height);
+    reserve(cell.column, cell.row, footprint.width, footprint.height);
+    return {
+      column: cell.column + 1,
+      columnSpan: footprint.width,
+      row: cell.row * 2 + 1,
+      rowSpan: footprint.height * 2,
+    };
+  });
+}
 
 /** FLIP measures the old layout before React changes it, including interrupted motion. */
 export default class AnimatedWidgetGrid extends Component<Props, Record<string, never>, Snapshot> {
   private grid = createRef<HTMLDivElement>();
   private animations = new Set<Animation>();
+  private layoutObserver: ResizeObserver | null = null;
+  private observedLayoutTargets = new Set<Element>();
+  private measurementFrame: number | null = null;
+
+  private updateBoardUnit = () => {
+    const grid = this.grid.current;
+    if (!grid) return;
+
+    const gridStyle = window.getComputedStyle(grid);
+    const configuredColumns = Number.parseInt(gridStyle.getPropertyValue("--widget-columns"), 10);
+    const columns: 2 | 4 = configuredColumns === 2 || configuredColumns === 4
+      ? configuredColumns
+      : window.innerWidth <= 600 ? 2 : 4;
+    const computedGap = Number.parseFloat(gridStyle.columnGap);
+    const gap = Number.isFinite(computedGap) ? computedGap : 16;
+    const isPreview = grid.classList.contains("wa-preview-cards");
+    const computedWidth = Number.parseFloat(gridStyle.width);
+    const rectWidth = grid.getBoundingClientRect().width;
+    // DeviceStage scales preview frames with transform. Computed width stays in
+    // the frame's CSS pixels, while the rectangle is correct for the live board.
+    const gridWidth = isPreview && computedWidth > 0
+      ? computedWidth
+      : rectWidth || grid.clientWidth;
+    const unit = calculateWidgetUnit({
+      gridWidth,
+      gap,
+      columns,
+    });
+    const value = `${unit}px`;
+    if (grid.style.getPropertyValue("--widget-unit") !== value) grid.style.setProperty("--widget-unit", value);
+  };
+
+  private scheduleBoardUnitUpdate = () => {
+    if (this.measurementFrame !== null) return;
+    this.measurementFrame = window.requestAnimationFrame(() => {
+      this.measurementFrame = null;
+      this.updateBoardLayout();
+    });
+  };
+
+  private handleResize = () => {
+    this.observeLayout();
+    this.scheduleBoardUnitUpdate();
+  };
+
+  private observeLayout = () => {
+    const grid = this.grid.current;
+    if (!grid) return;
+    const targets = new Set<Element>([grid]);
+    if (targets.size === this.observedLayoutTargets.size && [...targets].every((target) => this.observedLayoutTargets.has(target))) return;
+    this.layoutObserver?.disconnect();
+    this.layoutObserver = null;
+    this.observedLayoutTargets = targets;
+    if (typeof ResizeObserver === "undefined") return;
+    this.layoutObserver = new ResizeObserver(this.scheduleBoardUnitUpdate);
+    for (const target of targets) this.layoutObserver.observe(target);
+  };
 
   private reducedMotion() {
     return document.documentElement.dataset.motion === "reduced"
@@ -19,13 +165,41 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
     return this.grid.current?.querySelectorAll<HTMLElement>("[data-widget-id]") ?? [];
   }
 
+  private updateCardPlacements() {
+    const grid = this.grid.current;
+    if (!grid) return;
+
+    const gridStyle = window.getComputedStyle(grid);
+    const configuredColumns = Number.parseInt(gridStyle.getPropertyValue("--widget-columns"), 10);
+    const columns: 2 | 4 = configuredColumns === 2 || configuredColumns === 4
+      ? configuredColumns
+      : window.innerWidth <= 600 ? 2 : 4;
+    const cards = (Array.from(grid.children) as HTMLElement[]).filter((card) =>
+      card.hasAttribute("data-widget-id") || card.classList.contains("wa-preview-card"),
+    );
+    const placements = calculateWidgetPlacements(cards.map((card) => card.dataset.size ?? "small"), columns);
+
+    cards.forEach((card, index) => {
+      const placement = placements[index];
+      card.style.gridColumn = `${placement.column} / span ${placement.columnSpan}`;
+      card.style.gridRow = `${placement.row} / span ${placement.rowSpan}`;
+    });
+  }
+
+  private updateBoardLayout = () => {
+    this.updateBoardUnit();
+    this.updateCardPlacements();
+  };
+
   getSnapshotBeforeUpdate(previous: Props): Snapshot {
-    if (previous.layoutKey === this.props.layoutKey || this.reducedMotion()) return null;
+    if (this.props.animateLayout === false || previous.layoutKey === this.props.layoutKey || this.reducedMotion()) return null;
     return new Map([...this.cards()].map((card) => [card.dataset.widgetId!, card.getBoundingClientRect()]));
   }
 
   componentDidUpdate(_previous: Props, _state: Record<string, never>, snapshot: Snapshot) {
-    if (this.reducedMotion()) { this.cancelAnimations(); return; }
+    this.updateBoardLayout();
+    this.observeLayout();
+    if (this.props.animateLayout === false || this.reducedMotion()) { this.cancelAnimations(); return; }
     if (!snapshot) return;
     this.cancelAnimations();
     // Read every destination before animating, so one card cannot affect another's measurement.
@@ -53,9 +227,24 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
     this.animations.clear();
   }
 
-  componentWillUnmount() { this.cancelAnimations(); }
+  componentDidMount() {
+    this.updateBoardLayout();
+    this.observeLayout();
+    window.addEventListener("resize", this.handleResize);
+  }
+
+  componentWillUnmount() {
+    this.cancelAnimations();
+    this.layoutObserver?.disconnect();
+    this.layoutObserver = null;
+    this.observedLayoutTargets.clear();
+    if (this.measurementFrame !== null) window.cancelAnimationFrame(this.measurementFrame);
+    this.measurementFrame = null;
+    window.removeEventListener("resize", this.handleResize);
+  }
 
   render() {
-    return <div ref={this.grid} className="widget-grid" style={this.props.style} aria-label={this.props.label}>{this.props.children}</div>;
+    const className = this.props.className ? `widget-grid ${this.props.className}` : "widget-grid";
+    return <div ref={this.grid} className={className} style={this.props.style} aria-label={this.props.label}>{this.props.children}</div>;
   }
 }

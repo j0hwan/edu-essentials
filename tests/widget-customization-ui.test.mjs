@@ -170,6 +170,7 @@ test("widget appearance opens from the workspace toolbar and exposes its complet
   assert.match(dialog.textContent, /Changes stay in this draft until you apply them/);
   assert.equal(dialog.querySelectorAll("#wa-panel-basic .wa-control").length, 8);
   assert.equal(rootNode.querySelectorAll(".wa-preview-card").length, 6);
+  assert.ok(rootNode.querySelector(".wa-preview-cards.widget-grid"), "the appearance gallery uses the shared responsive widget grid");
   assert.deepEqual(
     [...rootNode.querySelectorAll(".wa-preview-card")].map((card) => card.dataset.size),
     ["mini", "mini", "small", "medium", "medium-vertical", "large"],
@@ -179,12 +180,14 @@ test("widget appearance opens from the workspace toolbar and exposes its complet
 
   await click("Advanced", dialog);
   const advanced = dialog.querySelector("#wa-panel-advanced");
-  assert.equal(advanced.querySelectorAll(".wa-control").length, 23, "all advanced controls should be available");
-  assert.ok(labeledControl("Block width", advanced));
-  assert.ok(labeledControl("Block height", advanced));
+  assert.equal(advanced.querySelectorAll(".wa-control").length, 21, "all advanced controls should be available after removing board size sliders");
+  assert.equal([...advanced.querySelectorAll("label")].some((label) => /Medium (width|height) reference/.test(label.textContent)), false, "board geometry has no obsolete width or height controls");
+  assert.ok(labeledControl("Space between cards", advanced), "board layout retains the shared gap control");
+  const boardControls = [...advanced.querySelectorAll(".wa-control-group")].find((group) => group.querySelector("summary strong")?.textContent === "Board layout");
+  assert.equal(boardControls.querySelectorAll(".wa-control").length, 1, "board layout exposes only its shared gap control");
   assert.equal(advanced.textContent.includes("Content overflow"), false, "content behavior is not a per-widget sizing control");
-  assert.equal(advanced.querySelector(".wa-control-group").querySelector('input[type="range"]').min, "240");
-  assert.equal(advanced.querySelector(".wa-control-group").querySelector('input[type="range"]').max, "380");
+  assert.equal(advanced.querySelector(".wa-control-group").querySelector('input[type="range"]').min, "8");
+  assert.equal(advanced.querySelector(".wa-control-group").querySelector('input[type="range"]').max, "32");
 
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true })));
   assert.notEqual(document.activeElement, rootNode.querySelector('[aria-label="Search assignments, classes, and files"]'), "Ctrl+K must not move focus out of an open studio");
@@ -331,7 +334,7 @@ test("appearance history, per-widget overrides, and board reset stay scoped", as
   await click("Advanced", dialog);
   const boardLayout = [...dialog.querySelectorAll(".wa-control-group")].find((group) => group.querySelector("summary strong")?.textContent === "Board layout");
   assert.ok(boardLayout, "advanced settings include board layout controls");
-  for (const label of ["Block width", "Block height", "Space between cards"]) {
+  for (const label of ["Space between cards"]) {
     assert.equal(labeledControl(label, boardLayout).disabled, true, `${label} is disabled when editing one widget`);
   }
   await click("Basic", dialog);

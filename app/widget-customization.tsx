@@ -12,6 +12,7 @@ import {
   type WidgetAppearanceState,
 } from "../lib/widget-appearance";
 import type { WidgetSize } from "../lib/widget-layout";
+import AnimatedWidgetGrid from "./animated-widget-grid";
 import "./widget-customization.css";
 
 type WidgetOption = { instanceId: string; title: string; size: WidgetSize };
@@ -44,11 +45,9 @@ const BASIC_CONTROLS: Control[] = [
 const ADVANCED_GROUPS: { title: string; description: string; controls: Control[]; boardOnly?: boolean }[] = [
   {
     title: "Board layout",
-    description: "Set block width, height, and spacing for the whole board. Content stays inside each fixed-size block.",
+    description: "Fit four small square widgets across on desktop and tablet, or two on phones. Larger sizes derive from the square base cell; adjust their spacing below.",
     boardOnly: true,
     controls: [
-      { key: "minWidth", label: "Block width", kind: "range", min: 240, max: 380, step: 10, unit: "px" },
-      { key: "minHeight", label: "Block height", kind: "range", min: 180, max: 360, step: 10, unit: "px" },
       { key: "gap", label: "Space between cards", kind: "range", min: 8, max: 32, unit: "px" },
     ],
   },
@@ -385,11 +384,17 @@ export default function WidgetCustomization({ value, widgets, onApply, onClose }
 
   const appearanceFor = (state: WidgetAppearanceState, card: DemoCard) => resolveWidgetAppearance(state, card.id);
   const renderPreviewCards = (state: WidgetAppearanceState, prefix: string) => (
-    <div className="wa-preview-cards" style={widgetAppearanceStyle(state.defaults) as CSSProperties}>
+    <AnimatedWidgetGrid
+      className="wa-preview-cards"
+      animateLayout={false}
+      layoutKey={`${prefix}:${JSON.stringify(state)}`}
+      label={`${prefix === "saved" ? "Saved" : "Draft"} widget appearance preview`}
+      style={widgetAppearanceStyle(state.defaults) as CSSProperties}
+    >
       {demoCards.map((card, index) => (
         <PreviewCard key={`${prefix}-${card.id ?? card.title}-${index}`} card={card} appearance={appearanceFor(state, card)} />
       ))}
-    </div>
+    </AnimatedWidgetGrid>
   );
 
   const renderControl = (control: Control, index: number, disabled = false) => {
@@ -483,7 +488,7 @@ export default function WidgetCustomization({ value, widgets, onApply, onClose }
             <div className="wa-mode-tabs" role="tablist" aria-label="Appearance control detail" tabIndex={-1} onKeyDown={handleTabKeyDown}>
               <button type="button" role="tab" id="wa-tab-basic" aria-selected={mode === "basic"} tabIndex={mode === "basic" ? 0 : -1} aria-controls="wa-panel-basic" onClick={() => setMode("basic")} data-initial-focus>Basic</button>
               <button type="button" role="tab" id="wa-tab-advanced" aria-selected={mode === "advanced"} tabIndex={mode === "advanced" ? 0 : -1} aria-controls="wa-panel-advanced" onClick={() => setMode("advanced")}>Advanced</button>
-              <span>31 appearance controls</span>
+              <span>29 appearance controls</span>
             </div>
 
             {mode === "basic" ? <div id="wa-panel-basic" role="tabpanel" aria-labelledby="wa-tab-basic" className="wa-controls-content">

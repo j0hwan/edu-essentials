@@ -1,15 +1,36 @@
-/* One small block is two half-rows. Gaps are included in every span. */
+/* One small square is one column wide and two half-rows tall. */
+/* Keep the measured board width stable when page height crosses the scrollbar threshold. */
+html:has(.reference-ui) { scrollbar-gutter: stable; }
+
 :is(.reference-ui .widget-grid, .wa-preview-cards) {
+  --widget-columns: 4;
   --widget-gap: var(--wa-gap, 16px);
-  --widget-unit: var(--wa-min-height, 220px);
+  --widget-unit: 220px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(var(--wa-min-width, 260px), calc((100% - var(--widget-gap)) / 2)), 1fr));
   grid-auto-rows: calc((var(--widget-unit) - var(--widget-gap)) / 2);
-  grid-auto-flow: row dense;
   align-items: stretch;
   gap: var(--widget-gap);
   min-width: 0;
 }
+
+.reference-ui .widget-grid {
+  width: 100%;
+  margin-inline: auto;
+  grid-template-columns: repeat(var(--widget-columns), minmax(0, 1fr));
+}
+
+.wa-preview-cards {
+  grid-template-columns: repeat(var(--widget-columns), minmax(0, 1fr));
+}
+
+@media (max-width: 600px) {
+  :is(.reference-ui .widget-grid, .wa-preview-cards) { --widget-columns: 2; }
+}
+
+/* Preview density follows the selected frame, even when the host viewport differs. */
+.wa-device-frame--desktop .wa-preview-cards,
+.wa-device-frame--tablet .wa-preview-cards { --widget-columns: 4; }
+.wa-device-frame--phone .wa-preview-cards { --widget-columns: 2; }
 
 :is(.reference-ui .widget-card, .wa-preview-card) {
   grid-column: span 1;
@@ -37,6 +58,35 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
+.reference-ui .widget-card {
+  position: relative;
+  padding: min(var(--wa-padding, 16px), 10%);
+}
+
+/* Small cards keep their options trigger reachable outside the shared scroll frame. */
+@container widget (max-width: 120px) {
+  .reference-ui .widget-card .widget-header { padding-inline-end: 24px; }
+  .reference-ui .widget-card .widget-header > .widget-icon { display: none; }
+  .reference-ui .widget-card .widget-header .menu-wrap {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+    z-index: 2;
+    margin: 0;
+  }
+  .reference-ui .widget-card .widget-header .drag-handle:focus-visible,
+  .reference-ui.is-customizing .widget-card .widget-header .drag-handle {
+    position: absolute;
+    inset-block-start: 24px;
+    inset-inline-end: 0;
+    z-index: 2;
+    clip-path: none;
+    width: 20px;
+    height: 24px;
+    margin: 0;
+  }
+}
+
 .reference-ui .widget-card .widget-header h2 {
   white-space: nowrap;
   overflow: hidden;

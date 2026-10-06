@@ -39,11 +39,12 @@ async function renderActualWidgetMarkup() {
   window.confirm = () => true;
 
   const { clientModule } = await import("../tests/helpers/client-modules.mjs");
-  const [{ createElement, act }, { createRoot }, { default: Workspace }, { validateProfile }] = await Promise.all([
+  const [{ createElement, act }, { createRoot }, { default: Workspace }, { validateProfile }, { default: AnimatedWidgetGrid, calculateWidgetUnit, calculateWidgetPlacements }] = await Promise.all([
     import("react"),
     import("react-dom/client"),
     import(await clientModule("app/workspace-client.tsx")),
     import(await clientModule("lib/profile.ts")),
+    import(await clientModule("app/animated-widget-grid.tsx")),
   ]);
   const sizeByType = new Map([[12, 0], [4, 0], [6, 0], [16, 0], [15, 2], [5, 0], [17, 0], [11, 1], [8, 1]]);
   const idByType = new Map([[12, "notes"], [4, "alerts"], [6, "timer"], [16, "quote"], [15, "overview"], [5, "calendar"], [17, "spacer"], [11, "links"], [8, "completion"], [2, "upcoming"]]);
@@ -87,13 +88,44 @@ async function renderActualWidgetMarkup() {
   const grid = rootNode.querySelector(".widget-grid");
   assert.ok(grid, "actual Workspace component should render the widget grid");
   assert.equal(grid.querySelectorAll(".widget-card").length, 18, "fixture should render every production widget type");
+  const findGridOwner = (fiber) => {
+    if (!fiber) return null;
+    if (fiber.stateNode instanceof AnimatedWidgetGrid) return fiber.stateNode;
+    return findGridOwner(fiber.child) ?? findGridOwner(fiber.sibling);
+  };
+  const gridOwner = findGridOwner(root._internalRoot.current);
+  assert.equal(typeof gridOwner?.updateBoardUnit, "function", "actual AnimatedWidgetGrid exposes its production measurement callback for browser QA");
+  assert.equal(typeof gridOwner?.updateCardPlacements, "function", "actual AnimatedWidgetGrid exposes its production card placement method for browser QA");
   const markup = grid.innerHTML;
+  assert.equal(grid.style.maxWidth, "", "production board sizing does not write an inline max-width");
+  grid.style.removeProperty("--widget-unit");
+  const fixture = {
+    cards: markup,
+    gridStyle: grid.getAttribute("style") ?? "",
+    desktopTopbar: document.querySelector(".desktop-topbar")?.outerHTML ?? "",
+    mobileHeader: document.querySelector(".mobile-header")?.outerHTML ?? "",
+    greeting: document.querySelector(".home-greeting")?.outerHTML ?? "",
+    todayPanel: document.querySelector(".home-today-panel")?.outerHTML ?? "",
+    workspaceBar: document.querySelector(".workspace-bar")?.outerHTML ?? "",
+    mobileBottomNav: document.querySelector(".mobile-bottom-nav")?.outerHTML ?? "",
+  };
+  assert.equal(typeof calculateWidgetUnit, "function", "actual AnimatedWidgetGrid exports the production board sizing calculation");
   await act(async () => root.unmount());
   dom.window.close();
-  return markup;
+  return {
+    fixture,
+    calculateWidgetUnitSource: calculateWidgetUnit.toString(),
+    updateBoardUnitSource: gridOwner.updateBoardUnit.toString(),
+    calculateWidgetPlacementsSource: calculateWidgetPlacements.toString(),
+    updateCardPlacementsSource: gridOwner.updateCardPlacements.toString(),
+  };
 }
 
-const cardsMarkup = await renderActualWidgetMarkup();
+  const { fixture: actualMarkup, calculateWidgetUnitSource, updateBoardUnitSource, calculateWidgetPlacementsSource, updateCardPlacementsSource } = await renderActualWidgetMarkup();
+const cardsMarkup = actualMarkup.cards;
+const gridStyleAttribute = actualMarkup.gridStyle
+  ? ` style="${actualMarkup.gridStyle.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"`
+  : "";
 
 // This opt-in browser fixture combines actual Workspace markup with production CSS.
 const documentHtml = `<!doctype html><html data-theme="dark" data-motion="reduced" style='--font-geist-sans:"Segoe UI";--font-geist-mono:Consolas,monospace'><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
@@ -103,7 +135,9 @@ ${widgetAppearanceCss}
 ${widgetBlockLayoutCss}
 </style></head><body><div class="app-shell reference-ui" id="app">
   <aside class="sidebar"><div class="brand-row"><div class="brand-mark">E</div><div class="brand-copy"><strong>EduEssentials</strong><span>Fictional workspace</span></div><button class="sidebar-toggle" aria-label="Collapse sidebar">≡</button></div><nav class="main-nav"><a class="nav-item active"><span>Home</span></a><a class="nav-item"><span>Courses</span></a></nav><div class="sidebar-bottom"><div class="profile-card"><span class="avatar">F</span><span><strong>Fictional profile</strong><small>example.invalid</small></span></div></div></aside>
-  <main class="main-content"><div class="page home-page"><header class="home-greeting"><h1>Good morning, Alex</h1><p>A local layout fixture with fictional records.</p></header><section class="workspace-section"><div class="workspace-bar"><div class="workspace-tabs"><button class="active">My Day</button></div><div class="workspace-actions"><button class="secondary-button">Customize</button><button class="secondary-button add-widget-control">Add widget</button></div></div><div class="widget-grid" aria-label="My Day widgets">${cardsMarkup}</div></section><div class="fixture-footer" style="min-height:620px;padding:30px"><h2>Long page area</h2><p>Scroll content to verify the widget menu remains on top.</p></div></div></main>
+  <div class="mountain-backdrop"></div>${actualMarkup.desktopTopbar}
+  <main class="main-content">${actualMarkup.mobileHeader}<div class="page home-page">${actualMarkup.greeting}${actualMarkup.todayPanel}<section class="workspace-section">${actualMarkup.workspaceBar}<div class="widget-grid" aria-label="My Day widgets"${gridStyleAttribute}>${cardsMarkup}</div></section><div class="fixture-footer" style="min-height:620px;padding:30px"><h2>Long page area</h2><p>Scroll content to verify the widget menu remains on top.</p></div></div></main>
+  ${actualMarkup.mobileBottomNav}
 </div><script>
 document.querySelector(".sidebar-toggle").addEventListener("click", () => {
   const app = document.querySelector("#app");
@@ -156,15 +190,30 @@ function near(actual, expected, message, tolerance = 1.5) {
 
 async function snapshotLayout(page) {
   // Container-query styles and their dependent tracks settle during rendering.
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.evaluate(() => {
+    return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.__updateProductionBoardUnit?.();
+      window.__updateProductionCardPlacements?.();
+      requestAnimationFrame(() => {
+        window.__updateProductionBoardUnit?.();
+        window.__updateProductionCardPlacements?.();
+        requestAnimationFrame(resolve);
+      });
+    })));
+  });
   return page.evaluate(() => {
-    const grid = document.querySelector(".widget-grid").getBoundingClientRect();
+    const gridElement = document.querySelector(".widget-grid");
+    const grid = gridElement.getBoundingClientRect();
+    const workspaceSection = document.querySelector(".workspace-section").getBoundingClientRect();
+    const todayPanel = document.querySelector(".home-today-panel").getBoundingClientRect();
     const scrollX = window.scrollX, scrollY = window.scrollY;
+    const contentBox = (rect) => ({ x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height, right: rect.right + scrollX, bottom: rect.bottom + scrollY });
     const cards = [...document.querySelectorAll(".widget-card")].map((card) => {
       const rect = card.getBoundingClientRect();
       return { id: card.dataset.widgetId, type: [...card.classList].find((name) => name.startsWith("widget-") && name !== "widget-card"), size: card.dataset.size, x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height, right: rect.right + scrollX, bottom: rect.bottom + scrollY };
     });
-    return { grid: { x: grid.x + scrollX, y: grid.y + scrollY, width: grid.width, height: grid.height, right: grid.right + scrollX, bottom: grid.bottom + scrollY }, cards, workspaceWidth: document.querySelector(".main-content").clientWidth, viewportWidth: innerWidth, scrollWidth: document.documentElement.scrollWidth };
+    const gridStyle = getComputedStyle(gridElement);
+    return { grid: contentBox(grid), workspaceSection: contentBox(workspaceSection), todayPanel: contentBox(todayPanel), unit: Number.parseFloat(gridStyle.getPropertyValue("--widget-unit")), columns: gridStyle.gridTemplateColumns.trim().split(/\s+/).length, debug: window.__productionUnitInput, cards, workspaceWidth: document.querySelector(".main-content").clientWidth, viewportWidth: innerWidth, scrollWidth: document.documentElement.scrollWidth };
   });
 }
 
@@ -175,6 +224,11 @@ async function settleLayout(page) {
 function assertGridLayout(layout, label) {
   assert.ok(layout.grid.width > 0, `${label}: widget grid has a measurable width`);
   assert.ok(layout.cards.length > 0, `${label}: widget grid contains cards`);
+  for (const [targetName, target] of [["workspace section", layout.workspaceSection], ["Today panel", layout.todayPanel]]) {
+    near(layout.grid.x, target.x, `${label}: widget grid aligns with the ${targetName}'s left edge`, 1.5);
+    near(layout.grid.right, target.right, `${label}: widget grid aligns with the ${targetName}'s right edge`, 1.5);
+    near(layout.grid.width, target.width, `${label}: widget grid fills the ${targetName} width`, 1.5);
+  }
   for (const card of layout.cards) {
     assert.ok(card.x >= layout.grid.x - 1.5, `${label}: ${card.id} stays inside the grid's left edge`);
     assert.ok(card.right <= layout.grid.right + 1.5, `${label}: ${card.id} stays inside the grid's right edge`);
@@ -192,23 +246,66 @@ function assertGridLayout(layout, label) {
   return layout.cards;
 }
 
-function assertBlockRatios(layout, gaps, label) {
+function assertBlockRatios(layout, gaps, label, requireAllSizes = true) {
   const bySize = new Map();
   for (const size of ["mini", "small", "medium", "medium-vertical", "large"]) {
     const card = layout.cards.find((item) => item.size === size);
-    assert.ok(card, `${label}: mixed fixture includes a ${size} widget`);
+    if (!card) {
+      assert.ok(!requireAllSizes, `${label}: mixed fixture includes a ${size} widget`);
+      continue;
+    }
     bySize.set(size, card);
   }
   const mini = bySize.get("mini"), small = bySize.get("small"), medium = bySize.get("medium");
   const vertical = bySize.get("medium-vertical"), large = bySize.get("large");
+  near(small.width, small.height, `${label}: small widgets are square`, 2);
+  near(mini.width, small.width, `${label}: mini spans one small-width column`, 2);
+  assert.ok(mini.width > mini.height, `${label}: mini widgets are horizontal`);
+  near(2 * mini.height + gaps.row, small.height, `${label}: two mini heights and their gap equal one small unit`, 2);
   near(medium.width, 2 * small.width + gaps.column, `${label}: medium spans two small columns and their gap`, 2);
-  near(vertical.width, small.width, `${label}: medium vertical shares the small width`, 2);
-  near(large.width, medium.width, `${label}: large shares the medium width`, 2);
-  near(small.height, 2 * mini.height + gaps.row, `${label}: two mini blocks and their gap equal one small block`, 2);
-  near(medium.height, small.height, `${label}: medium and small use the same height`, 2);
-  near(vertical.height, 2 * small.height + gaps.row, `${label}: medium vertical is two small blocks and their gap`, 2);
-  near(large.height, 2 * small.height + gaps.row, `${label}: large is two small blocks and their gap`, 2);
+  near(medium.height, small.height, `${label}: horizontal medium is one small unit high`, 2);
+  if (vertical) {
+    near(vertical.width, small.width, `${label}: vertical medium shares the small width`, 2);
+    near(vertical.height, 2 * small.height + gaps.row, `${label}: medium vertical is two small blocks and their gap`, 2);
+  }
+  near(large.width, 2 * small.width + gaps.column, `${label}: large spans two small columns and their gap`, 2);
+  near(large.height, 2 * small.height + gaps.row, `${label}: large spans two small rows and their gap`, 2);
+  near(large.width, large.height, `${label}: large widgets are square`, 2);
   return { mini, small, medium, vertical, large };
+}
+
+function coordinateGroups(values, tolerance = 2) {
+  const groups = [];
+  for (const value of [...values].sort((left, right) => left - right)) {
+    if (!groups.length || Math.abs(value - groups.at(-1)) > tolerance) groups.push(value);
+  }
+  return groups;
+}
+
+function assertResponsiveSmallLayout(layout, expectedColumns, label) {
+  const cards = layout.cards;
+  const perRow = expectedColumns;
+  assert.equal(cards.length, 8, `${label}: exactly eight representative production widgets are in the responsive board`);
+  assert.ok(cards.every((card) => card.size === "small"), `${label}: every representative widget is small`);
+  assert.equal(coordinateGroups(cards.map((card) => card.x)).length, perRow, `${label}: small widgets use ${perRow} distinct columns`);
+  assert.equal(coordinateGroups(cards.map((card) => card.y)).length, 8 / perRow, `${label}: eight small widgets form ${8 / perRow} rows`);
+  const xPositions = coordinateGroups(cards.map((card) => card.x));
+  const yPositions = coordinateGroups(cards.map((card) => card.y));
+  cards.forEach((card, index) => {
+    const expectedColumn = index % perRow;
+    const expectedRow = Math.floor(index / perRow);
+    const actualColumn = xPositions.findIndex((value) => Math.abs(value - card.x) <= 2);
+    const actualRow = yPositions.findIndex((value) => Math.abs(value - card.y) <= 2);
+    assert.equal(actualColumn, expectedColumn, `${label}: ${card.id} stays in stable small column ${expectedColumn + 1}`);
+    assert.equal(actualRow, expectedRow, `${label}: ${card.id} stays in stable small row ${expectedRow + 1}`);
+    near(card.width, card.height, `${label}: ${card.id} remains square (grid ${JSON.stringify({ ...layout.grid, unit: layout.unit, columns: layout.columns, debug: layout.debug })}, card ${JSON.stringify(card)})`, 2);
+  });
+  const first = cards[0];
+  for (const card of cards.slice(1)) {
+    near(card.width, first.width, `${label}: ${card.id} has the same width as its peers`, 2);
+    near(card.height, first.height, `${label}: ${card.id} has the same height as its peers`, 2);
+  }
+  return { perRow, rows: 8 / perRow, width: first.width, height: first.height };
 }
 
 async function readGridGaps(page) {
@@ -223,13 +320,44 @@ async function readGridGaps(page) {
 }
 
 await mkdir(screenshotDir, { recursive: true });
-const launchOptions = { headless: true, args: ["--no-sandbox"] };
+const launchOptions = {
+  headless: true,
+  ignoreDefaultArgs: ["--hide-scrollbars"],
+  args: ["--no-sandbox", "--disable-features=OverlayScrollbar"],
+};
 if (process.env.CHROME_EXECUTABLE) launchOptions.executablePath = process.env.CHROME_EXECUTABLE;
 else launchOptions.channel = process.env.BROWSER_CHANNEL ?? "chrome";
 const browser = await playwright.chromium.launch(launchOptions);
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 980 }, deviceScaleFactor: 1 });
   await page.setContent(documentHtml, { waitUntil: "load" });
+  await page.evaluate(({ calculateWidgetUnitSource, updateBoardUnitSource, calculateWidgetPlacementsSource, updateCardPlacementsSource }) => {
+    const calculateWidgetUnit = new Function(`return (${calculateWidgetUnitSource})`)();
+    // Extract the production arrow callback body and execute it as a bound
+    // function so its real `this.grid.current` reads this browser fixture.
+    const instrumentedUpdaterSource = updateBoardUnitSource.replace("const unit = calculateWidgetUnit({", "window.__productionUnitInput = { gridWidth, gap, columns, computedWidth, rectWidth }; const unit = calculateWidgetUnit({");
+    const updaterBody = instrumentedUpdaterSource.slice(instrumentedUpdaterSource.indexOf("{") + 1, instrumentedUpdaterSource.lastIndexOf("}"));
+    const updateBoardUnit = new Function("calculateWidgetUnit", `return function () {${updaterBody}}`)(calculateWidgetUnit);
+    const calculateWidgetPlacements = new Function(`return (${calculateWidgetPlacementsSource})`)();
+    const placementBody = updateCardPlacementsSource.slice(updateCardPlacementsSource.indexOf("{") + 1, updateCardPlacementsSource.lastIndexOf("}"));
+    const updateCardPlacements = new Function("calculateWidgetPlacements", `return function () {${placementBody}}`)(calculateWidgetPlacements);
+    const context = { grid: { current: null } };
+    window.__updateProductionBoardUnit = () => {
+      const grid = document.querySelector(".widget-grid");
+      context.grid.current = grid;
+      updateBoardUnit.call(context);
+      const style = getComputedStyle(grid);
+      window.__lastBoardUnitMeasurement = {
+        ...window.__productionUnitInput,
+        unit: Number.parseFloat(style.getPropertyValue("--widget-unit")),
+      };
+      return window.__lastBoardUnitMeasurement;
+    };
+    window.__updateProductionCardPlacements = () => {
+      context.grid.current = document.querySelector(".widget-grid");
+      updateCardPlacements.call(context);
+    };
+  }, { calculateWidgetUnitSource, updateBoardUnitSource, calculateWidgetPlacementsSource, updateCardPlacementsSource });
   await page.evaluate(() => document.fonts.ready);
   const sizeSequence = ["mini", "small", "medium", "medium-vertical", "large"];
   const sizeLabel = { mini: "Mini", small: "Small", medium: "Medium horizontal", "medium-vertical": "Medium vertical", large: "Large" };
@@ -240,7 +368,201 @@ try {
   assert.equal(new Set(layout.cards.map((card) => card.type)).size, 18, "each production widget type is represented");
   const gridDisplay = await page.locator(".widget-grid").evaluate((grid) => getComputedStyle(grid).display);
   assert.equal(gridDisplay, "grid", "production widget layout uses CSS grid");
-  assert.ok((await readGridGaps(page)).columns >= 2, "wide workspace has at least two fluid columns");
+  assert.equal((await readGridGaps(page)).columns, 4, "wide workspace has four small-widget columns");
+
+  // Isolate eight actual widgets so the small-card desktop and phone grids can
+  // be counted without other spans backfilling holes.
+  const representativeTypes = [
+    "widget-daily-goal", "widget-today", "widget-pomodoro", "widget-task-completion",
+    "widget-red-alerts", "widget-mini-calendar", "widget-notes", "widget-exams",
+  ];
+  await page.locator(".widget-grid").evaluate((grid, types) => {
+    const originalNodes = [...grid.children];
+    const cards = types.map((type) => grid.querySelector(`.widget-card.${type}`));
+    if (cards.some((card) => !card)) throw new Error("The actual Workspace fixture is missing a requested representative widget type");
+    window.__responsiveOriginalNodes = originalNodes;
+    window.__responsiveOriginalSizes = new Map(originalNodes.filter((node) => node.matches?.(".widget-card")).map((node) => [node, node.dataset.size]));
+    grid.replaceChildren(...cards);
+    for (const card of cards) card.dataset.size = "small";
+    return cards.map((card) => card.dataset.widgetId);
+  }, representativeTypes);
+  const responsiveReports = [];
+  for (const width of [320, 390, 600, 601, 768, 821, 1024, 1160, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.evaluate(() => {
+      document.querySelector("#app").classList.remove("sidebar-collapsed");
+      window.scrollTo(0, 0);
+    });
+    layout = await snapshotLayout(page);
+    const expectedColumns = width <= 600 ? 2 : 4;
+    const label = `${width}px ${width <= 600 ? "phone" : width <= 820 ? "tablet" : "desktop"}`;
+    const metrics = assertResponsiveSmallLayout(layout, expectedColumns, label);
+    assertGridLayout(layout, label);
+    const gridMetrics = await readGridGaps(page);
+    assert.equal(gridMetrics.columns, expectedColumns, `${label}: production CSS exposes ${expectedColumns} small-widget columns`);
+    const unitMeasurement = await page.evaluate(() => window.__lastBoardUnitMeasurement);
+    assert.equal(unitMeasurement.columns, expectedColumns, `${label}: the production sizing helper receives the CSS column metadata`);
+    near(metrics.width, unitMeasurement.unit, `${label}: square widget width matches the production unit`, 2);
+    assert.ok(layout.scrollWidth <= width, `${label}: document has no horizontal overflow (${layout.scrollWidth}px > ${width}px)`);
+    assert.ok(layout.grid.x >= -1 && layout.grid.right <= width + 1, `${label}: responsive grid remains inside the viewport`);
+    responsiveReports.push({ viewportWidth: width, expectedColumns, ...metrics, unit: unitMeasurement.unit, scrollWidth: layout.scrollWidth });
+
+    if (width >= 821) {
+      const expandedIds = layout.cards.map((card) => card.id);
+      if (width === 1440) await page.locator(".widget-grid").screenshot({ path: resolve(screenshotDir, "desktop-small-4x2-expanded.png") });
+      await page.locator(".sidebar-toggle").click();
+      await page.waitForTimeout(300);
+      const collapsed = await snapshotLayout(page);
+      const collapsedMetrics = assertResponsiveSmallLayout(collapsed, 4, `${width}px collapsed sidebar`);
+      assertGridLayout(collapsed, `${width}px collapsed sidebar`);
+      assert.deepEqual(collapsed.cards.map((card) => card.id), expandedIds, `${width}px sidebar toggle preserves widget order`);
+      assert.ok(collapsed.workspaceWidth > layout.workspaceWidth, `${width}px collapsed sidebar releases workspace width`);
+      assert.ok(collapsed.grid.width > layout.grid.width, `${width}px collapsed sidebar expands the widget grid to use released content width`);
+      assert.ok(collapsedMetrics.width > metrics.width, `${width}px collapsed sidebar increases the width-driven square unit`);
+      assert.equal((await readGridGaps(page)).columns, 4, `${width}px collapsed sidebar preserves four small-widget columns`);
+      assert.ok(collapsed.scrollWidth <= width, `${width}px collapsed sidebar keeps the document inside the viewport`);
+      responsiveReports.push({ viewportWidth: width, sidebar: "collapsed", columns: 4, ...collapsedMetrics, scrollWidth: collapsed.scrollWidth });
+      if (width === 1440) await page.locator(".widget-grid").screenshot({ path: resolve(screenshotDir, "desktop-small-4x2-collapsed.png") });
+      await page.locator(".sidebar-toggle").click();
+      await page.waitForTimeout(300);
+      const restored = await snapshotLayout(page);
+      assertResponsiveSmallLayout(restored, 4, `${width}px restored sidebar`);
+      assert.deepEqual(restored.cards.map((card) => card.id), expandedIds, `${width}px restoring sidebar preserves widget order`);
+    }
+    if (width === 390) await page.locator(".widget-grid").screenshot({ path: resolve(screenshotDir, "phone-small-2x4.png") });
+  }
+
+  // Board width and square units stay fixed as viewport height or earlier page
+  // content changes; the resulting grid can extend below the viewport.
+  await page.setViewportSize({ width: 1920, height: 640 });
+  await page.evaluate(() => { document.querySelector("#app").classList.remove("sidebar-collapsed"); window.scrollTo(0, 0); });
+  const shortLayout = await snapshotLayout(page);
+  const shortMeasure = await page.evaluate(() => window.__lastBoardUnitMeasurement);
+  const shortMetrics = assertResponsiveSmallLayout(shortLayout, 4, "1920px short viewport");
+  near(shortMetrics.width, shortMeasure.unit, "short viewport square width matches the production sizing helper", 2);
+  assertGridLayout(shortLayout, "1920px short viewport");
+  await page.locator(".home-today-panel").evaluate((panel) => { panel.style.minHeight = "600px"; });
+  const tallHeaderLayout = await snapshotLayout(page);
+  const tallHeaderMeasure = await page.evaluate(() => window.__lastBoardUnitMeasurement);
+  const tallHeaderMetrics = assertResponsiveSmallLayout(tallHeaderLayout, 4, "taller Today panel");
+  near(tallHeaderMetrics.width, shortMetrics.width, "a taller Today panel does not resize square cards", 2);
+  near(tallHeaderMeasure.unit, shortMeasure.unit, "a taller Today panel leaves the width-based unit unchanged", 2);
+  near(tallHeaderLayout.grid.width, shortLayout.grid.width, "a taller Today panel leaves the grid width unchanged", 1.5);
+  assert.ok(tallHeaderLayout.grid.y > shortLayout.grid.y, "a taller Today panel moves the grid down the page");
+  assertGridLayout(tallHeaderLayout, "taller Today panel");
+  await page.locator(".home-today-panel").evaluate((panel) => { panel.style.minHeight = ""; });
+  await page.setViewportSize({ width: 1920, height: 1400 });
+  const tallLayout = await snapshotLayout(page);
+  const tallMeasure = await page.evaluate(() => window.__lastBoardUnitMeasurement);
+  const tallMetrics = assertResponsiveSmallLayout(tallLayout, 4, "1920px tall viewport");
+  near(tallMetrics.width, shortMetrics.width, "a taller viewport keeps square cards at the same width", 2);
+  near(tallMeasure.unit, shortMeasure.unit, "a taller viewport leaves the width-based unit unchanged", 2);
+  near(tallLayout.grid.width, shortLayout.grid.width, "a taller viewport leaves the grid width unchanged", 1.5);
+  assertGridLayout(tallLayout, "1920px tall viewport");
+
+  await page.setViewportSize({ width: 1920, height: 300 });
+  const veryShortLayout = await snapshotLayout(page);
+  const veryShortMeasure = await page.evaluate(() => window.__lastBoardUnitMeasurement);
+  const veryShortMetrics = assertResponsiveSmallLayout(veryShortLayout, 4, "1920px very short viewport");
+  near(veryShortMetrics.width, shortMetrics.width, "a very short viewport keeps square cards at the same width", 2);
+  near(veryShortMeasure.unit, shortMeasure.unit, "a very short viewport leaves the width-based unit unchanged", 2);
+  near(veryShortLayout.grid.width, shortLayout.grid.width, "a very short viewport leaves the grid width unchanged", 1.5);
+  assert.ok(veryShortLayout.grid.bottom > 300, "the full-width widget grid can extend below a short viewport");
+  assertGridLayout(veryShortLayout, "1920px very short viewport");
+
+  // Restore the complete 18-widget production fixture before the existing size,
+  // content overflow, appearance override, reorder, and menu stress checks.
+  await page.locator(".widget-grid").evaluate((grid) => {
+    const sizes = window.__responsiveOriginalSizes;
+    const nodes = window.__responsiveOriginalNodes;
+    for (const [node, size] of sizes) node.dataset.size = size;
+    grid.replaceChildren(...nodes);
+    delete window.__responsiveOriginalSizes;
+    delete window.__responsiveOriginalNodes;
+  });
+  await page.setViewportSize({ width: 1440, height: 980 });
+  await page.evaluate(() => { document.querySelector("#app").classList.remove("sidebar-collapsed"); window.scrollTo(0, 0); });
+  layout = await snapshotLayout(page);
+  assert.equal(layout.cards.length, 18, "restoring responsive probe returns all 18 production widget types");
+
+  // Capture the requested edge-sharing composition: a large square at left,
+  // a horizontal medium at upper right, then a small with two minis below.
+  await page.locator(".widget-grid").evaluate((grid) => {
+    const originals = [...grid.children];
+    const cards = originals.filter((node) => node.matches?.(".widget-card")).slice(0, 5);
+    window.__compositionOriginalNodes = originals;
+    window.__compositionOriginalSizes = new Map(cards.map((node) => [node, node.dataset.size]));
+    grid.replaceChildren(...cards);
+    ["large", "medium", "small", "mini", "mini"].forEach((size, index) => { cards[index].dataset.size = size; });
+  });
+  layout = await snapshotLayout(page);
+  assertGridLayout(layout, "requested mixed-size composition");
+  const bySize = new Map(layout.cards.map((card) => [card.size, card]));
+  const large = bySize.get("large"), medium = bySize.get("medium"), small = bySize.get("small");
+  const minis = layout.cards.filter((card) => card.size === "mini").sort((a, b) => a.y - b.y);
+  const compositionGaps = await readGridGaps(page);
+  near(large.x, layout.grid.x, "composition large widget starts at the grid's left edge", 2);
+  near(medium.x, large.right + compositionGaps.column, "composition medium widget sits immediately right of large", 2);
+  near(medium.y, large.y, "composition medium aligns to the large widget's top edge", 2);
+  near(medium.right, layout.grid.right, "composition medium reaches the grid's right edge", 2);
+  near(small.x, medium.x, "composition small widget shares the medium's right column", 2);
+  near(small.y, medium.bottom + compositionGaps.row, "composition small widget sits directly below medium", 2);
+  near(minis[0].x, small.right + compositionGaps.column, "first mini sits directly right of the lower small", 2);
+  near(minis[0].y, small.y, "first mini aligns to the lower small's top edge", 2);
+  near(minis[1].x, minis[0].x, "second mini stays in the same rightmost column", 2);
+  near(minis[1].y, minis[0].bottom + compositionGaps.row, "second mini sits directly below first mini", 2);
+  const compositionFootprints = assertBlockRatios(layout, compositionGaps, "requested mixed-size composition", false);
+  await page.locator(".widget-grid").screenshot({ path: resolve(screenshotDir, "composition-large-medium-small-minis.png") });
+  await page.locator(".widget-grid").evaluate((grid) => {
+    const originals = window.__compositionOriginalNodes;
+    for (const [node, size] of window.__compositionOriginalSizes) node.dataset.size = size;
+    grid.replaceChildren(...originals);
+    delete window.__compositionOriginalNodes;
+    delete window.__compositionOriginalSizes;
+  });
+
+  // Regression for the half-row offset that appeared after two small cards,
+  // a vertical mini pair, and two wide cards. Non-mini cards must begin on
+  // full small-row boundaries even when earlier mini cards leave half rows.
+  const rowAlignmentSizes = ["small", "small", "mini", "mini", "medium", "medium"];
+  await page.locator(".widget-grid").evaluate((grid, sizes) => {
+    const originals = [...grid.children];
+    const cards = originals.filter((node) => node.matches?.(".widget-card")).slice(0, sizes.length);
+    window.__rowAlignmentOriginalNodes = originals;
+    window.__rowAlignmentOriginalSizes = new Map(cards.map((node) => [node, node.dataset.size]));
+    grid.replaceChildren(...cards);
+    cards.forEach((card, index) => { card.dataset.size = sizes[index]; });
+  }, rowAlignmentSizes);
+  layout = await snapshotLayout(page);
+  assertGridLayout(layout, "small-small-mini-pair-medium-medium row alignment regression");
+  const rowAlignmentGaps = await readGridGaps(page);
+  const rowAlignmentCards = Object.fromEntries(rowAlignmentSizes.map((size) => [size, layout.cards.filter((card) => card.size === size)]));
+  assert.equal(rowAlignmentCards.small.length, 2, "row alignment fixture contains two small cards");
+  assert.equal(rowAlignmentCards.mini.length, 2, "row alignment fixture contains a vertical mini pair");
+  assert.equal(rowAlignmentCards.medium.length, 2, "row alignment fixture contains two medium cards");
+  const rowAlignmentSmall = rowAlignmentCards.small[0];
+  const rowAlignmentMediums = rowAlignmentCards.medium;
+  const rowAlignmentMinis = rowAlignmentCards.mini.sort((left, right) => left.y - right.y);
+  const fullSmallRowPitch = rowAlignmentSmall.height + rowAlignmentGaps.row;
+  const rowAlignmentSmallRows = rowAlignmentCards.small.map((card) => Math.round((card.y - layout.grid.y) / fullSmallRowPitch));
+  for (const card of [...rowAlignmentCards.small, ...rowAlignmentMediums]) {
+    const rowOffset = (card.y - layout.grid.y) / fullSmallRowPitch;
+    near(rowOffset, Math.round(rowOffset), `${card.size} ${card.id} starts on a full small-row boundary`);
+  }
+  near(rowAlignmentCards.small[1].y, rowAlignmentSmall.y, "the small cards share one full row");
+  near(rowAlignmentMinis[0].x, rowAlignmentMinis[1].x, "paired minis stay in the same small-cell column");
+  near(rowAlignmentMinis[0].y, rowAlignmentSmall.y, "the mini pair starts within the first small row");
+  near(rowAlignmentMinis[1].y, rowAlignmentMinis[0].bottom + rowAlignmentGaps.row, "the mini pair stacks vertically with one grid gap");
+  near(rowAlignmentMediums[0].y, rowAlignmentMediums[1].y, "the medium cards share one full small row");
+  await page.locator(".widget-grid").screenshot({ path: resolve(screenshotDir, "composition-small-small-mini-pair-mediums.png") });
+  await page.locator(".widget-grid").evaluate((grid) => {
+    for (const [node, size] of window.__rowAlignmentOriginalSizes) node.dataset.size = size;
+    grid.replaceChildren(...window.__rowAlignmentOriginalNodes);
+    delete window.__rowAlignmentOriginalNodes;
+    delete window.__rowAlignmentOriginalSizes;
+  });
+  await page.setViewportSize({ width: 1440, height: 980 });
+  layout = await snapshotLayout(page);
 
   // Give every production type each canonical size in turn.
   const sizeGeometry = {};
@@ -266,7 +588,7 @@ try {
   assertGridLayout(layout, "mixed widget sizes");
   const initialMixedLayout = layout;
   const gaps = await readGridGaps(page);
-  const mixedFootprints = assertBlockRatios(layout, gaps, "mixed widget sizes");
+  assertBlockRatios(layout, gaps, "mixed widget sizes");
   for (const card of layout.cards) {
     near(card.width, sizeGeometry[card.size].width, card.type + " " + card.size + " preserves its measured width", 2);
     near(card.height, sizeGeometry[card.size].height, card.type + " " + card.size + " preserves its measured height", 2);
@@ -323,11 +645,9 @@ try {
     assert.ok(result.lastReachable, result.id + " trailing content remains reachable at the end of the shared frame");
   }
 
-  // Board controls set the common block unit and gap. Per-widget overrides must
-  // not alter a card's shared grid footprint.
+  // Board controls set the shared gap. Card appearance overrides must not
+  // alter the grid-derived square footprint.
   await page.locator(".widget-grid").evaluate((grid) => {
-    grid.style.setProperty("--wa-min-width", "320px");
-    grid.style.setProperty("--wa-min-height", "260px");
     grid.style.setProperty("--wa-gap", "22px");
   });
   await settleLayout(page);
@@ -337,11 +657,12 @@ try {
   near(boardGaps.column, 22, "board horizontal gap setting applies to the grid");
   near(boardGaps.row, 22, "board vertical gap setting applies to the grid");
   const boardFootprints = assertBlockRatios(layout, boardGaps, "board appearance controls");
-  near(boardFootprints.small.height, 260, "board minimum height is the small block height", 2);
+  const boardUnitMeasurement = await page.evaluate(() => window.__lastBoardUnitMeasurement);
+  near(boardFootprints.small.height, boardUnitMeasurement.unit, "board unit follows the measured grid width and selected columns", 2);
+  near(boardFootprints.small.width, boardFootprints.small.height, "changing the board gap preserves square small cards", 2);
 
   // Stress the smallest blocks with the largest supported appearance values.
   await page.locator(".widget-grid").evaluate((grid) => {
-    grid.style.setProperty("--wa-min-height", "180px");
     grid.style.setProperty("--wa-gap", "32px");
     for (const card of grid.querySelectorAll(".widget-card")) {
       card.style.setProperty("--wa-padding", "28px");
@@ -352,11 +673,12 @@ try {
   });
   await settleLayout(page);
   layout = await snapshotLayout(page);
-  assertGridLayout(layout, "maximum content styling at 180px block height");
+  assertGridLayout(layout, "maximum gap and padding settings");
   const compactGaps = await readGridGaps(page);
   const compactFootprints = assertBlockRatios(layout, compactGaps, "maximum content styling");
   near(compactGaps.row, 32, "maximum gap setting applies to the row grid");
-  near(compactFootprints.small.height, 180, "minimum board height remains the small block height", 2);
+  const compactUnitMeasurement = await page.evaluate(() => window.__lastBoardUnitMeasurement);
+  near(compactFootprints.small.height, compactUnitMeasurement.unit, "maximum gap and padding preserve the grid-derived square unit", 2);
   const compactBodies = await page.evaluate(() => [...document.querySelectorAll(".widget-card")].map((card) => ({
     id: card.dataset.widgetId,
     size: card.dataset.size,
@@ -419,16 +741,16 @@ try {
 
   const timerBeforeOverride = layout.cards.find((card) => card.id === "timer");
   await page.locator('[data-widget-id="timer"]').evaluate((card) => {
-    card.style.setProperty("--wa-min-width", "410px");
-    card.style.setProperty("--wa-min-height", "390px");
-    card.style.setProperty("--wa-gap", "37px");
+    card.style.setProperty("--wa-padding", "28px");
+    card.style.setProperty("--wa-title-size", "20px");
+    card.style.setProperty("--wa-line-height", "1.8");
   });
   await settleLayout(page);
   const perWidgetOverrideLayout = await snapshotLayout(page);
   assertGridLayout(perWidgetOverrideLayout, "per-widget appearance overrides");
   const timerAfterOverride = perWidgetOverrideLayout.cards.find((card) => card.id === "timer");
-  near(timerAfterOverride.width, timerBeforeOverride.width, "per-widget minimum width cannot change its grid footprint", 2);
-  near(timerAfterOverride.height, timerBeforeOverride.height, "per-widget minimum height cannot change its grid footprint", 2);
+  near(timerAfterOverride.width, timerBeforeOverride.width, "per-widget padding and typography cannot change its grid footprint", 2);
+  near(timerAfterOverride.height, timerBeforeOverride.height, "per-widget appearance overrides preserve its grid footprint", 2);
   const overrideGaps = await readGridGaps(page);
   near(overrideGaps.column, 32, "per-widget gap cannot change the board column gap");
   near(overrideGaps.row, 32, "per-widget gap cannot change the board row gap");
@@ -436,7 +758,7 @@ try {
     for (const card of grid.querySelectorAll(".widget-card")) {
       for (const property of ["--wa-padding", "--wa-icon-size", "--wa-title-size", "--wa-line-height"]) card.style.removeProperty(property);
     }
-    for (const property of ["--wa-min-width", "--wa-min-height", "--wa-gap"]) grid.style.removeProperty(property);
+    grid.style.removeProperty("--wa-gap");
   });
 
   // Reordering and repeated menu resizes keep mixed blocks in bounds and clear.
@@ -473,7 +795,7 @@ try {
   const collapsedLayout = await snapshotLayout(page);
   assert.ok(collapsedLayout.workspaceWidth > layout.workspaceWidth, "sidebar collapse releases content width");
   assertGridLayout(collapsedLayout, "sidebar-collapsed workspace");
-  assert.ok((await readGridGaps(page)).columns >= expandedSidebarColumns, "released width preserves or adds grid columns");
+  assert.equal((await readGridGaps(page)).columns, expandedSidebarColumns, "sidebar collapse preserves four small-widget columns");
   await page.locator("#app").evaluate((app) => app.classList.remove("sidebar-collapsed"));
 
   // Phone widths retain two fluid columns and all five footprints.
@@ -485,7 +807,7 @@ try {
     layout = await snapshotLayout(page);
     assertGridLayout(layout, width + "px phone workspace");
     const phoneGaps = await readGridGaps(page);
-    assert.ok(phoneGaps.columns >= 2, width + "px phone should keep at least two columns, got " + phoneGaps.columns);
+    assert.equal(phoneGaps.columns, 2, width + "px phone keeps two square small-widget columns");
     assert.ok(layout.grid.width <= layout.viewportWidth, width + "px phone board exceeds the viewport width: " + layout.grid.width + "px > " + layout.viewportWidth + "px");
     assert.ok(layout.scrollWidth <= layout.viewportWidth, width + "px phone page overflows horizontally: " + layout.scrollWidth + "px > " + layout.viewportWidth + "px");
     assertBlockRatios(layout, phoneGaps, width + "px phone footprints");
@@ -510,6 +832,17 @@ try {
     });
     assert.ok(firstColumnId, width + "px phone fixture has a card at the first column edge");
     const trigger = page.locator('[data-widget-id="' + firstColumnId + '"] .widget-header .menu-wrap > button');
+    await page.locator('[data-widget-id="' + firstColumnId + '"]').evaluate((card) => {
+      const documentTop = card.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({ top: Math.max(0, documentTop - 100), behavior: "instant" });
+    });
+    await settleLayout(page);
+    const triggerHit = await trigger.evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest("button");
+      return { expected: button.getAttribute("aria-label"), hit: hit?.getAttribute("aria-label"), y: rect.y, scrollY };
+    });
+    assert.equal(triggerHit.hit, triggerHit.expected, width + "px narrow-card menu trigger is pointer reachable before Playwright clicks it: " + JSON.stringify(triggerHit));
     await trigger.click();
     const phoneMenu = await page.locator('[data-widget-id="' + firstColumnId + '"] .widget-menu').evaluate((menu) => {
       const rect = menu.getBoundingClientRect();
@@ -518,12 +851,62 @@ try {
         const hit = document.elementFromPoint(buttonRect.x + buttonRect.width / 2, buttonRect.y + buttonRect.height / 2)?.closest("button");
         return { value: button.dataset.size, hitValue: hit?.dataset.size };
       });
-      return { left: rect.left, right: rect.right, viewportWidth: innerWidth, options };
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, viewportWidth: innerWidth, viewportHeight: innerHeight, scrollY, options };
     });
+    if (width === 320) await page.screenshot({ path: resolve(screenshotDir, "phone-menu-hit-test.png") });
     assert.ok(phoneMenu.left >= 0 && phoneMenu.right <= phoneMenu.viewportWidth, "first-column menu stays inside the " + width + "px phone viewport: " + JSON.stringify(phoneMenu));
-    assert.deepEqual(phoneMenu.options.map((option) => option.hitValue), sizeSequence, width + "px first-column popup exposes five hit-testable size options");
+    assert.deepEqual(phoneMenu.options.map((option) => option.hitValue), sizeSequence, width + "px first-column popup exposes five hit-testable size options: " + JSON.stringify(phoneMenu));
     phoneMenus.push({ width, ...phoneMenu });
     await trigger.click();
+
+    if (width === 320) {
+      const card = page.locator('[data-widget-id="' + firstColumnId + '"]');
+      const originalPhoneSize = await card.getAttribute("data-size");
+      await card.evaluate((node) => {
+        node.dataset.size = "mini";
+        node.style.setProperty("--wa-padding", "28px");
+        const grid = node.closest(".widget-grid");
+        grid.style.setProperty("--wa-gap", "32px");
+        document.querySelector("#app").classList.add("is-customizing");
+      });
+      await settleLayout(page);
+      let maximumPhone = await snapshotLayout(page);
+      assertGridLayout(maximumPhone, "320px phone with maximum appearance settings");
+      assert.ok(maximumPhone.scrollWidth <= 320, "320px maximum phone appearance keeps document width inside viewport");
+      const maximumTriggerHit = await trigger.evaluate((button) => {
+        const rect = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest("button");
+        return { expected: button.getAttribute("aria-label"), hit: hit?.getAttribute("aria-label"), y: rect.y };
+      });
+      assert.equal(maximumTriggerHit.hit, maximumTriggerHit.expected, "320px mini card menu trigger remains hit-testable with 32px gap and 28px padding");
+      await trigger.click();
+      const maximumMenuHits = await page.locator('[data-widget-id="' + firstColumnId + '"] .widget-menu').evaluate((menu) => ({
+        menu: (() => { const rect = menu.getBoundingClientRect(); return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom }; })(),
+        viewport: { width: innerWidth, height: innerHeight, scrollY },
+        options: [...menu.querySelectorAll("[data-size]")].map((button) => {
+          const rect = button.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest("button");
+          return { value: button.dataset.size, hitValue: hit?.dataset.size, x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom };
+        }),
+      }));
+      if (width === 320) await page.screenshot({ path: resolve(screenshotDir, "phone-menu-hit-test-max.png") });
+      assert.deepEqual(maximumMenuHits.options.map((item) => item.hitValue), sizeSequence, "320px mini card menu stays pointer reachable with maximum gap and padding: " + JSON.stringify(maximumMenuHits));
+      await trigger.click();
+      const dragHandle = card.locator(".widget-header .drag-handle");
+      const dragHit = await dragHandle.evaluate((button) => {
+        const rect = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest("button");
+        return { expected: button.getAttribute("aria-label"), hit: hit?.getAttribute("aria-label"), x: rect.x, y: rect.y };
+      });
+      assert.equal(dragHit.hit, dragHit.expected, "320px customize drag handle stays independently hit-testable beside the anchored options trigger");
+      await card.evaluate((node, originalSize) => {
+        node.dataset.size = originalSize;
+        node.style.removeProperty("--wa-padding");
+        node.closest(".widget-grid").style.removeProperty("--wa-gap");
+        document.querySelector("#app").classList.remove("is-customizing");
+      }, originalPhoneSize);
+      await settleLayout(page);
+    }
 
     await page.evaluate(() => {
       document.querySelectorAll(".widget-frame").forEach((frame) => { frame.scrollTop = 0; });
@@ -597,24 +980,136 @@ try {
   await page.evaluate(() => document.querySelectorAll(".widget-frame").forEach((frame) => { frame.scrollTop = 0; }));
   await page.screenshot({ path: resolve(screenshotDir, "desktop.png"), fullPage: true });
 
+  // Repeated measurement around a three-row overflow stays stable with a
+  // classic scrollbar and writes the square unit only when its inputs change.
+  const thresholdPage = await browser.newPage({ viewport: { width: 1000, height: 750 }, deviceScaleFactor: 1 });
+  const thresholdHtml = `<!doctype html><html data-theme="dark" data-motion="reduced"><head><meta charset="utf-8"><style>
+${globalCss.replace(/^@import[^;]+;\s*/m, "")}
+${referenceCss}
+${widgetAppearanceCss}
+${widgetBlockLayoutCss}
+</style></head><body style="margin:0"><div class="reference-ui" style="--content-offset:0px;--page-gutter:0px"><main class="main-content" style="margin:0;padding:0 0 20px;min-height:0;width:100%"><div style="height:100px"></div><div class="widget-grid"${gridStyleAttribute}>${cardsMarkup}</div></main></div></body></html>`;
+  let thresholdResult;
+  try {
+    await thresholdPage.setContent(thresholdHtml, { waitUntil: "load" });
+    const thresholdStart = await thresholdPage.evaluate(({ calculateWidgetUnitSource, updateBoardUnitSource, calculateWidgetPlacementsSource, updateCardPlacementsSource }) => {
+      const calculateWidgetUnit = new Function(`return (${calculateWidgetUnitSource})`)();
+      const updaterBody = updateBoardUnitSource.slice(updateBoardUnitSource.indexOf("{") + 1, updateBoardUnitSource.lastIndexOf("}"));
+      const updateBoardUnit = new Function("calculateWidgetUnit", `return function () {${updaterBody}}`)(calculateWidgetUnit);
+      const calculateWidgetPlacements = new Function(`return (${calculateWidgetPlacementsSource})`)();
+      const placementBody = updateCardPlacementsSource.slice(updateCardPlacementsSource.indexOf("{") + 1, updateCardPlacementsSource.lastIndexOf("}"));
+      const updateCardPlacements = new Function("calculateWidgetPlacements", `return function () {${placementBody}}`)(calculateWidgetPlacements);
+      const grid = document.querySelector(".widget-grid");
+      const cards = [...grid.querySelectorAll(".widget-card")];
+      cards.slice(12).forEach((card) => card.remove());
+      cards.slice(0, 12).forEach((card) => { card.dataset.size = "small"; });
+      const context = { grid: { current: grid } };
+      const writes = [];
+      const observerWidths = [];
+      let observerCallbacks = 0;
+      let frame = null;
+      const originalSetProperty = CSSStyleDeclaration.prototype.setProperty;
+      CSSStyleDeclaration.prototype.setProperty = function (name, value, priority) {
+        if (this === grid.style && name === "--widget-unit") writes.push(String(value));
+        return originalSetProperty.call(this, name, value, priority);
+      };
+      const measure = () => {
+        updateBoardUnit.call(context);
+        updateCardPlacements.call(context);
+        const style = getComputedStyle(grid);
+        let bottomInset = 0;
+        for (let ancestor = grid.parentElement; ancestor; ancestor = ancestor.parentElement) {
+          bottomInset += Number.parseFloat(getComputedStyle(ancestor).paddingBottom) || 0;
+        }
+        const input = {
+          gridWidth: grid.getBoundingClientRect().width || grid.clientWidth,
+          gap: Number.parseFloat(style.columnGap) || 16,
+          columns: Number.parseFloat(style.getPropertyValue("--widget-columns")) || 4,
+          gridDocumentTop: grid.getBoundingClientRect().top + scrollY,
+          bottomInset,
+        };
+        const unit = Number.parseFloat(style.getPropertyValue("--widget-unit"));
+        return { ...input, unit, gridHeight: grid.getBoundingClientRect().height, scrollHeight: document.documentElement.scrollHeight, clientWidth: document.documentElement.clientWidth };
+      };
+      const before = { scrollHeight: document.documentElement.scrollHeight, clientWidth: document.documentElement.clientWidth, viewportWidth: innerWidth };
+      const initial = measure();
+      const observer = new ResizeObserver(() => {
+        observerCallbacks += 1;
+        observerWidths.push(grid.clientWidth);
+        if (frame !== null) return;
+        frame = requestAnimationFrame(() => {
+          frame = null;
+          measure();
+        });
+      });
+      observer.observe(grid);
+      grid.style.setProperty("--wa-gap", "17px");
+      window.__thresholdCleanup = () => {
+        observer.disconnect();
+        if (frame !== null) cancelAnimationFrame(frame);
+        CSSStyleDeclaration.prototype.setProperty = originalSetProperty;
+      };
+      window.__thresholdState = () => ({
+        writes: [...writes],
+        observerWidths: [...observerWidths],
+        observerCallbacks,
+        final: measure(),
+        scrollbarGutter: getComputedStyle(document.documentElement).scrollbarGutter,
+        cardCount: grid.querySelectorAll(".widget-card[data-size=small]").length,
+      });
+      return { before, initial };
+    }, { calculateWidgetUnitSource, updateBoardUnitSource, calculateWidgetPlacementsSource, updateCardPlacementsSource });
+    await thresholdPage.waitForTimeout(400);
+    thresholdResult = await thresholdPage.evaluate(() => window.__thresholdState());
+    thresholdResult.start = thresholdStart;
+    assert.equal(thresholdResult.cardCount, 12, "classic-scrollbar regression fixture has exactly twelve small cards in three rows");
+    near(thresholdStart.initial.gridDocumentTop, 100, "scrollbar threshold fixture starts the grid at document y=100", 1);
+    near(thresholdStart.initial.bottomInset, 20, "scrollbar threshold fixture reserves its 20px bottom inset", 1);
+    assert.ok(thresholdStart.before.scrollHeight > 750, "three square small-widget rows extend beyond the 750px viewport");
+    assert.ok(thresholdResult.final.scrollHeight > 750, "measurement does not deform square cards to force the page below the viewport threshold");
+    assert.ok(thresholdResult.scrollbarGutter.includes("stable"), "production board CSS reserves a stable classic-scrollbar gutter");
+    assert.ok(thresholdStart.before.clientWidth < thresholdStart.before.viewportWidth, "the overflowing document reserves a classic-scrollbar gutter: " + JSON.stringify(thresholdResult));
+    assert.equal(thresholdResult.final.gridWidth, thresholdStart.initial.gridWidth, "the grid width remains fixed through gap-triggered measurements: " + JSON.stringify(thresholdResult));
+    assert.ok(thresholdResult.observerCallbacks > 0, "ResizeObserver observes the grid's gap-driven size change");
+    assert.equal(new Set(thresholdResult.observerWidths).size, 1, "grid width stays stable across observer deliveries: " + JSON.stringify(thresholdResult));
+    assert.ok(thresholdResult.writes.length <= 2, "production unit measurement writes only for the initial size and changed gap: " + JSON.stringify(thresholdResult));
+    await thresholdPage.evaluate(() => window.__thresholdCleanup());
+  } finally {
+    await thresholdPage.close();
+  }
+
   console.log(JSON.stringify({
     result: "PASS",
     fixture: "actual app/globals.css, app/reference-ui.css, app/widget-appearance.css, app/widget-block-layout.css, and all 18 production widget types",
-    screenshots: [".vinext/verify-widget-layout/desktop.png", ".vinext/verify-widget-layout/phone.png"],
-    sizeGeometry,
-    mixedFootprints,
-    overflowReport,
-    compactReachability,
-    phoneBodyHeights,
-    phoneMenus,
-    desktopPopup,
-    sizeButtonHitTests,
-    menuState,
-    allWidgetSnapshots: await page.evaluate(() => [...document.querySelectorAll(".widget-card")].map((card) => {
-      const rect = card.getBoundingClientRect();
-      return { id: card.dataset.widgetId, type: [...card.classList].find((name) => name.startsWith("widget-") && name !== "widget-card"), size: card.dataset.size, width: rect.width, height: rect.height, top: rect.top };
-    })),
-    finalLayout: (await snapshotLayout(page)).cards,
+    screenshots: [
+      ".vinext/verify-widget-layout/desktop-small-4x2-expanded.png",
+      ".vinext/verify-widget-layout/desktop-small-4x2-collapsed.png",
+      ".vinext/verify-widget-layout/phone-small-2x4.png",
+      ".vinext/verify-widget-layout/composition-large-medium-small-minis.png",
+      ".vinext/verify-widget-layout/composition-small-small-mini-pair-mediums.png",
+      ".vinext/verify-widget-layout/phone-menu-hit-test-max.png",
+      ".vinext/verify-widget-layout/desktop.png",
+      ".vinext/verify-widget-layout/phone.png",
+    ],
+    sizeGeometry: Object.fromEntries(Object.entries(sizeGeometry).map(([size, box]) => [size, { width: box.width, height: box.height }])),
+    responsive: responsiveReports.map(({ viewportWidth, expectedColumns, sidebar, columns, rows, perRow, width, height, unit, scrollWidth }) => ({ viewportWidth, expectedColumns, sidebar, columns, rows, perRow, width, height, unit, scrollWidth })),
+    composition: {
+      large: { width: compositionFootprints.large.width, height: compositionFootprints.large.height },
+      medium: { width: compositionFootprints.medium.width, height: compositionFootprints.medium.height },
+      small: { width: compositionFootprints.small.width, height: compositionFootprints.small.height },
+      mini: { width: compositionFootprints.mini.width, height: compositionFootprints.mini.height },
+      edgeAlignment: "PASS",
+    },
+    rowAlignmentRegression: {
+      sizes: rowAlignmentSizes,
+      smallRows: rowAlignmentSmallRows,
+      minisStacked: true,
+      nonMiniStartsOnFullRows: true,
+    },
+    contentOverflow: { cardsChecked: overflowReport.length, allReachable: overflowReport.every((item) => item.headerReachable && item.firstReachable && item.lastReachable) },
+    maximumAppearance: { gap: compactGaps.row, smallWidth: compactFootprints.small.width, smallHeight: compactFootprints.small.height, contentReachable: compactReachability.every((item) => item.triggerCenterReachable && item.firstReachable && item.lastReachable) },
+    menuHitTesting: { phoneWidths: phoneMenus.map(({ width }) => width), desktopSizeOptions: sizeButtonHitTests.length, desktopPopupHit: desktopPopup.options.every((option) => option.hitValue === option.value) },
+    scrollbarStability: { writes: thresholdResult.writes.length, observerCallbacks: thresholdResult.observerCallbacks, fixedGridWidth: thresholdResult.final.gridWidth, scrollHeight: thresholdResult.final.scrollHeight },
   }, null, 2));
 } finally {
   await browser.close();
