@@ -147,6 +147,7 @@
 .reference-ui .widget-header .drag-handle:focus-visible, .reference-ui.is-customizing .widget-header .drag-handle { position: static; clip-path: none; width: calc(20 * var(--ui-unit)); height: calc(24 * var(--ui-unit)); }
 .reference-ui .widget-header .mini { color: #9abcf4; width: calc(20 * var(--ui-unit)); height: calc(24 * var(--ui-unit)); padding: 0; }
 .reference-ui .widget-header .menu-wrap { margin-left: auto; }
+.reference-ui .widget-header .menu-wrap > .icon-button { width: calc(24 * var(--ui-unit)); height: calc(24 * var(--ui-unit)); border-radius: calc(6 * var(--ui-unit)); }
 .reference-ui .widget-header .widget-icon { background: #172e62; color: #a0baff; }
 .reference-ui .widget-red-alerts .widget-header .widget-icon { color: #eabb36; background: #2b2f2d; }
 .reference-ui .widget-task-completion .widget-header .widget-icon { color: #66dda3; background: #16382f; }
@@ -299,6 +300,11 @@
 .reference-ui .widget-menu button,
 .reference-ui .widget-menu p { font-size: calc(14 * var(--ui-unit)); }
 .reference-ui .widget-menu { width: min(240px, 85vw); min-width: min(240px, 85vw); max-width: 85vw; }
+.reference-ui .widget-menu.is-closing { pointer-events: none; animation: widget-menu-dismiss 90ms ease-out forwards; }
+@keyframes widget-menu-dismiss {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
 .reference-ui .widget-menu .size-options button { min-height: calc(32 * var(--ui-unit)); }
 .reference-ui .widget-body :is(.compact-assignment, .class-link-grid > button, .exam-list > button) { min-height: calc(48 * var(--ui-unit)); padding-block: calc(8 * var(--ui-unit)); gap: calc(9 * var(--ui-unit)); }
 .reference-ui :is(.compact-assignment, .class-link-grid, .exam-list) strong { font-size: calc(14 * var(--ui-unit)); white-space: normal; overflow-wrap: anywhere; }

@@ -282,7 +282,16 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [miniWeekOffset, setMiniWeekOffset] = useState(0);
   const [widgetSearch, setWidgetSearch] = useState("");
   const [openWidgetMenu, setOpenWidgetMenu] = useState<string | null>(null);
+  const [closingWidgetMenu, setClosingWidgetMenu] = useState(false);
+  const closeWidgetMenu = useCallback(() => { setClosingWidgetMenu(false); setOpenWidgetMenu(null); }, []);
+  const dismissWidgetMenu = useCallback(() => setClosingWidgetMenu(true), []);
   const widgetMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!openWidgetMenu || !closingWidgetMenu) return;
+    // Also clean up when animation events are unavailable or interrupted.
+    const timeout = window.setTimeout(closeWidgetMenu, 130);
+    return () => window.clearTimeout(timeout);
+  }, [openWidgetMenu, closingWidgetMenu, closeWidgetMenu]);
   useEffect(() => {
     const menu = widgetMenuRef.current;
     if (!openWidgetMenu || !menu) return;
@@ -299,13 +308,18 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       menu.style.right = "auto";
       menu.style.top = `${rect.bottom - cardRect.top - card.clientTop + 4}px`;
     };
+    const dismissMenu = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!menu.contains(target) && !anchor.contains(target)) dismissWidgetMenu();
+    };
     placeMenu();
+    document.addEventListener("click", dismissMenu, true);
     window.addEventListener("resize", placeMenu);
     card.addEventListener("scroll", placeMenu, true);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(placeMenu);
     if (grid) observer?.observe(grid);
-    return () => { window.removeEventListener("resize", placeMenu); card.removeEventListener("scroll", placeMenu, true); observer?.disconnect(); };
-  }, [openWidgetMenu, sidebarCollapsed]);
+    return () => { document.removeEventListener("click", dismissMenu, true); window.removeEventListener("resize", placeMenu); card.removeEventListener("scroll", placeMenu, true); observer?.disconnect(); };
+  }, [openWidgetMenu, sidebarCollapsed, dismissWidgetMenu]);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDialog, setWorkspaceDialog] = useState<"new" | "rename" | null>(null);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
@@ -576,11 +590,12 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       next.splice(to, 0, moved);
       return next;
     });
+    closeWidgetMenu();
   };
 
   const resizeWidget = (instanceId: string, size: WidgetSize) => {
     updateWorkspaceWidgets((widgets) => widgets.map((widget) => widget.instanceId === instanceId ? { ...widget, size } : widget));
-    setOpenWidgetMenu(null);
+    closeWidgetMenu();
   };
 
   const createWorkspace = () => {
@@ -994,7 +1009,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}`}
               reflowKey={String(sidebarCollapsed)}
               enabled={customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId}
-              onReorderStart={() => setOpenWidgetMenu(null)}
+              onReorderStart={closeWidgetMenu}
               onReorder={(orderedIds) => {
                 const currentWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
                 if (!currentWorkspace || currentWorkspace.id !== activeWorkspace.id || orderedIds.length !== currentWorkspace.widgets.length) return false;
@@ -1032,13 +1047,18 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           <h2>{({ "daily-goal": "Daily Study Goal", today: "At a Glance", "red-alerts": "Alerts", pomodoro: "Pomodoro", "mini-calendar": "Mini Calendar", "task-completion": "Task Completion", notes: "Quick Notes" } as Record<string, string>)[widget.type] ?? template.title}</h2>
           <button type="button" className="drag-handle icon-button mini" data-widget-reorder-handle aria-label={`Reorder ${template.title}`} draggable={false}><GripVertical size={16} /></button>
           <div className="menu-wrap">
-            <button className="icon-button mini" onClick={() => setOpenWidgetMenu(openWidgetMenu === widget.instanceId ? null : widget.instanceId)} aria-label={`${template.title} options`}><MoreHorizontal size={17} /></button>
+            <button className="icon-button mini" onClick={() => {
+              if (openWidgetMenu === widget.instanceId && !closingWidgetMenu) dismissWidgetMenu();
+              else { setClosingWidgetMenu(false); setOpenWidgetMenu(widget.instanceId); }
+            }} aria-label={`${template.title} options`}><MoreHorizontal size={17} /></button>
           </div>
         </div>
         <div className="widget-body">{renderWidgetBody(widget)}</div>
         </div>
             {openWidgetMenu === widget.instanceId && (
-              <div className="popover widget-menu" ref={widgetMenuRef}>
+              <div className={`popover widget-menu${closingWidgetMenu ? " is-closing" : ""}`} ref={widgetMenuRef} inert={closingWidgetMenu} aria-hidden={closingWidgetMenu || undefined} onAnimationEnd={(event) => {
+                if (closingWidgetMenu && event.target === event.currentTarget && event.animationName === "widget-menu-dismiss") closeWidgetMenu();
+              }}>
                 <p>Widget size</p>
                 <div className="size-options">
                   {widgetSizeOptions.map(({ value, label, footprint }) => <button key={value} aria-label={`${label} widget`} aria-pressed={widget.size === value} className={widget.size === value ? "active" : ""} onClick={() => resizeWidget(widget.instanceId, value)}><span>{label}</span><small>{footprint.width} × {footprint.height === 0.5 ? "½" : footprint.height}</small></button>)}
@@ -1050,9 +1070,9 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
                   const appearance = extraData.widgetAppearance && { ...extraData.widgetAppearance, overrides: { ...extraData.widgetAppearance.overrides } };
                   if (appearance?.overrides[widget.instanceId]) appearance.overrides[copy.instanceId] = { ...appearance.overrides[widget.instanceId] };
                   commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: [...workspace.widgets, copy] } : workspace), activeWorkspaceId, notes, appearance);
-                  setOpenWidgetMenu(null);
+                  closeWidgetMenu();
                 }}><Copy size={15} /> Duplicate</button>
-                <button className="danger" onClick={() => { if (widget.note && !window.confirm("Remove this notes widget and its text?")) return; if (updateWorkspaceWidgets((widgets) => widgets.filter((item) => item.instanceId !== widget.instanceId))) { setOpenWidgetMenu(null); flash("Widget removed"); } }}><Trash2 size={15} /> Remove</button>
+                <button className="danger" onClick={() => { if (widget.note && !window.confirm("Remove this notes widget and its text?")) return; if (updateWorkspaceWidgets((widgets) => widgets.filter((item) => item.instanceId !== widget.instanceId))) { closeWidgetMenu(); flash("Widget removed"); } }}><Trash2 size={15} /> Remove</button>
               </div>
             )}
       </article>

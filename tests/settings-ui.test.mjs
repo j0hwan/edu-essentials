@@ -4,7 +4,11 @@ import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
 const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/" });
-for (const name of ["window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent"]) globalThis[name] = dom.window[name];
+class TestAnimationEvent extends dom.window.Event {
+  constructor(type, { animationName = "", ...options } = {}) { super(type, options); this.animationName = animationName; }
+}
+Object.defineProperty(dom.window, "AnimationEvent", { configurable: true, value: TestAnimationEvent });
+for (const name of ["window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "AnimationEvent"]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, act } = await import("react");
@@ -85,6 +89,15 @@ function pointerEvent(type, values = {}) {
     Object.defineProperty(event, key, { configurable: true, value });
   }
   return event;
+}
+function widgetMenuAnimationEnd(animationName = "widget-menu-dismiss") {
+  return new window.AnimationEvent("animationend", { bubbles: true, animationName });
+}
+async function finishWidgetMenuDismissal(menu, animationName) {
+  await act(async () => menu.dispatchEvent(widgetMenuAnimationEnd(animationName)));
+}
+async function waitForMilliseconds(duration) {
+  await act(async () => new Promise((resolve) => setTimeout(resolve, duration)));
 }
 function installFrameQueue() {
   const previousRequestFrame = window.requestAnimationFrame;
@@ -403,6 +416,122 @@ test("sidebar toggle works when browser storage is blocked", async () => {
   } finally { if (root) await unmount(); Object.defineProperty(window, "localStorage", storageDescriptor); }
 });
 
+test("widget options fade on outside clicks while inside clicks and actions keep working", async () => {
+  reset(); const server = installWorkspaceServer({ ...savedDashboard, w: [["day", "Day", [[12, 1], [12, 1]]]] });
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    const [first, second] = cards();
+    await clickAria("Quick notes options", first);
+    let menu = first.querySelector(".widget-menu");
+    await act(async () => menu.querySelector("p").click());
+    assert.equal(menu.classList.contains("is-closing"), false, "clicking inside the menu does not start dismissal");
+    await act(async () => first.querySelector("textarea").click());
+    assert.equal(menu.classList.contains("is-closing"), true, "clicking elsewhere in the widget starts the fade");
+    assert.equal(menu.getAttribute("aria-hidden"), "true", "the fading menu is hidden from assistive technology");
+    assert.equal(menu.hasAttribute("inert"), true, "the fading menu cannot receive interaction");
+    assert.ok(rootNode.querySelector(".widget-menu") === menu, "the menu stays mounted for the fade");
+    await act(async () => menu.querySelector("p").dispatchEvent(widgetMenuAnimationEnd()));
+    assert.ok(rootNode.querySelector(".widget-menu") === menu, "a child animation does not finish the menu fade");
+    await finishWidgetMenuDismissal(menu, "other-animation");
+    assert.ok(rootNode.querySelector(".widget-menu") === menu, "unrelated animations do not finish the menu fade");
+    await finishWidgetMenuDismissal(menu);
+    assert.ok(!rootNode.querySelector(".widget-menu"), "the dismissal animation removes the menu");
+
+    await clickAria("Quick notes options", first);
+    await act(async () => rootNode.querySelector(".home-greeting").click());
+    menu = rootNode.querySelector(".widget-menu");
+    assert.equal(menu.classList.contains("is-closing"), true, "clicking the page starts the fade");
+    await finishWidgetMenuDismissal(menu);
+    assert.ok(!rootNode.querySelector(".widget-menu"));
+
+    await clickAria("Quick notes options", first);
+    await clickAria("Quick notes options", first);
+    menu = rootNode.querySelector(".widget-menu");
+    assert.equal(menu.classList.contains("is-closing"), true, "the same trigger starts dismissal");
+    await finishWidgetMenuDismissal(menu);
+    assert.ok(!rootNode.querySelector(".widget-menu"));
+
+    await clickAria("Quick notes options", first);
+    await clickAria("Quick notes options", second);
+    assert.ok(!first.querySelector(".widget-menu"));
+    assert.ok(second.querySelector(".widget-menu"), "a different trigger opens its menu on the first click");
+    assert.equal(second.querySelector(".widget-menu").classList.contains("is-closing"), false);
+    assert.equal(server.writes, 0, "menu dismissal and opening do not edit the workspace");
+    menu = second.querySelector(".widget-menu");
+    await clickAria("Large widget", second);
+    assert.equal(cards()[1].dataset.size, "large", "inside menu actions still run");
+    assert.ok(!rootNode.querySelector(".widget-menu"));
+    assert.equal(menu.classList.contains("is-closing"), false, "size action removes its menu immediately without starting a fade");
+    assert.equal(menu.isConnected, false);
+  } finally { if (root) await unmount(); }
+});
+
+test("widget menu reopening and switching triggers survive the old dismissal timeout", async () => {
+  reset(); const server = installWorkspaceServer({ ...savedDashboard, w: [["day", "Day", [[12, 1], [12, 1]]]] });
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    const [first, second] = cards();
+
+    await clickAria("Quick notes options", first);
+    await act(async () => rootNode.querySelector(".home-greeting").click());
+    const fadingFirstMenu = first.querySelector(".widget-menu");
+    assert.equal(fadingFirstMenu.classList.contains("is-closing"), true);
+    await clickAria("Quick notes options", first);
+    const reopenedMenu = first.querySelector(".widget-menu");
+    assert.ok(reopenedMenu, "the same trigger reopens the menu during its fade");
+    assert.equal(reopenedMenu.classList.contains("is-closing"), false);
+    await waitForMilliseconds(160);
+    assert.ok(first.querySelector(".widget-menu") === reopenedMenu, "the cancelled timeout leaves the reopened menu open");
+
+    await act(async () => rootNode.querySelector(".home-greeting").click());
+    assert.equal(first.querySelector(".widget-menu").classList.contains("is-closing"), true);
+    await clickAria("Quick notes options", second);
+    const switchedMenu = second.querySelector(".widget-menu");
+    assert.ok(switchedMenu, "switching triggers opens the second menu during the first menu's fade");
+    assert.equal(switchedMenu.classList.contains("is-closing"), false);
+    await waitForMilliseconds(160);
+    assert.ok(second.querySelector(".widget-menu") === switchedMenu, "the old timeout leaves the switched menu open");
+    assert.equal(server.writes, 0);
+  } finally { if (root) await unmount(); }
+});
+
+test("widget menu fallback completes dismissal and unmount clears its pending timeout", async () => {
+  reset(); installWorkspaceServer();
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    const first = cards()[0];
+    await clickAria("Quick notes options", first);
+    await act(async () => rootNode.querySelector(".home-greeting").click());
+    assert.ok(first.querySelector(".widget-menu.is-closing"));
+    await waitForMilliseconds(160);
+    assert.ok(!rootNode.querySelector(".widget-menu"), "the fallback removes a menu when animationend is unavailable");
+
+    await clickAria("Quick notes options", first);
+    const scheduled = [];
+    const cleared = new Set();
+    const originalSetTimeout = window.setTimeout;
+    const originalClearTimeout = window.clearTimeout;
+    window.setTimeout = function (callback, delay, ...args) {
+      const id = originalSetTimeout.call(this, callback, delay, ...args);
+      if (delay === 130) scheduled.push(id);
+      return id;
+    };
+    window.clearTimeout = function (id) {
+      if (scheduled.includes(id)) cleared.add(id);
+      return originalClearTimeout.call(this, id);
+    };
+    try {
+      await act(async () => rootNode.querySelector(".home-greeting").click());
+      assert.equal(scheduled.length, 1, "one fallback timeout is scheduled for the closing menu");
+      await unmount();
+      assert.ok(cleared.has(scheduled[0]), "unmount clears the pending dismissal timeout");
+    } finally {
+      window.setTimeout = originalSetTimeout;
+      window.clearTimeout = originalClearTimeout;
+    }
+  } finally { if (root) await unmount(); }
+});
+
 test("topbar search submits the typed query and supports searching again", async () => {
   reset(); const server = installWorkspaceServer();
   try {
@@ -661,8 +790,16 @@ test("workspace controls persist configurations and independent notes", async (t
     for (const button of pickerButtons) await act(async () => button.click());
     await click("Done"); assert.equal(cards().length, 18);
     await clickAria("Quick notes options"); await clickAria("Large widget");
-    await clickAria("Quick notes options"); await click("Move earlier");
-    await click("Move later"); await clickAria("Quick notes options");
+    await clickAria("Quick notes options");
+    let moveMenu = rootNode.querySelector(".widget-menu");
+    await click("Move earlier");
+    assert.ok(!rootNode.querySelector(".widget-menu"), "Move earlier closes its menu immediately");
+    assert.equal(moveMenu.isConnected, false);
+    await clickAria("Quick notes options");
+    moveMenu = rootNode.querySelector(".widget-menu");
+    await click("Move later");
+    assert.ok(!rootNode.querySelector(".widget-menu"), "Move later closes its menu immediately");
+    assert.equal(moveMenu.isConnected, false);
     await saveAndReload();
     const writesBeforeHover = server.writes;
     const widgetsBeforeHover = decodeWorkspaceState(server.dashboard).workspaces[0].widgets;
