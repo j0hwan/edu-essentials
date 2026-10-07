@@ -1,6 +1,10 @@
 "use client";
 
 import { Component, createRef, type ReactNode, type CSSProperties } from "react";
+import { calculateWidgetPlacements } from "../lib/widget-layout";
+
+export { calculateWidgetPlacements };
+export type { WidgetPlacement } from "../lib/widget-layout";
 
 type Props = { layoutKey: string; label: string; children: ReactNode; style?: CSSProperties; className?: string; animateLayout?: boolean };
 type Snapshot = Map<string, DOMRect> | null;
@@ -11,87 +15,9 @@ export type WidgetUnitInput = {
   columns: 2 | 4;
 };
 
-export type WidgetPlacement = {
-  column: number;
-  columnSpan: number;
-  row: number;
-  rowSpan: number;
-};
-
 /** The base cell is square and uses the exact available width after column gaps. */
 export function calculateWidgetUnit({ gridWidth, gap, columns }: WidgetUnitInput): number {
   return Math.max(0, (gridWidth - gap * (columns - 1)) / columns);
-}
-
-/** Place full small-cell footprints row-major, pairing mini cards in one cell. */
-export function calculateWidgetPlacements(sizes: readonly string[], columns: 2 | 4): WidgetPlacement[] {
-  const widgetCellFootprints: Record<string, { width: number; height: number }> = {
-    small: { width: 1, height: 1 },
-    medium: { width: 2, height: 1 },
-    "medium-vertical": { width: 1, height: 2 },
-    large: { width: 2, height: 2 },
-  };
-  const occupied: boolean[][] = [];
-  let pendingMini: { column: number; row: number } | null = null;
-
-  const findFreeCell = (width: number, height: number) => {
-    for (let row = 0; ; row += 1) {
-      for (let column = 0; column <= columns - width; column += 1) {
-        let free = true;
-        for (let offsetY = 0; offsetY < height && free; offsetY += 1) {
-          for (let offsetX = 0; offsetX < width; offsetX += 1) {
-            if (occupied[row + offsetY]?.[column + offsetX]) {
-              free = false;
-              break;
-            }
-          }
-        }
-        if (free) return { column, row };
-      }
-    }
-  };
-
-  const reserve = (column: number, row: number, width: number, height: number) => {
-    for (let offsetY = 0; offsetY < height; offsetY += 1) {
-      occupied[row + offsetY] ??= Array.from({ length: columns }, () => false);
-      for (let offsetX = 0; offsetX < width; offsetX += 1) occupied[row + offsetY][column + offsetX] = true;
-    }
-  };
-
-  return sizes.map((size) => {
-    if (size === "mini") {
-      if (pendingMini) {
-        const placement = {
-          column: pendingMini.column + 1,
-          columnSpan: 1,
-          row: pendingMini.row * 2 + 2,
-          rowSpan: 1,
-        };
-        pendingMini = null;
-        return placement;
-      }
-
-      const cell = findFreeCell(1, 1);
-      reserve(cell.column, cell.row, 1, 1);
-      pendingMini = cell;
-      return {
-        column: cell.column + 1,
-        columnSpan: 1,
-        row: cell.row * 2 + 1,
-        rowSpan: 1,
-      };
-    }
-
-    const footprint = widgetCellFootprints[size] ?? widgetCellFootprints.small;
-    const cell = findFreeCell(footprint.width, footprint.height);
-    reserve(cell.column, cell.row, footprint.width, footprint.height);
-    return {
-      column: cell.column + 1,
-      columnSpan: footprint.width,
-      row: cell.row * 2 + 1,
-      rowSpan: footprint.height * 2,
-    };
-  });
 }
 
 /** FLIP measures the old layout before React changes it, including interrupted motion. */

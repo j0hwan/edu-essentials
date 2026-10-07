@@ -197,6 +197,11 @@ to the account. System and account reduced-motion preferences remain respected.
   screenshots using all 18 production widget types. Requires Playwright tooling;
   set PLAYWRIGHT_MODULE to its index.mjs path when using an external bundle, and
   CHROME_EXECUTABLE when Chrome is outside its standard installation location.
+- node scripts/verify-widget-reorder.mjs: optional browser checks of live widget
+  drag previews, cancellation, touch input, reduced motion, and edge scrolling.
+  Uses synthetic workspace data and the same Playwright/Chrome environment
+  variables as the layout checks. Research and interaction design are recorded
+  in [docs/widget-reordering.md](docs/widget-reordering.md).
 - npm test: build, account/API tests with a fake Supabase adapter, and HTTP route
   integration tests against a temporary local development server.
 - tests/persistence-foundation.test.mjs additionally executes all app migrations

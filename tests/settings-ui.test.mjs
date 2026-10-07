@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
 const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/" });
-for (const name of ["window", "document", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent"]) globalThis[name] = dom.window[name];
+for (const name of ["window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent"]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, act } = await import("react");
@@ -12,9 +12,11 @@ const { createRoot } = await import("react-dom/client");
 const { default: ProfileEditor } = await import(await clientModule("app/profile-editor.tsx"));
 const { default: Workspace } = await import(await clientModule("app/workspace-client.tsx"));
 const { validateProfile } = await import(await clientModule("lib/profile.ts"));
-const { decodeWorkspaceState } = await import(await clientModule("lib/workspace-codec.ts"));
+const { encodeWorkspaceState, decodeWorkspaceState } = await import(await clientModule("lib/workspace-codec.ts"));
 const { academicSnapshot } = await import(await clientModule("lib/academic-snapshot.ts"));
 const { emptyStudy, timerAction } = await import(await clientModule("lib/study.ts"));
+const { calculateWidgetPlacements } = await import(await clientModule("lib/widget-layout.ts"));
+const { reorderWidgetIds } = await import(await clientModule("lib/widget-reorder.ts"));
 const baseProfile = { ...validateProfile({ display_name: "Alex" }), id: "profile-a", auth_user_id: "user-a", email: "alex@example.invalid", avatar_url: null, initialized: true, updated_at: "2026-09-06T00:00:00.000Z", onboarding_completed_at: "2026-09-05T00:00:00.000Z" };
 const rootNode = document.getElementById("root");
 let root, fetcher, filesFetcher, alerts, media, downloads;
@@ -60,6 +62,62 @@ async function click(text) {
   });
 }
 function unloadBlocked() { const event = new window.Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; }
+function pointerEvent(type, values = {}) {
+  const event = new window.Event(type, { bubbles: true, cancelable: true });
+  for (const [key, value] of Object.entries({ pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, clientX: 0, clientY: 0, ...values })) {
+    Object.defineProperty(event, key, { configurable: true, value });
+  }
+  return event;
+}
+function installFrameQueue() {
+  const previousRequestFrame = window.requestAnimationFrame;
+  const previousCancelFrame = window.cancelAnimationFrame;
+  const frames = new Map(); let nextFrameId = 0;
+  window.requestAnimationFrame = (callback) => { const id = ++nextFrameId; frames.set(id, callback); return id; };
+  window.cancelAnimationFrame = (id) => frames.delete(id);
+  return {
+    flush() { const pending = [...frames.values()]; frames.clear(); pending.forEach((callback) => callback(0)); },
+    restore() {
+      if (previousRequestFrame) window.requestAnimationFrame = previousRequestFrame; else delete window.requestAnimationFrame;
+      if (previousCancelFrame) window.cancelAnimationFrame = previousCancelFrame; else delete window.cancelAnimationFrame;
+    },
+  };
+}
+function installBoardGeometry(grid, { columns = 4, unit = 100, gap = 16, left = 40, top = 100, bottom = 3100 } = {}) {
+  const rowUnit = (unit - gap) / 2;
+  grid.style.setProperty("--widget-columns", String(columns));
+  grid.style.setProperty("--widget-unit", `${unit}px`);
+  grid.style.columnGap = `${gap}px`;
+  const gridRect = { left, top, right: left + unit * columns + gap * (columns - 1), bottom, width: unit * columns + gap * (columns - 1), height: bottom - top };
+  grid.getBoundingClientRect = () => ({ ...gridRect, x: gridRect.left, y: gridRect.top, toJSON() { return this; } });
+  const updateCards = () => {
+    for (const card of cards()) {
+      card.getBoundingClientRect = () => {
+        const column = Number.parseInt(card.style.gridColumn, 10) || 1;
+        const columnSpan = Number.parseInt(card.style.gridColumn.split("span ")[1], 10) || 1;
+        const row = Number.parseInt(card.style.gridRow, 10) || 1;
+        const rowSpan = Number.parseInt(card.style.gridRow.split("span ")[1], 10) || 1;
+        const cardLeft = gridRect.left + (column - 1) * (unit + gap);
+        const cardTop = gridRect.top + (row - 1) * (rowUnit + gap);
+        const width = columnSpan * unit + (columnSpan - 1) * gap;
+        const height = rowSpan * rowUnit + (rowSpan - 1) * gap;
+        return { left: cardLeft, top: cardTop, right: cardLeft + width, bottom: cardTop + height, x: cardLeft, y: cardTop, width, height, toJSON() { return this; } };
+      };
+    }
+  };
+  updateCards();
+  return { gridRect, unit, gap, rowUnit, columns, updateCards };
+}
+function destinationPointer(widgets, draggedId, destinationIndex, geometry, grabOffsetX, grabOffsetY) {
+  const order = reorderWidgetIds(widgets.map((widget) => widget.instanceId), draggedId, destinationIndex);
+  const ordered = order.map((id) => widgets.find((widget) => widget.instanceId === id));
+  const placement = calculateWidgetPlacements(ordered.map((widget) => widget.size), geometry.columns)[order.indexOf(draggedId)];
+  return {
+    order,
+    x: geometry.gridRect.left + (placement.column - 1) * (geometry.unit + geometry.gap) + grabOffsetX,
+    y: geometry.gridRect.top + (placement.row - 1) * (geometry.rowUnit + geometry.gap) + grabOffsetY,
+  };
+}
 const savedDashboard = { v: 1, a: "day", w: [["day", "Day", [[12, 1]]]], n: "Saved notes", d: { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" } };
 async function editNotes(value) {
   const textarea = rootNode.querySelector('textarea[aria-label="Quick notes"]');
@@ -238,7 +296,7 @@ async function saveAndReload() {
   if ([...rootNode.querySelectorAll("button")].some((button) => button.textContent === "Save now")) await click("Save now");
   assert.equal(unloadBlocked(), false); await unmount(); reset(); await render(Workspace, { initialProfile: baseProfile });
 }
-const cards = () => [...rootNode.querySelectorAll(".widget-card")];
+const cards = () => [...rootNode.querySelectorAll(".widget-grid > .widget-card[data-widget-id]")];
 
 test("sidebar collapse keeps accessible navigation, persists locally and does not save account data", async () => {
   window.localStorage.removeItem("edu-sidebar-collapsed");
@@ -505,23 +563,136 @@ test("workspace controls persist configurations and independent notes", async (t
     assert.equal(copied.widgets[0].note, "Saved notes");
   });
 
-  await t.test("all 18 widget types add and persist; size, move and drag keep stable identities", async () => {
+  await t.test("all 18 widget types add and persist; size, move and drag keep stable identities", async (t) => {
     reset(); const server = installWorkspaceServer({ ...savedDashboard, w: [["day", "Day", []]], n: "" });
     await render(Workspace, { initialProfile: baseProfile }); await click("Browse widgets");
     const pickerButtons = [...rootNode.querySelectorAll(".widget-picker-grid button")]; assert.equal(pickerButtons.length, 18);
     for (const button of pickerButtons) await act(async () => button.click());
     await click("Done"); assert.equal(cards().length, 18);
-    const ids = cards().map((card) => card.dataset.widgetId);
     await clickAria("Quick notes options"); await clickAria("Large widget");
     await clickAria("Quick notes options"); await click("Move earlier");
     await click("Move later"); await clickAria("Quick notes options");
-    const source = cards()[0], destination = cards()[17];
-    await act(async () => source.querySelector(".drag-handle").dispatchEvent(new window.Event("dragstart", { bubbles: true })));
-    await act(async () => destination.dispatchEvent(new window.Event("drop", { bubbles: true, cancelable: true })));
     await saveAndReload();
-    assert.deepEqual(cards().map((card) => card.dataset.widgetId), [...ids.slice(1), ids[0]]);
+    const writesBeforeHover = server.writes;
+    const widgetsBeforeHover = decodeWorkspaceState(server.dashboard).workspaces[0].widgets;
+    const draggedId = widgetsBeforeHover.find((widget) => widget.type === "notes").instanceId;
+    await click("Customize");
+
+    const frames = installFrameQueue(); t.after(() => frames.restore());
+    const previousInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 4000 });
+    t.after(() => Object.defineProperty(window, "innerHeight", { configurable: true, value: previousInnerHeight }));
+    const grid = rootNode.querySelector(".widget-grid");
+    const geometry = installBoardGeometry(grid);
+    const source = cards().find((card) => card.dataset.widgetId === draggedId);
+    const sourceRect = source.getBoundingClientRect();
+    const startX = sourceRect.left + 20, startY = sourceRect.top + 18;
+    const { order: candidate, x: dropX, y: dropY } = destinationPointer(widgetsBeforeHover, draggedId, widgetsBeforeHover.length - 1, geometry, startX - sourceRect.left, startY - sourceRect.top);
+    await act(async () => source.querySelector("[data-widget-reorder-handle]").dispatchEvent(pointerEvent("pointerdown", { clientX: startX, clientY: startY })));
+    await act(async () => {
+      document.dispatchEvent(pointerEvent("pointermove", { clientX: dropX, clientY: dropY }));
+      frames.flush();
+    });
+    assert.deepEqual(cards().map((card) => card.dataset.widgetId), candidate, "hover shows the projected order");
+    assert.ok(source.classList.contains("widget-reorder-placeholder"));
+    const overlay = document.querySelector(".widget-reorder-overlay");
+    assert.ok(overlay); assert.equal(overlay.getAttribute("aria-hidden"), "true"); assert.ok(overlay.hasAttribute("inert"));
+    assert.equal(overlay.querySelectorAll("[id], [data-widget-id], [data-widget-reorder-handle]").length, 0, "the inert clone does not duplicate live widget identity or controls");
+    assert.equal(overlay.querySelector("textarea")?.value, source.querySelector("textarea")?.value, "the full preview retains current notes content");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 760)));
+    assert.equal(server.writes, writesBeforeHover, "hovering for longer than autosave delay does not persist the candidate order");
+    assert.deepEqual(decodeWorkspaceState(server.dashboard).workspaces[0].widgets.map((widget) => widget.instanceId), widgetsBeforeHover.map((widget) => widget.instanceId));
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", { clientX: dropX, clientY: dropY })));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 760)));
+    await saveAndReload();
+    assert.deepEqual(cards().map((card) => card.dataset.widgetId), candidate);
     assert.equal(rootNode.querySelector(".widget-notes").dataset.size, "large");
     assert.equal(decodeWorkspaceState(server.dashboard).workspaces[0].widgets.length, 18);
+    assert.equal(server.writes, writesBeforeHover + 1, "one valid pointer release schedules one workspace save");
+  });
+
+  await t.test("widget reorder cancels cleanly before activation, on Escape, pointercancel, outside release, blur, and workspace change", async () => {
+    reset();
+    const widgets = [
+      { instanceId: "notes-a", type: "notes", size: "medium", note: "Keep this note" },
+      { instanceId: "timer-a", type: "pomodoro", size: "small" },
+      { instanceId: "calendar-a", type: "mini-calendar", size: "mini" },
+      { instanceId: "quote-a", type: "quote", size: "mini" },
+    ];
+    const otherWidgets = widgets.map((widget) => ({ ...widget, instanceId: `other-${widget.instanceId}` }));
+    const dashboard = encodeWorkspaceState([
+      { id: "day", name: "Day", widgets },
+      { id: "other", name: "Other", widgets: otherWidgets },
+    ], "day", "");
+    const server = installWorkspaceServer(dashboard);
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Customize");
+
+    const frames = installFrameQueue();
+    try {
+      const geometry = installBoardGeometry(rootNode.querySelector(".widget-grid"));
+      const origin = widgets.map((widget) => widget.instanceId);
+      const startFor = (widgetId, destinationIndex) => {
+        const source = cards().find((card) => card.dataset.widgetId === widgetId);
+        assert.ok(source, `Missing source card ${widgetId}`);
+        const rect = source.getBoundingClientRect();
+        const startX = rect.left + 20, startY = rect.top + 18;
+        const target = destinationPointer(widgets, widgetId, destinationIndex, geometry, 20, 18);
+        return { source, startX, startY, ...target };
+      };
+      const pointerDown = async ({ source, startX, startY }) => act(async () => source.querySelector("[data-widget-reorder-handle]").dispatchEvent(pointerEvent("pointerdown", { clientX: startX, clientY: startY })));
+      const preview = async (widgetId, destinationIndex) => {
+        const drag = startFor(widgetId, destinationIndex);
+        await pointerDown(drag);
+        await act(async () => {
+          document.dispatchEvent(pointerEvent("pointermove", { clientX: drag.x, clientY: drag.y }));
+          frames.flush();
+        });
+        assert.notDeepEqual(cards().map((card) => card.dataset.widgetId), origin, "the active gesture displays a changed preview order");
+        assert.ok(document.querySelector(".widget-reorder-overlay"));
+        return drag;
+      };
+      const assertRestored = () => {
+        assert.equal(document.querySelector(".widget-reorder-overlay"), null);
+        assert.deepEqual(cards().map((card) => card.dataset.widgetId), origin);
+        assert.equal(server.writes, 0);
+      };
+
+      const clickOnly = startFor("notes-a", 3);
+      await pointerDown(clickOnly);
+      await act(async () => document.dispatchEvent(pointerEvent("pointermove", { clientX: clickOnly.startX + 3, clientY: clickOnly.startY + 1 })));
+      assert.equal(document.querySelector(".widget-reorder-overlay"), null, "movement below the drag threshold does not lift the card");
+      await act(async () => document.dispatchEvent(pointerEvent("pointerup", { clientX: clickOnly.startX + 3, clientY: clickOnly.startY + 1 })));
+      assert.deepEqual(cards().map((card) => card.dataset.widgetId), origin);
+      assert.equal(server.writes, 0);
+
+      await preview("notes-a", 2);
+      await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      assertRestored();
+
+      await preview("timer-a", 0);
+      await act(async () => document.dispatchEvent(pointerEvent("pointercancel", { clientX: 180, clientY: 210 })));
+      assertRestored();
+
+      await preview("calendar-a", 0);
+      await act(async () => {
+        document.dispatchEvent(pointerEvent("pointermove", { clientX: -200, clientY: 200 }));
+        frames.flush();
+        document.dispatchEvent(pointerEvent("pointerup", { clientX: -200, clientY: 200 }));
+      });
+      assertRestored();
+
+      await preview("quote-a", 0);
+      await act(async () => window.dispatchEvent(new window.Event("blur")));
+      assertRestored();
+
+      await preview("notes-a", 2);
+      await click("Other");
+      assert.equal(document.querySelector(".widget-reorder-overlay"), null, "switching workspace invalidates the active drag context");
+      await click("Day");
+      assert.deepEqual(cards().map((card) => card.dataset.widgetId), origin);
+      assert.equal(server.writes, 0);
+    } finally { frames.restore(); }
   });
 
   await t.test("note copies edit, clear and delete independently; search opens the exact note", async () => {

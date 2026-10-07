@@ -61,7 +61,7 @@ import { usePrivateFiles } from "./use-private-files";
 import { FileEditor, FileList, FilePreview, PrivateImage } from "./private-files";
 import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
 import StudyWidget, { studyWidgetTypes } from "./study-widgets";
-import AnimatedWidgetGrid from "./animated-widget-grid";
+import ReorderableWidgetGrid from "./reorderable-widget-grid";
 import WidgetCustomization from "./widget-customization";
 import { resolveWidgetAppearance, widgetAppearanceStyle, type WidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
 import StudyPanel from "./study-panel";
@@ -78,6 +78,7 @@ import "./auth.css";
 import "./reference-ui.css";
 import "./widget-appearance.css";
 import "./widget-block-layout.css";
+import "./widget-reorder.css";
 import { widgetSizeOptions } from "../lib/widget-layout";
 import {
   decodeWorkspaceState,
@@ -294,7 +295,6 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDialog, setWorkspaceDialog] = useState<"new" | "rename" | null>(null);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
-  const [draggedWidget, setDraggedWidget] = useState<string | null>(null);
   const [studyOpen, setStudyOpen] = useState(false);
   const [aiApplying, setAiApplying] = useState(false);
   const aiApplyLock = useRef(false);
@@ -940,36 +940,50 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               <button className="primary-button" onClick={() => setWidgetPickerOpen(true)}><Plus size={17} /> Browse widgets</button>
             </div>
           ) : (
-            <AnimatedWidgetGrid label={`${activeWorkspace.name} widgets`} style={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties} layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}:${activeWorkspace.widgets.map((widget) => `${widget.instanceId}:${widget.size}`).join(",")}`}>
-              {activeWorkspace.widgets.map((widget, index) => renderWidget(widget, index))}
-              <button className="add-widget-tile" onClick={() => setWidgetPickerOpen(true)}><Plus size={22} /><span>Add widget</span></button>
-            </AnimatedWidgetGrid>
+            <ReorderableWidgetGrid
+              items={activeWorkspace.widgets}
+              workspaceId={activeWorkspace.id}
+              label={`${activeWorkspace.name} widgets`}
+              style={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
+              layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}`}
+              enabled={customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId}
+              onReorderStart={() => setOpenWidgetMenu(null)}
+              onReorder={(orderedIds) => {
+                const currentWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+                if (!currentWorkspace || currentWorkspace.id !== activeWorkspace.id || orderedIds.length !== currentWorkspace.widgets.length) return false;
+                const widgetsById = new Map(currentWorkspace.widgets.map((widget) => [widget.instanceId, widget]));
+                if (new Set(orderedIds).size !== currentWorkspace.widgets.length || orderedIds.some((id) => !widgetsById.has(id))) return false;
+                return updateWorkspaceWidgets(() => orderedIds.map((id) => widgetsById.get(id)!));
+              }}
+              renderWidget={(widget, index, isDragged) => renderWidget(widget, index, isDragged)}
+              addTile={<button className="add-widget-tile" onClick={() => setWidgetPickerOpen(true)}><Plus size={22} /><span>Add widget</span></button>}
+            />
           )}
         </section>
       </div>
     );
   }
 
-  function renderWidget(widget: WidgetInstance, index: number) {
+  function renderWidget(widget: WidgetInstance, index: number, isDragged = false) {
     const template = widgetTemplates.find((item) => item.type === widget.type)!;
     const appearance = resolveWidgetAppearance(extraData.widgetAppearance, widget.instanceId);
     const TemplateIcon = widget.type === "today" ? BarChart3 : widget.type === "red-alerts" ? Bell : widget.type === "notes" ? FileText : template.icon;
     return (
       <article
         key={widget.instanceId}
-        className={`widget-card widget-${widget.type} ${draggedWidget === widget.instanceId ? "dragging" : ""}`}
+        className={`widget-card widget-${widget.type} ${isDragged ? "widget-reorder-placeholder" : ""}`}
         data-size={widget.size}
         data-widget-id={widget.instanceId}
+        aria-hidden={isDragged ? true : undefined}
+        inert={isDragged}
         style={widgetAppearanceStyle(appearance) as CSSProperties}
         {...appearanceAttributes(appearance)}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => { event.preventDefault(); if (draggedWidget !== null) moveWidget(activeWorkspace.widgets.findIndex((item) => item.instanceId === draggedWidget), index); setDraggedWidget(null); }}
       >
         <div className="widget-frame">
         <div className="widget-header">
           <span className={`widget-icon tone-${template.color}`}><TemplateIcon size={16} /></span>
           <h2>{({ "daily-goal": "Daily Study Goal", today: "At a Glance", "red-alerts": "Alerts", pomodoro: "Pomodoro", "mini-calendar": "Mini Calendar", "task-completion": "Task Completion", notes: "Quick Notes" } as Record<string, string>)[widget.type] ?? template.title}</h2>
-          <button className="drag-handle icon-button mini" aria-label={`Drag ${template.title}`} draggable onDragStart={(event) => { event.dataTransfer?.setData("text/plain", widget.instanceId); setDraggedWidget(widget.instanceId); }} onDragEnd={() => setDraggedWidget(null)}><GripVertical size={16} /></button>
+          <button type="button" className="drag-handle icon-button mini" data-widget-reorder-handle aria-label={`Reorder ${template.title}`} draggable={false}><GripVertical size={16} /></button>
           <div className="menu-wrap">
             <button className="icon-button mini" onClick={() => setOpenWidgetMenu(openWidgetMenu === widget.instanceId ? null : widget.instanceId)} aria-label={`${template.title} options`}><MoreHorizontal size={17} /></button>
           </div>
