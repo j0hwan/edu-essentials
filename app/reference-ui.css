@@ -236,22 +236,23 @@
 @media (min-width: 821px) {
   /* Compact page contents independently of the sidebar and outer gutters. */
   .reference-ui .page { --ui-unit: 0.06640625rem; --layout-gap: calc(12 * var(--ui-unit)); font-size: calc(14 * var(--ui-unit)); }
-  .reference-ui.sidebar-collapsed { --sidebar-width: calc(64 * var(--ui-unit)); }
+  /* The root attribute applies this state before React hydrates its class. */
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) { --sidebar-width: calc(64 * var(--ui-unit)); }
   .reference-ui .sidebar { transform: none; }
   .reference-ui .sidebar-close { display: none !important; }
   .reference-ui .sidebar-scrim { display: none; }
-  .reference-ui.sidebar-collapsed .brand-copy,
-  .reference-ui.sidebar-collapsed .brand-row > .brand-mark,
-  .reference-ui.sidebar-collapsed .nav-item > span,
-  .reference-ui.sidebar-collapsed .profile-card > span:not(.avatar) { display: none; }
-  .reference-ui.sidebar-collapsed .brand-row { justify-content: center; }
-  .reference-ui.sidebar-collapsed .sidebar-toggle { margin: 0; }
-  .reference-ui.sidebar-collapsed .nav-item { justify-content: center; gap: 0; padding-inline: 0; }
-  .reference-ui.sidebar-collapsed .experimental-trigger { min-height: calc(42 * var(--ui-unit)); opacity: 1; }
-  .reference-ui.sidebar-collapsed .experimental-trigger > svg { width: calc(21 * var(--ui-unit)); }
-  .reference-ui.sidebar-collapsed .syllabus-nav { margin-inline: 0; }
-  .reference-ui.sidebar-collapsed .profile-card { padding-inline: 0; justify-content: center; }
-  .reference-ui.sidebar-collapsed .experimental-menu { left: calc(100% + calc(12 * var(--ui-unit))); top: 0; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .brand-copy,
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .brand-row > .brand-mark,
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .nav-item > span,
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .profile-card > span:not(.avatar) { display: none; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .brand-row { justify-content: center; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .sidebar-toggle { margin: 0; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .nav-item { justify-content: center; gap: 0; padding-inline: 0; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .experimental-trigger { min-height: calc(42 * var(--ui-unit)); opacity: 1; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .experimental-trigger > svg { width: calc(21 * var(--ui-unit)); }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .syllabus-nav { margin-inline: 0; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .profile-card { padding-inline: 0; justify-content: center; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .experimental-menu { left: calc(100% + calc(12 * var(--ui-unit))); top: 0; }
 }
 /* Keep the drawer breakpoint aligned with the existing mobile navigation. */
 @media (max-width: 820px) {

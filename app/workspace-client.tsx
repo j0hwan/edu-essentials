@@ -50,8 +50,9 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
+import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
 import AcademicEditor from "./academic-editor";
@@ -242,15 +243,27 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const page = pageFromPathname(pathname);
   const [profile, setProfile] = useState(initialProfile);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  useEffect(() => {
-    try { const collapsed = window.localStorage.getItem("edu-sidebar-collapsed") === "true"; queueMicrotask(() => setSidebarCollapsed(collapsed)); }
-    catch { /* Navigation still works when browser storage is unavailable. */ }
+  const [storedSidebarCollapsed, setStoredSidebarCollapsed] = useState<boolean | null>(null);
+  const sidebarCollapsed = storedSidebarCollapsed ?? false;
+  useLayoutEffect(() => {
+    let collapsed = false;
+    try {
+      collapsed = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+    } catch {
+      /* Expanded navigation remains available without browser storage. */
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Restore before repaint to match the pre-hydration sidebar state.
+    setStoredSidebarCollapsed(collapsed);
   }, []);
+  useLayoutEffect(() => {
+    if (storedSidebarCollapsed !== null) {
+      document.documentElement.removeAttribute("data-sidebar-collapsed");
+    }
+  }, [storedSidebarCollapsed]);
   const toggleSidebar = () => {
     const collapsed = !sidebarCollapsed;
-    setSidebarCollapsed(collapsed);
-    try { window.localStorage.setItem("edu-sidebar-collapsed", String(collapsed)); }
+    setStoredSidebarCollapsed(collapsed);
+    try { window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed)); }
     catch { /* Keep the preference for this session even if it cannot be stored. */ }
   };
   const [experimentalMenuOpen, setExperimentalMenuOpen] = useState(false);

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { SIDEBAR_COLLAPSED_BOOTSTRAP } from "../lib/sidebar-preference";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -61,7 +63,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <Script
+        id="sidebar-preference-bootstrap"
+        strategy="beforeInteractive"
+        dangerouslySetInnerHTML={{ __html: SIDEBAR_COLLAPSED_BOOTSTRAP }}
+      />
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
