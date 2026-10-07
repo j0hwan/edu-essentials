@@ -30,7 +30,7 @@ function setup() {
     return animation;
   };
   const root = createRoot(document.getElementById("root"));
-  const render = async (size, label = "Notes", key = size) => act(async () => root.render(h(Grid, { layoutKey: key, label: "Test widgets" },
+  const render = async (size, label = "Notes", key = size, reflowKey = undefined) => act(async () => root.render(h(Grid, { layoutKey: key, reflowKey, label: "Test widgets" },
     h("article", { key: "a", "data-widget-id": "a", "data-size": size }, label),
     h("article", { key: "b", "data-widget-id": "b" }, "Timer"),
   )));
@@ -64,6 +64,27 @@ test("rapid size changes cancel previous motion and clean up on unmount", async 
     assert.ok(calls.slice(0, 2).every(({ animation }) => animation.cancelled));
   } finally { await cleanup(); }
   assert.ok(calls.every(({ animation }) => animation.cancelled));
+});
+
+test("sidebar reflow cancels widget FLIP without creating new FLIP, then size changes still animate", async () => {
+  const { calls, render, cleanup } = setup();
+  try {
+    await render("small", "Notes", "small:expanded", "expanded");
+    assert.equal(calls.length, 0, "initial hydration does not animate");
+
+    await render("large", "Notes", "large:expanded", "expanded");
+    assert.equal(calls.length, 2, "a widget resize starts the existing FLIP animations");
+    const activeResizeAnimations = calls.map(({ animation }) => animation);
+    assert.ok(activeResizeAnimations.every((animation) => !animation.cancelled));
+
+    await render("large", "Notes", "large:collapsed", "collapsed");
+    assert.equal(calls.length, 2, "the sidebar reflow itself does not start FLIP animations");
+    assert.ok(activeResizeAnimations.every((animation) => animation.cancelled), "sidebar reflow cancels in-flight widget motion");
+
+    await render("small", "Notes", "small:collapsed", "collapsed");
+    assert.equal(calls.length, 4, "a later widget resize still starts FLIP animations");
+    assert.ok(calls.slice(2).every(({ animation }) => !animation.cancelled));
+  } finally { await cleanup(); }
 });
 
 test("individual appearance timing disables one card while animating its neighbor", async () => {

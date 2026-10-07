@@ -994,6 +994,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               label={`${activeWorkspace.name} widgets`}
               style={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
               layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}`}
+              reflowKey={String(sidebarCollapsed)}
               enabled={customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId}
               onReorderStart={() => setOpenWidgetMenu(null)}
               onReorder={(orderedIds) => {

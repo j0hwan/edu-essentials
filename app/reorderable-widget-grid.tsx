@@ -11,6 +11,7 @@ type Props = {
   workspaceId: string;
   label: string;
   layoutKey: string;
+  reflowKey?: string;
   enabled: boolean;
   style?: CSSProperties;
   addTile: ReactNode;
@@ -106,6 +107,7 @@ export default function ReorderableWidgetGrid({
   workspaceId,
   label,
   layoutKey,
+  reflowKey,
   enabled,
   style,
   addTile,
@@ -578,6 +580,7 @@ export default function ReorderableWidgetGrid({
         className="reorder-widget-grid"
         style={style}
         layoutKey={gridLayoutKey}
+        reflowKey={reflowKey}
       >
         {orderedItems.map((widget, index) => renderWidget(widget, index, draggedId === widget.instanceId))}
         {addTile}

@@ -7,7 +7,7 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
   --widget-gap: var(--wa-gap, 16px);
   --widget-unit: 220px;
   display: grid;
-  grid-auto-rows: calc((var(--widget-unit) - var(--widget-gap)) / 2);
+  grid-auto-rows: calc((var(--widget-live-unit, var(--widget-unit)) - var(--widget-gap)) / 2);
   align-items: stretch;
   gap: var(--widget-gap);
   min-width: 0;
@@ -19,12 +19,22 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
   grid-template-columns: repeat(var(--widget-columns), minmax(0, 1fr));
 }
 
+/* The live grid tracks the workspace container during its CSS shell reflow. */
+.reference-ui .widget-grid:not(.wa-preview-cards) {
+  --widget-live-unit: calc((100cqw - var(--widget-gap) - var(--widget-gap) - var(--widget-gap)) / 4);
+}
+
+.reference-ui .add-widget-tile { min-height: var(--widget-live-unit, var(--widget-unit)); }
+
 .wa-preview-cards {
   grid-template-columns: repeat(var(--widget-columns), minmax(0, 1fr));
 }
 
 @media (max-width: 600px) {
   :is(.reference-ui .widget-grid, .wa-preview-cards) { --widget-columns: 2; }
+  .reference-ui .widget-grid:not(.wa-preview-cards) {
+    --widget-live-unit: calc((100cqw - var(--widget-gap)) / 2);
+  }
 }
 
 /* Preview density follows the selected frame, even when the host viewport differs. */

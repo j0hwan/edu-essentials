@@ -6,7 +6,7 @@ import { calculateWidgetPlacements } from "../lib/widget-layout";
 export { calculateWidgetPlacements };
 export type { WidgetPlacement } from "../lib/widget-layout";
 
-type Props = { layoutKey: string; label: string; children: ReactNode; style?: CSSProperties; className?: string; animateLayout?: boolean };
+type Props = { layoutKey: string; reflowKey?: string; label: string; children: ReactNode; style?: CSSProperties; className?: string; animateLayout?: boolean };
 type Snapshot = Map<string, DOMRect> | null;
 
 export type WidgetUnitInput = {
@@ -118,15 +118,20 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
   };
 
   getSnapshotBeforeUpdate(previous: Props): Snapshot {
-    if (this.props.animateLayout === false || previous.layoutKey === this.props.layoutKey || this.reducedMotion()) return null;
+    if (previous.reflowKey !== this.props.reflowKey
+      || this.props.animateLayout === false
+      || previous.layoutKey === this.props.layoutKey
+      || this.reducedMotion()) return null;
     return new Map([...this.cards()].map((card) => [card.dataset.widgetId!, card.getBoundingClientRect()]));
   }
 
-  componentDidUpdate(_previous: Props, _state: Record<string, never>, snapshot: Snapshot) {
+  componentDidUpdate(previous: Props, _state: Record<string, never>, snapshot: Snapshot) {
     this.updateBoardLayout();
     this.observeLayout();
+    const reflowChanged = previous.reflowKey !== this.props.reflowKey;
+    if (reflowChanged) this.cancelAnimations();
     if (this.props.animateLayout === false || this.reducedMotion()) { this.cancelAnimations(); return; }
-    if (!snapshot) return;
+    if (reflowChanged || !snapshot) return;
     this.cancelAnimations();
     // Read every destination before animating, so one card cannot affect another's measurement.
     const destinations = [...this.cards()].map((card) => ({ card, rect: card.getBoundingClientRect() }));
