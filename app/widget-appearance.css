@@ -61,7 +61,7 @@
 .reference-ui .widget-card .widget-body {
   min-height: 0;
   min-width: 0;
-  overflow: auto;
+  overflow: visible;
   font-size: var(--wa-font-size, 14px);
   line-height: var(--wa-line-height, 1.45);
   gap: 10px;

@@ -47,7 +47,7 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
 :is(.reference-ui .widget-card, .wa-preview-card)[data-size="medium-vertical"] { grid-row: span 4; }
 :is(.reference-ui .widget-card, .wa-preview-card)[data-size="large"] { grid-column: span 2; grid-row: span 4; }
 
-/* One shared viewport keeps even the smallest variant usable without scaling content. */
+/* Clip unfinished content to the card footprint while scrolling stays on the page. */
 .reference-ui .widget-card .widget-frame,
 .wa-preview-card .wa-preview-frame {
   display: flex;
@@ -55,15 +55,14 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overflow: clip;
 }
 .reference-ui .widget-card {
   position: relative;
   padding: min(var(--wa-padding, 16px), 10%);
 }
 
-/* Small cards keep their options trigger reachable outside the shared scroll frame. */
+/* Small cards keep their options trigger reachable outside the clipped frame. */
 @container widget (max-width: 120px) {
   .reference-ui .widget-card .widget-header { padding-inline-end: 24px; }
   .reference-ui .widget-card .widget-header > .widget-icon { display: none; }
@@ -101,4 +100,8 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
   min-height: 0;
   min-width: 0;
   overflow: visible;
+}
+
+.reference-ui .widget-card .notes-widget textarea {
+  overflow: hidden;
 }
