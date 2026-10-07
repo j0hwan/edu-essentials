@@ -403,6 +403,30 @@ test("sidebar toggle works when browser storage is blocked", async () => {
   } finally { if (root) await unmount(); Object.defineProperty(window, "localStorage", storageDescriptor); }
 });
 
+test("topbar search submits the typed query and supports searching again", async () => {
+  reset(); const server = installWorkspaceServer();
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    const input = rootNode.querySelector('.topbar-search input');
+    const setQuery = async (value) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await setQuery("Saved notes");
+    const submit = new window.Event("submit", { bubbles: true, cancelable: true });
+    await act(async () => input.form.dispatchEvent(submit));
+    assert.equal(submit.defaultPrevented, true, "search submits without reloading the workspace");
+    assert.equal(window.location.pathname, "/search");
+    assert.equal(rootNode.querySelector('[aria-label="Search everything"]').value, "Saved notes");
+    assert.match(rootNode.querySelector(".search-results").textContent, /Saved notes/);
+    await setQuery("No matching coursework");
+    await clickAria("Search");
+    assert.match(rootNode.querySelector(".search-meta").textContent, /0 results for “No matching coursework”/);
+    assert.ok(rootNode.querySelector(".empty-search"));
+    assert.equal(server.writes, 0, "search does not change saved workspace data");
+  } finally { if (root) await unmount(); }
+});
+
 const sampleCourse = { id: "history", code: "HIST 205", name: "History", credits: 3, instructor: "Teacher", room: "Hall", color: "#112233", soft: "#11223318", initials: "HI" };
 test("experimental mode previews each schedule without saving and restores the real workspace", async () => {
   reset(); const server = installWorkspaceServer(savedDashboard, []);

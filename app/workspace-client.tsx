@@ -771,7 +771,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       {sidebarOpen && <button className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close navigation overlay" />}
 
       <header className="desktop-topbar">
-        <div className="topbar-search" role="search">
+        <form className="topbar-search" role="search" onSubmit={(event) => { event.preventDefault(); navigate("search"); }}>
           <MessageSquare size={20} aria-hidden="true" />
           <input
             ref={topSearchRef}
@@ -779,11 +779,10 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
             placeholder="Search your workspace…"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") navigate("search"); }}
           />
           <kbd>Ctrl K</kbd>
-          <button className="search-send" onClick={() => navigate("search")} aria-label="Search"><Send size={18} /><span className="sr-only">Search</span></button>
-        </div>
+          <button type="submit" className="search-send" aria-label="Search"><Send size={18} /><span className="sr-only">Search</span></button>
+        </form>
         <div className="topbar-actions">
           <button className="topbar-icon" onClick={() => flash("You’re all caught up")} aria-label="Open notifications">
             <Bell size={18} />
