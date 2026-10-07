@@ -706,8 +706,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside id="workspace-sidebar" className={`sidebar ${sidebarOpen ? "open" : ""}`} aria-label="Primary navigation">
         <div className="brand-row">
-          <div className="brand-mark"><BookOpen size={32} strokeWidth={1.8} /></div>
-          <div className="brand-copy"><strong>EduEssentials</strong><span>Student workspace</span></div>
+          <div className="brand-copy"><strong>EduEssentials</strong></div>
           <button className="icon-button sidebar-toggle" onClick={toggleSidebar} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} aria-controls="workspace-sidebar">{sidebarCollapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}</button>
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close navigation"><X size={20} /></button>
         </div>

@@ -152,7 +152,7 @@ select:focus-visible {
   padding: 0 6px 28px;
 }
 
-.brand-row > div:nth-child(2) {
+.brand-copy {
   min-width: 0;
 }
 

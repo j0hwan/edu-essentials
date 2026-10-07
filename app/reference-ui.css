@@ -44,12 +44,10 @@
 .reference-ui .mountain-backdrop { position: absolute; z-index: -1; inset: 0 0 auto var(--content-offset); height: calc(150 * var(--ui-unit)); pointer-events: none; background: linear-gradient(90deg, #061222 2%, transparent 60%), linear-gradient(0deg, #061222, transparent 25%), url('/mountain-header.png') right 60% / cover no-repeat; transition: left var(--shell-reflow-duration) var(--shell-reflow-easing); }
 .reference-ui .sidebar { inset: calc(14 * var(--ui-unit)) auto calc(10 * var(--ui-unit)) calc(8 * var(--ui-unit)); width: var(--sidebar-width); border: 1px solid #192e49; border-radius: calc(12 * var(--ui-unit)); background: linear-gradient(150deg, #0e1c31ec, #0a182aec); padding: calc(16 * var(--ui-unit)) calc(6 * var(--ui-unit)) 0; box-shadow: 0 calc(10 * var(--ui-unit)) calc(50 * var(--ui-unit)) #0002; transition: width var(--shell-reflow-duration) var(--shell-reflow-easing), transform var(--shell-reflow-duration) var(--shell-reflow-easing); }
 .reference-ui .sidebar::after { display: none; }
-.reference-ui .brand-row { position: relative; padding: calc(4 * var(--ui-unit)) 1px calc(23 * var(--ui-unit)); gap: calc(6 * var(--ui-unit)); justify-content: flex-start; }
+.reference-ui .brand-row { position: relative; padding: calc(4 * var(--ui-unit)) 1px calc(23 * var(--ui-unit)) calc(15 * var(--ui-unit) + 1px); gap: calc(6 * var(--ui-unit)); justify-content: flex-start; }
 .reference-ui .brand-copy { min-width: 0; overflow: hidden; white-space: nowrap; }
-.reference-ui .brand-row strong { font-size: calc(14 * var(--ui-unit)); letter-spacing: calc(-0.4 * var(--ui-unit)); line-height: 1.2; white-space: nowrap; }
+.reference-ui .brand-row strong { font-size: calc(20 * var(--ui-unit)); letter-spacing: calc(-0.4 * var(--ui-unit)); line-height: 1.2; white-space: nowrap; }
 .reference-ui .brand-row span { font-size: calc(12 * var(--ui-unit)); line-height: 1.25; white-space: nowrap; }
-.reference-ui .brand-row > .brand-mark { width: calc(26 * var(--ui-unit)); min-width: 0; flex: 0 1 calc(26 * var(--ui-unit)); overflow: hidden; }
-.reference-ui .brand-row > .brand-mark svg { width: calc(26 * var(--ui-unit)); }
 .reference-ui .sidebar-toggle { flex: 0 0 calc(26 * var(--ui-unit)); width: calc(26 * var(--ui-unit)); height: calc(32 * var(--ui-unit)); margin-left: auto; color: var(--muted); }
 .reference-ui .brand-mark { width: calc(32 * var(--ui-unit)); height: calc(34 * var(--ui-unit)); background: none; color: #b8c3ff; box-shadow: none; filter: drop-shadow(0 0 calc(5 * var(--ui-unit)) #5668ff60); }
 .reference-ui .main-nav { gap: 2px; }
@@ -252,8 +250,8 @@
   .reference-ui .sidebar { transform: none; }
   .reference-ui .sidebar-close { display: none !important; }
   .reference-ui .sidebar-scrim { display: none; }
+  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .brand-row { padding-left: 1px; }
   :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .brand-copy,
-  :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .brand-row > .brand-mark,
   :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .nav-item > span,
   :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .experimental-trigger > span,
   :is(.reference-ui.sidebar-collapsed, :where(html[data-sidebar-collapsed="true"]) .reference-ui) .profile-card > span:not(.avatar) { display: none; }

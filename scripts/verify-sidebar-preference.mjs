@@ -28,8 +28,7 @@ const html = `<!doctype html>
     <div class="app-shell reference-ui">
       <aside class="sidebar" aria-label="Primary navigation">
         <div class="brand-row">
-          <div class="brand-mark"><svg aria-hidden="true" width="26" height="26"></svg></div>
-          <div class="brand-copy"><strong>EduEssentials</strong><span>Student workspace</span></div>
+          <div class="brand-copy"><strong>EduEssentials</strong></div>
           <button class="icon-button sidebar-toggle" aria-label="Collapse sidebar"><svg aria-hidden="true" width="19" height="19"></svg></button>
           <button class="icon-button sidebar-close" aria-label="Close navigation">Close</button>
         </div>
@@ -133,8 +132,8 @@ async function metrics(page) {
       rootValue: document.documentElement.getAttribute("data-sidebar-collapsed"),
       sidebarWidth: sidebar.getBoundingClientRect().width,
       sidebarLeft: sidebar.getBoundingClientRect().left,
-      brandMark: rect(shell.querySelector(".brand-mark")),
-      brandDisplay: getComputedStyle(shell.querySelector(".brand-mark")).display,
+      brandCopy: rect(shell.querySelector(".brand-copy")),
+      brandDisplay: getComputedStyle(shell.querySelector(".brand-copy")).display,
       brandRow: rect(shell.querySelector(".brand-row")),
       toggleLeft: shell.querySelector(".sidebar-toggle").getBoundingClientRect().left,
       navIconLeft: shell.querySelector(".nav-item svg").getBoundingClientRect().left,
@@ -310,7 +309,8 @@ try {
     assert.notEqual(initial.labelDisplay, "none", "expanded navigation labels remain visible");
     assert.ok(collapsedDesktop.contentLeft < initial.contentLeft, "desktop content reflows to use the space released by the collapsed sidebar");
     assert.ok(initial.dateVisible, "the desktop date control is present");
-    assert.notEqual(initial.brandDisplay, "none", "the brand mark is visible in the expanded sidebar");
+    assert.notEqual(initial.brandDisplay, "none", "the brand text is visible in the expanded sidebar");
+    assert.ok(Math.abs(initial.brandCopy.left - initial.navIconLeft) < 1, "header text aligns with the navigation icon inset without reserving logo space");
     assert.notEqual(initial.experimentalLabelDisplay, "none", "expanded experimental navigation label is visible");
     assert.ok(initial.greeting.width > 0 && initial.today.width > 0 && initial.controls.width > 0, "greeting, Today panel, and workspace controls render in the fixture");
     assertSquareWidgets(initial, "saved expanded first paint");
@@ -321,7 +321,7 @@ try {
     assert.equal(collapsed.rootValue, "true", "collapse updates the same root preference used by production CSS");
     assert.equal(collapsed.labelDisplay, "none", "collapsed navigation labels keep their existing display behavior");
     assert.equal(collapsed.experimentalLabelDisplay, "none", "collapsed experimental label remains hidden");
-    assert.equal(collapsed.brandDisplay, "none", "the brand mark keeps its collapsed display behavior");
+    assert.equal(collapsed.brandDisplay, "none", "the brand text keeps its collapsed display behavior");
     assertSynchronizedMotion(collapsedTransition.before, collapsed, collapsedTransition.frames, "collapse");
     assert.ok(collapsed.greeting.width > initial.greeting.width && collapsed.today.width > initial.today.width, "page content expands into the space released by the sidebar");
     assert.ok(collapsed.controls.width > initial.controls.width, "workspace controls follow the wider main content");
@@ -330,7 +330,7 @@ try {
     const expandedAgain = await metrics(expandedPage);
     assert.equal(expandedAgain.rootValue, "false", "expansion restores the saved preference state");
     assert.notEqual(expandedAgain.labelDisplay, "none", "expanded navigation labels return");
-    assert.notEqual(expandedAgain.brandDisplay, "none", "the brand mark returns with the expanded sidebar");
+    assert.notEqual(expandedAgain.brandDisplay, "none", "the brand text returns with the expanded sidebar");
     assert.notEqual(expandedAgain.experimentalLabelDisplay, "none", "the experimental label returns with the expanded sidebar");
     assertSynchronizedMotion(expandedTransition.before, expandedAgain, expandedTransition.frames, "expansion");
 
