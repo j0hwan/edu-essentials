@@ -73,6 +73,7 @@ import { experimentalData, type ExperimentalDensity } from "../lib/experimental-
 import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
 import ProfileEditor from "./profile-editor";
 import AcademicAssistant from "./academic-assistant";
+import SaveToast from "./save-toast";
 import type { Profile } from "../lib/profile";
 import "./auth.css";
 import "./reference-ui.css";
@@ -667,6 +668,24 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     if (commitAcademic(courses, { assignments: storedAssignments.map((item) => item.id === id ? changed : item) })) setSelectedAssignment(changed);
   };
 
+  const workspaceError = ["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus);
+  const workspacePending = persistenceStatus === "dirty" || persistenceStatus === "saving";
+  const showWorkspaceToast = !experimentalMode && (persistenceStatus === "loading" || workspaceError || workspacePending || (profilePending && persistenceStatus === "saved"));
+  const workspaceToastTitle = persistenceStatus === "load-error" ? "Couldn't load workspace"
+    : persistenceStatus === "save-error" ? ""
+      : persistenceStatus === "conflict" ? "Workspace changed elsewhere"
+        : persistenceStatus === "session-error" ? "Sign in to continue saving"
+          : persistenceStatus === "loading" ? "Loading your workspace…"
+            : workspacePending ? "Saving workspace…"
+              : profileSaving ? "Saving settings…"
+                : "Settings have unsaved changes";
+  const workspaceToastMessage = workspaceError ? saveState.message || "Something went wrong while saving your workspace."
+    : workspacePending ? undefined
+      : profileSaving ? "Your settings changes are being saved."
+        : profilePending ? "Your settings changes have not been saved yet."
+          : undefined;
+  const workspaceToastLoading = persistenceStatus === "loading" || workspacePending || (profileSaving && persistenceStatus === "saved");
+
   return (
     <div className={`app-shell reference-ui ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <div className="mountain-backdrop" aria-hidden="true" />
@@ -768,21 +787,11 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           <button className="icon-button" aria-label="Notifications" onClick={() => flash(overdueAssignments.length ? `${overdueAssignments.length} overdue tasks — check Tasks for details` : "You’re all caught up")}><Bell size={20} /></button>
         </header>
 
-        {experimentalMode ? <div className="experimental-banner" role="status">
+        {experimentalMode && <div className="experimental-banner" role="status">
           <FlaskConical size={17} />
           <span><strong>{experimentalMode.charAt(0).toUpperCase() + experimentalMode.slice(1)} experimental mode</strong> — fake data is shown only in this tab and is not saved.</span>
           <button type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit"}</button>
-        </div> : <div className={`workspace-save-bar ${persistenceStatus === "saved" && !profilePending ? "save-bar-quiet" : ""}`} role={["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus) ? "alert" : "status"}>
-          <span>{saveState.message || (persistenceStatus === "dirty" ? "Unsaved workspace changes" : persistenceStatus === "saving" ? "Saving workspace…" : persistenceStatus === "saved" ? "Workspace saved" : "Loading your workspace…")}{profilePending && (profileSaving ? " · Saving settings…" : " · Settings have unsaved changes")}</span>
-          {profilePending && page !== "settings" && <button onClick={() => navigate("settings")}>Review settings</button>}
-          {persistenceStatus === "dirty" && <button onClick={() => void autosave.flush()}>Save now</button>}
-          {persistenceStatus === "save-error" && <button onClick={autosave.retry}>Retry save</button>}
-          {persistenceStatus === "session-error" && <><a href="/login?error=session" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a><button onClick={saveState.ready ? autosave.retry : reloadWorkspace}>Retry after signing in</button></>}
-          {persistenceStatus === "load-error" && <button onClick={reloadWorkspace}>Retry loading</button>}
-          {saveState.dirty && <button onClick={downloadUnsavedWork}>Download unsaved work</button>}
-          {saveState.dirty && <button disabled={persistenceStatus === "saving" || profileSaving} onClick={reloadWorkspace}>Reload saved workspace</button>}
         </div>}
-        {(fileStore.error || fileStore.busy) && <div className="workspace-save-bar" role={fileStore.error ? "alert" : "status"}>{fileStore.error || "Saving private files…"}{fileStore.error && <><button onClick={() => void fileStore.refresh()} disabled={fileStore.busy}>Reload files</button><a href="/login" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a></>}</div>}
         {!saveState.ready && <section className="workspace-loading"><h1>{persistenceStatus === "loading" ? "Loading your workspace" : "Your workspace could not be loaded"}</h1><p>Your saved work will be available here when the connection is restored.</p></section>}
         {saveState.ready && page === "home" && renderHome()}
         {saveState.ready && page === "dashboard" && renderDashboard()}
@@ -818,7 +827,33 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       {syllabusId && extraData.syllabusDrafts.filter((d) => d.id === syllabusId).map((draft) => <SyllabusReview key={draft.id} draft={draft} onUpload={() => setFileDialog({ defaults: { kind: "syllabus" }, reviewId: draft.id })} onFile={() => { const file = fileStore.files.find((f) => f.id === draft.sourceFileId); if (file) setFilePreview(file); else flash("Refresh Files to load this saved source."); }} onChange={(next) => { commitAcademic(courses, { syllabusDrafts: extraData.syllabusDrafts.map((d) => d.id === draft.id ? next : d) }); }} onApprove={() => approveReview(draft)} onClose={() => setSyllabusId(null)} onDelete={() => { if (window.confirm("Discard this syllabus review and its source text?")) { if (commitAcademic(courses, { syllabusDrafts: extraData.syllabusDrafts.filter((d) => d.id !== draft.id) })) setSyllabusId(null); } }} />)}
       {fileDialog && <FileEditor key={fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file"} store={fileStore} courses={courses} assignments={assignments} initial={fileDialog.initial} defaults={fileDialog.defaults} canWrite={canWriteFiles} onClose={() => setFileDialog(null)} onSaved={(file) => { if (fileDialog.reviewId) setExtraData((current) => ({ ...current, syllabusDrafts: current.syllabusDrafts.map((draft) => draft.id === fileDialog.reviewId ? { ...draft, sourceFileId: file.id, sourceName: file.name } : draft) })); }} />}
       {filePreview && <FilePreview file={fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview} store={fileStore} onClose={() => setFilePreview(null)} canWrite={canWriteFiles} onEdit={() => { setFileDialog({ initial: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview }); setFilePreview(null); }} onReview={(file, text) => { createReview(file, text); setFilePreview(null); }} />}
-      {toast && <div className="toast" role="status"><CheckCircle2 size={17} /> {toast}</div>}
+      <div className="toast-stack">
+        <SaveToast
+          active={showWorkspaceToast}
+          title={workspaceToastTitle}
+          message={workspaceToastMessage}
+          error={workspaceError}
+          loading={workspaceToastLoading}
+        >
+          {profilePending && page !== "settings" && (workspaceError || persistenceStatus === "saved") && persistenceStatus !== "save-error" && <button type="button" onClick={() => navigate("settings")}>Review settings</button>}
+          {workspaceError && persistenceStatus === "save-error" && <button type="button" onClick={autosave.retry}>Retry save</button>}
+          {workspaceError && persistenceStatus === "session-error" && <><a href="/login?error=session" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a><button type="button" onClick={saveState.ready ? autosave.retry : reloadWorkspace}>Retry after signing in</button></>}
+          {workspaceError && persistenceStatus === "load-error" && <button type="button" onClick={reloadWorkspace}>Retry loading</button>}
+          {workspaceError && saveState.dirty && <button type="button" onClick={downloadUnsavedWork}>Download unsaved work</button>}
+          {workspaceError && saveState.dirty && persistenceStatus !== "save-error" && <button type="button" disabled={persistenceStatus === "saving" || profileSaving} onClick={reloadWorkspace}>Reload saved workspace</button>}
+        </SaveToast>
+        <SaveToast
+          active={!experimentalMode && (Boolean(fileStore.error) || fileStore.busy)}
+          title={fileStore.error ? "Couldn't update private files" : "Saving private files…"}
+          message={fileStore.error || undefined}
+          error={Boolean(fileStore.error)}
+          loading={!fileStore.error && fileStore.busy}
+        >
+          {fileStore.error && <><button type="button" onClick={() => void fileStore.refresh()} disabled={fileStore.busy}>Reload files</button><a href="/login" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a></>}
+        </SaveToast>
+        {!experimentalMode && persistenceStatus === "saved" && !profilePending && <span className="sr-only" role="status">Workspace saved</span>}
+        {toast && <div className="toast" role="status"><CheckCircle2 size={17} /> {toast}</div>}
+      </div>
     </div>
   );
 

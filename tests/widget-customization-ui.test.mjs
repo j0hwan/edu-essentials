@@ -72,6 +72,17 @@ function reset({ preserveServer = false } = {}) {
 }
 async function render(component, props) { await act(async () => { root.render(createElement(component, props)); await new Promise((resolve) => setTimeout(resolve, 0)); }); }
 async function unmount() { await act(async () => root.unmount()); root = undefined; rootNode.innerHTML = ""; }
+function unloadBlocked() { const event = new window.Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; }
+async function waitUntil(predicate, description, timeoutMs = 3000) {
+  let remaining = timeoutMs;
+  await act(async () => {
+    while (!predicate() && remaining > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      remaining -= 25;
+    }
+  });
+  assert.ok(predicate(), `Timed out waiting for ${description}`);
+}
 function installServer(dashboard = savedDashboard, courses = [course]) {
   server = { dashboard: structuredClone(dashboard), courses: structuredClone(courses), profile: structuredClone(baseProfile), revision: baseProfile.updated_at, writes: 0 };
   fetcher = async (_url, init = {}) => {
@@ -124,19 +135,19 @@ async function edit(label, value, scope = rootNode) {
     }
   });
 }
-async function clickSaveIfNeeded() {
-  if ([...rootNode.querySelectorAll("button")].some((node) => node.textContent.trim() === "Save now")) await click("Save now");
+async function waitForAutosave() {
+  if (unloadBlocked()) await waitUntil(() => !unloadBlocked(), "workspace autosave");
+  assert.equal(unloadBlocked(), false, "workspace autosave finishes before reload");
 }
 async function saveAndReload() {
-  await clickSaveIfNeeded();
-  assert.equal(rootNode.querySelector(".workspace-save-bar")?.textContent.includes("Unsaved workspace changes"), false);
+  await waitForAutosave();
   await unmount();
   reset({ preserveServer: true });
   await render(Workspace, { initialProfile: baseProfile });
 }
 async function saveCurrent() {
   const previousWrites = server.writes;
-  await clickSaveIfNeeded();
+  await waitForAutosave();
   assert.equal(server.writes, previousWrites + 1, "the workspace autosave should write one revision");
 }
 function dashboardData() { return decodeWorkspaceState(server.dashboard).data; }
@@ -236,7 +247,10 @@ test("appearance drafts preview without writing, cancel discards, and Apply save
   await click("Apply appearance", appearanceDialog());
   assert.equal(appearanceDialog(), null, "Apply closes the dialog after accepting the draft");
   assert.equal(server.writes, 0, "Apply enters the ordinary workspace autosave flow");
-  assert.ok([...rootNode.querySelectorAll("button")].some((node) => node.textContent.trim() === "Save now"));
+  const saveToast = rootNode.querySelector(".save-toast-card");
+  assert.ok(saveToast, "the debounced workspace save is announced");
+  assert.match(saveToast.textContent, /Saving workspace/);
+  assert.equal(saveToast.querySelectorAll("button, a").length, 0, "ordinary saving exposes no recovery controls");
   await saveAndReload();
 
   assert.equal(server.writes, 1);

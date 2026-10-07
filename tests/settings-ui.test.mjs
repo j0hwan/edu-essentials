@@ -37,6 +37,23 @@ function reset() {
 }
 async function render(component, props) { await act(async () => root.render(createElement(component, props))); }
 async function unmount() { await act(async () => root.unmount()); root = undefined; rootNode.innerHTML = ""; }
+async function waitUntil(predicate, description, timeoutMs = 3000) {
+  let remaining = timeoutMs;
+  await act(async () => {
+    while (!predicate() && remaining > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      remaining -= 25;
+    }
+  });
+  assert.ok(predicate(), `Timed out waiting for ${description}`);
+}
+async function waitForWorkspaceSave(server, writesBefore = server.writes) {
+  await waitUntil(() => server.writes > writesBefore && !unloadBlocked(), "workspace autosave");
+  assert.equal(server.writes, writesBefore + 1, "one debounced edit writes one workspace revision");
+}
+async function waitForWorkspaceError(message) {
+  await waitUntil(() => rootNode.textContent.includes(message), `workspace save error: ${message}`);
+}
 function field(label) {
   const scope = rootNode.querySelector(".academic-editor") ?? rootNode;
   const node = [...scope.querySelectorAll("label")].find((node) => node.textContent.startsWith(label));
@@ -229,17 +246,23 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
       return Response.json({ initialized: true, courses: [], dashboard, revision, profile: baseProfile });
     };
     await render(Workspace, { initialProfile: baseProfile }); await editNotes("First saved edit");
-    assert.equal(unloadBlocked(), true); assert.match(rootNode.textContent, /Unsaved workspace changes/);
-    await click("Save now"); assert.match(rootNode.textContent, /Response lost/);
+    assert.equal(unloadBlocked(), true); assert.match(rootNode.textContent, /Saving workspace/);
+    await waitForWorkspaceError("Response lost");
+    const saveErrorToast = rootNode.querySelector(".save-toast-card");
+    assert.equal(saveErrorToast.querySelector(".save-toast-details").textContent, "Response lost after commit");
+    assert.deepEqual([...saveErrorToast.querySelectorAll("button, a")].map((control) => control.textContent.trim()), ["Retry save", "Download unsaved work"]);
+    assert.equal([...saveErrorToast.querySelectorAll("button, a")].some((control) => control.textContent.trim() === "Reload saved workspace"), false);
     assert.equal(rootNode.querySelector("textarea").value, "First saved edit");
-    await click("Retry save"); assert.equal(puts, 2); assert.equal(unloadBlocked(), false);
-    assert.match(rootNode.textContent, /Workspace saved/);
+    await click("Retry save"); await waitUntil(() => !unloadBlocked(), "retry workspace save");
+    assert.equal(puts, 2); assert.equal(unloadBlocked(), false);
     // A second session now changes the server before this tab's next save.
     dashboard = { ...dashboard, t: ["Other tab"] }; revision = "2026-09-06T00:00:03Z";
-    await editNotes("Keep this draft"); await click("Save now");
+    await editNotes("Keep this draft"); await waitForWorkspaceError("Another session saved different changes");
     assert.match(rootNode.textContent, /Another session saved different changes/);
     assert.equal(rootNode.querySelector("textarea").value, "Keep this draft"); assert.equal(unloadBlocked(), true);
-    assert.equal([...rootNode.querySelectorAll("button")].some((b) => b.textContent === "Retry save"), false);
+    const conflictToast = rootNode.querySelector(".save-toast-card");
+    assert.deepEqual([...conflictToast.querySelectorAll("button, a")].map((control) => control.textContent.trim()), ["Download unsaved work", "Reload saved workspace"]);
+    assert.equal([...conflictToast.querySelectorAll("button, a")].some((control) => control.textContent.trim() === "Retry save"), false);
     await click("Download unsaved work"); assert.equal(JSON.parse(await downloads[0].text()).workspaces[0].widgets[0].note, "Keep this draft");
     window.confirm = () => false; await click("Reload saved workspace"); assert.equal(rootNode.querySelector("textarea").value, "Keep this draft");
     window.confirm = () => true; await click("Reload saved workspace"); assert.equal(rootNode.querySelector("textarea").value, "Other tab");
@@ -260,7 +283,16 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
     assert.equal(rootNode.querySelector('textarea[aria-label="Quick notes"]').value, "Saved notes");
     assert.equal(writes, 0); assert.equal(unloadBlocked(), false);
     await click("Settings"); assert.equal(window.location.pathname, "/settings"); await edit("Major", "Kept while navigating");
-    await click("Home"); assert.equal(window.location.pathname, "/home"); await click("Settings"); assert.equal(window.location.pathname, "/settings");
+    await click("Home"); assert.equal(window.location.pathname, "/home");
+    const settingsDraftToast = rootNode.querySelector(".save-toast-card");
+    assert.match(settingsDraftToast.textContent, /Settings have unsaved changes/);
+    assert.ok([...settingsDraftToast.querySelectorAll("button, a")].some((control) => control.textContent.trim() === "Review settings"));
+    await editNotes("Workspace draft while settings remain pending");
+    const workspacePendingToast = rootNode.querySelector(".save-toast-card");
+    assert.match(workspacePendingToast.textContent, /Saving workspace/);
+    assert.doesNotMatch(workspacePendingToast.textContent, /Settings have unsaved changes/);
+    assert.equal(workspacePendingToast.querySelectorAll("button, a").length, 0, "a pending workspace save exposes no settings or recovery actions");
+    await click("Settings"); assert.equal(window.location.pathname, "/settings");
     assert.equal(field("Major").value, "Kept while navigating"); assert.equal(unloadBlocked(), true);
     assert.equal([...rootNode.querySelectorAll("button")].find((b) => b.textContent === "Sign out").disabled, true);
     await unmount();
@@ -293,10 +325,45 @@ function installWorkspaceServer(initial = savedDashboard, courses = [], profile 
   return server;
 }
 async function saveAndReload() {
-  if ([...rootNode.querySelectorAll("button")].some((button) => button.textContent === "Save now")) await click("Save now");
-  assert.equal(unloadBlocked(), false); await unmount(); reset(); await render(Workspace, { initialProfile: baseProfile });
+  if (unloadBlocked()) await waitUntil(() => !unloadBlocked(), "workspace autosave");
+  assert.equal(unloadBlocked(), false, "autosave finishes before the workspace is reloaded");
+  await unmount(); reset(); await render(Workspace, { initialProfile: baseProfile });
 }
 const cards = () => [...rootNode.querySelectorAll(".widget-grid > .widget-card[data-widget-id]")];
+
+test("workspace autosave shows one action-free pending status while the debounced write is held", async (t) => {
+  t.after(async () => { if (root) await unmount(); });
+  reset(); const server = installWorkspaceServer();
+  const saveImmediately = fetcher;
+  let writesRequested = 0, finishWrite;
+  fetcher = async (url, init = {}) => {
+    if (init.method === "PUT") {
+      writesRequested++;
+      await new Promise((resolve) => { finishWrite = resolve; });
+    }
+    return saveImmediately(url, init);
+  };
+  await render(Workspace, { initialProfile: baseProfile });
+  await editNotes("A change that is saved automatically");
+
+  const toast = rootNode.querySelector(".save-toast-card");
+  assert.ok(toast, "a pending autosave has a visible status card");
+  assert.equal(toast.getAttribute("role"), "status");
+  assert.equal(toast.getAttribute("aria-busy"), "true");
+  assert.match(toast.textContent, /Saving workspace/);
+  assert.ok(toast.querySelector(".save-toast-spinner"), "the pending save shows its spinner");
+  for (const label of ["Save now", "Download unsaved work", "Reload saved workspace"]) {
+    assert.equal([...toast.querySelectorAll("button, a")].some((control) => control.textContent.trim() === label), false, `${label} is absent during normal autosave`);
+  }
+
+  await waitUntil(() => writesRequested === 1, "debounced workspace write");
+  assert.match(rootNode.querySelector(".save-toast-card").textContent, /Saving workspace/);
+  assert.equal(rootNode.querySelector(".save-toast-card").querySelectorAll("button, a").length, 0, "a pending write still has no recovery controls");
+  await act(async () => finishWrite());
+  await waitForWorkspaceSave(server, 0);
+  assert.equal(server.writes, 1);
+  await waitUntil(() => !rootNode.querySelector(".save-toast-card"), "saved status card exit", 2000);
+});
 
 test("sidebar collapse keeps accessible navigation, persists locally and does not save account data", async () => {
   window.localStorage.removeItem("edu-sidebar-collapsed");
@@ -378,7 +445,7 @@ test("study controls persist targets, timers, history and grades", async (t) => 
     assert.equal(server.writes, 0); await click("Study & grades");
     await edit("Daily target", "90"); await edit("Weekly target", "420"); await edit("pomodoro duration", "30"); await edit("focus duration", "50"); await edit("focus class", "history");
     window.confirm = () => false; await click("Close study panel"); assert.ok(rootNode.querySelector('[aria-label="Study and grades"]')); assert.equal(unloadBlocked(), true);
-    await click("Save goals and timer settings"); server.offline = true; await click("Save now"); assert.match(rootNode.textContent, /Offline/);
+    await click("Save goals and timer settings"); server.offline = true; await waitForWorkspaceError("Offline");
     assert.equal(field("Daily target").value, "90"); server.offline = false; await click("Retry save"); await click("Close study panel"); await saveAndReload();
     assert.equal(server.dashboard.d.study.dailyMinutes, 90); assert.equal(server.dashboard.d.study.weeklyMinutes, 420); assert.deepEqual(server.dashboard.d.study.timers.focus, { minutes: 50, courseId: "history" });
     await click("Study & grades"); assert.equal(field("pomodoro duration").value, "30");
@@ -402,7 +469,7 @@ test("study controls persist targets, timers, history and grades", async (t) => 
   await t.test("an expired timer completes on load and lost-response retry records it exactly once", async () => {
     reset(); const started = timerAction(emptyStudy(), "start", "pomodoro", Date.now() - 3600000, "closed-page-session");
     const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, study: started } }); await render(Workspace, { initialProfile: baseProfile });
-    server.loseResponse = true; await click("Save now"); assert.match(rootNode.textContent, /Response lost/); await click("Retry save"); await saveAndReload();
+    server.loseResponse = true; await waitForWorkspaceError("Response lost"); await click("Retry save"); await saveAndReload();
     assert.equal(server.dashboard.d.study.active, null); assert.equal(server.dashboard.d.study.sessions.length, 1); assert.equal(server.dashboard.d.study.sessions[0].id, "closed-page-session");
     await click("Study & grades"); assert.match(rootNode.textContent, /0h 25m/); await click("Delete session"); await click("Close study panel"); await saveAndReload(); assert.equal(server.dashboard.d.study.sessions.length, 0);
   });
@@ -472,7 +539,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location / meeting notes": "Lab 4", "Office hours": "Friday by appointment" })) await edit(key, value);
     await click("Add meeting"); await edit("First date", "2026-09-01"); await edit("Last date", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
     assert.equal(unloadBlocked(), true); await click("Save class");
-    server.offline = true; await click("Save now"); assert.match(rootNode.textContent, /Offline/); assert.equal(server.courses.length, 0);
+    server.offline = true; await waitForWorkspaceError("Offline"); assert.equal(server.courses.length, 0);
     server.offline = false; await click("Retry save"); await saveAndReload(); await click("Courses");
     assert.equal(server.courses.length, 1); const course = server.courses[0]; assert.equal(course.credits, 4); assert.equal(course.room, "Lab 4");
     assert.equal(server.dashboard.d.courseDetails[course.id].meetings[0].location, "Garden");
@@ -515,7 +582,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.equal(rootNode.querySelectorAll(".meeting-editor").length, 2); await edit("Item title", "Reviewed essay"); await edit("Item weight", "20%");
     await click("Close review"); await saveAndReload(); assert.equal(server.courses.length, 0); assert.equal(server.dashboard.d.assignments.length, 0);
     await click("Courses"); await click("Resume HIST 222"); assert.equal(field("Item title").value, "Reviewed essay"); assert.match(field("Syllabus text").value, /Read chapter/);
-    await click("Approve class and items"); server.loseResponse = true; await click("Save now"); assert.match(rootNode.textContent, /Response lost/);
+    await click("Approve class and items"); server.loseResponse = true; await waitForWorkspaceError("Response lost");
     await click("Retry save"); await saveAndReload(); assert.equal(server.courses.length, 1); assert.equal(server.dashboard.d.assignments.length, 2); assert.equal(server.dashboard.d.syllabusDrafts.length, 0);
     assert.equal(server.dashboard.d.assignments[1].type, "Exam"); assert.equal(server.dashboard.d.assignments[0].weight, "20%"); assert.match(Object.values(server.dashboard.d.courseDetails)[0].syllabusText, /Read chapter/);
   });
@@ -719,7 +786,7 @@ test("workspace controls persist configurations and independent notes", async (t
     reset(); const server = installWorkspaceServer({ ...savedDashboard, w: [["day", "Day", []]] });
     await render(Workspace, { initialProfile: baseProfile }); assert.match(rootNode.textContent, /earlier shared note/);
     await click("Add saved note here"); assert.equal(rootNode.querySelector("textarea").value, "Saved notes");
-    server.offline = true; await click("Save now"); assert.equal(unloadBlocked(), true);
+    server.offline = true; await waitForWorkspaceError("Offline"); assert.equal(unloadBlocked(), true);
     await editNotes("Recovered and edited"); server.offline = false; await click("Retry save"); await saveAndReload();
     assert.equal(rootNode.querySelector("textarea").value, "Recovered and edited"); assert.equal(server.dashboard.n, undefined);
   });
