@@ -64,6 +64,7 @@ import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
 import StudyWidget, { studyWidgetTypes } from "./study-widgets";
 import ReorderableWidgetGrid from "./reorderable-widget-grid";
 import WidgetCustomization from "./widget-customization";
+import TodaySection from "./today-section";
 import { resolveWidgetAppearance, widgetAppearanceStyle, type WidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
 import StudyPanel from "./study-panel";
 import { useStudyStats } from "./use-study-stats";
@@ -277,6 +278,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [activeWorkspaceId, setActiveWorkspaceId] = useState("my-day");
   const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
+  const customizeButtonRef = useRef<HTMLButtonElement>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const closeAppearance = useCallback(() => setAppearanceOpen(false), []);
   const [miniWeekOffset, setMiniWeekOffset] = useState(0);
@@ -620,7 +622,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
   const duplicateWorkspace = () => {
     const id = uid("workspace");
-    const copy: Workspace = { id, name: `${activeWorkspace.name.slice(0, 75)} copy`, widgets: activeWorkspace.widgets.map((widget) => ({ ...widget, instanceId: uid("widget") })) };
+    const copy: Workspace = { ...activeWorkspace, id, name: `${activeWorkspace.name.slice(0, 75)} copy`, widgets: activeWorkspace.widgets.map((widget) => ({ ...widget, instanceId: uid("widget") })) };
     const appearance = extraData.widgetAppearance && { ...extraData.widgetAppearance, overrides: { ...extraData.widgetAppearance.overrides } };
     if (appearance) copy.widgets.forEach((widget, index) => {
       const original = appearance.overrides[activeWorkspace.widgets[index].instanceId];
@@ -919,12 +921,19 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     return (
       <div className="page home-page">
         <header className="home-greeting"><h1>{greeting}, {studentName}.</h1><p>{dateLabel(today, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></header>
-        <section className="home-today-panel" aria-labelledby="today-panel-title">
-          <header className="today-panel-header">
-            <h2 id="today-panel-title">Today</h2>
-            <div className="today-panel-actions"><button className="today-panel-link" onClick={() => navigate("calendar")}>View calendar <ArrowRight size={14} /></button><button className="icon-button" aria-label="View all tasks" onClick={() => navigate("tasks")}><MoreHorizontal size={22} /></button></div>
-          </header>
-
+        <TodaySection
+          key={activeWorkspace.id}
+          hidden={Boolean(activeWorkspace.todayHidden)}
+          customizing={customizing}
+          menuStyle={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
+          onHiddenChange={(hidden) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todayHidden: hidden } : workspace))}
+          onCalendar={() => navigate("calendar")}
+          onOptionsOpen={() => { closeWidgetMenu(); setWorkspaceMenuOpen(false); }}
+          onHideFocus={() => window.requestAnimationFrame(() => {
+            if (customizing) document.querySelector<HTMLButtonElement>(".today-section-restore")?.focus();
+            else customizeButtonRef.current?.focus();
+          })}
+        >
           <div className="today-panel-grid">
             <section className="today-panel-section today-next-class" aria-labelledby="next-class-title">
               <div className="today-section-heading"><span className="today-heading-icon"><GraduationCap /></span><h2 id="next-class-title">Next Class</h2></div>
@@ -969,7 +978,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               </div>
             </section>
           </div>
-        </section>
+        </TodaySection>
 
         <section className="workspace-section">
           <div className="workspace-bar">
@@ -979,7 +988,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
             </div>
             <div className="workspace-actions">
               <button className="secondary-button widget-customization-trigger" aria-haspopup="dialog" onClick={() => setAppearanceOpen(true)}><SlidersHorizontal size={17} /> Widget customization</button>
-              <button className="secondary-button" aria-pressed={customizing} onClick={() => setCustomizing((value) => !value)}><LayoutGrid size={17} />{customizing ? "Done customizing" : "Customize"}</button>
+              <button ref={customizeButtonRef} className="secondary-button" aria-pressed={customizing} onClick={() => setCustomizing((value) => !value)}><LayoutGrid size={17} />{customizing ? "Done customizing" : "Customize"}</button>
               <button className="secondary-button add-widget-control" onClick={() => setWidgetPickerOpen(true)}><Plus size={16} /> Add widget</button>
               <div className="menu-wrap">
                 <button className="icon-button" onClick={() => setWorkspaceMenuOpen((open) => !open)} aria-label="Workspace options"><MoreHorizontal size={19} /></button>

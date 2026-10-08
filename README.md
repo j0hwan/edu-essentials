@@ -179,6 +179,11 @@ Try desktop, tablet, and phone previews, enlarge the preview for a closer look,
 compare the saved and draft looks, and undo or redo changes before applying.
 Cancel discards the draft.
 
+The Today section has its own options menu. Hide section removes it from the
+current workspace; Customize reveals a dashed outline in its place. Click the
+outline to restore Today. Visibility saves separately for each workspace and
+survives reload. Edit section is a placeholder for future customization.
+
 Appearance defaults apply across the account, with optional overrides for an
 individual widget. Block width, block height, and spacing apply to the entire board;
 individual appearance overrides cannot change those shared dimensions.

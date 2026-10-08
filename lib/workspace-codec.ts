@@ -40,6 +40,7 @@ export type Workspace = {
   id: string;
   name: string;
   widgets: WidgetInstance[];
+  todayHidden?: boolean;
 };
 
 type CompactWidget = [type: number, size: number, instanceId: string, noteIndex?: number];
@@ -50,6 +51,7 @@ export type CompactWorkspaceState = {
   a: string;
   w: CompactWorkspace[];
   b?: string[];
+  h?: string[];
   n?: string;
   t?: string[];
   d?: WorkspaceData;
@@ -90,6 +92,8 @@ export const MAX_WORKSPACE_BYTES = 1_000_000;
  * remain independent and large legacy layouts don't multiply shared text.
  * b stores the mini IDs that start a fresh block. Updated writers always emit
  * it, including an empty array, so legacy saves cannot erase placement choices.
+ * h stores workspace IDs with a hidden Today section; an empty list explicitly
+ * restores every section and distinguishes updated writers from older clients.
  */
 export function encodeWorkspaceState(
   workspaces: Workspace[],
@@ -104,6 +108,7 @@ export function encodeWorkspaceState(
 
   const texts: string[] = [], textIndexes = new Map<string, number>();
   const miniBlockStarts: string[] = [];
+  const hiddenTodayWorkspaces: string[] = [];
   const compactWorkspaces: CompactWorkspace[] = workspaces.map((workspace) => {
     if (!workspace.id || workspace.id.length > 120) {
       throw new Error("Invalid workspace ID.");
@@ -111,6 +116,8 @@ export function encodeWorkspaceState(
     if (!workspace.name.trim() || workspace.name.length > 80) {
       throw new Error("Invalid workspace name.");
     }
+    if (workspace.todayHidden !== undefined && typeof workspace.todayHidden !== "boolean") throw new Error("Invalid Today section visibility.");
+    if (workspace.todayHidden) hiddenTodayWorkspaces.push(workspace.id);
     if (workspace.widgets.length > MAX_WIDGETS_PER_WORKSPACE) {
       throw new Error("A workspace cannot contain more than 100 widgets.");
     }
@@ -144,6 +151,7 @@ export function encodeWorkspaceState(
     a: active,
     w: compactWorkspaces,
     b: miniBlockStarts,
+    h: hiddenTodayWorkspaces,
     ...(texts.length ? { t: texts } : {}),
     ...(notes ? { n: notes } : {}),
     ...(data ? { d: validateWorkspaceData(data) } : {}),
@@ -170,6 +178,12 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
     || new Set(miniBlockStarts).size !== miniBlockStarts.length)) throw new Error("Invalid mini block placement.");
   const miniBlockStartIds = new Set<string>(miniBlockStarts as string[] | undefined);
   const miniIds = new Set<string>();
+  const hiddenTodayWorkspaces = value.h;
+  if (hiddenTodayWorkspaces !== undefined && (value.v !== 2 || !Array.isArray(hiddenTodayWorkspaces)
+    || hiddenTodayWorkspaces.length > MAX_WORKSPACES
+    || hiddenTodayWorkspaces.some((id) => typeof id !== "string" || !id.trim() || id.length > 120)
+    || new Set(hiddenTodayWorkspaces).size !== hiddenTodayWorkspaces.length)) throw new Error("Invalid Today section visibility.");
+  const hiddenTodayWorkspaceIds = new Set<string>(hiddenTodayWorkspaces as string[] | undefined);
   const texts = value.t ?? [];
   if (!Array.isArray(texts) || texts.length > MAX_WORKSPACES * MAX_WIDGETS_PER_WORKSPACE || texts.some((text) => typeof text !== "string" || text.length > MAX_NOTES_LENGTH)) throw new Error("Invalid note content.");
 
@@ -217,10 +231,14 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
       };
     });
 
-    return { id: workspace[0], name: workspace[1].trim(), widgets };
+    return { id: workspace[0], name: workspace[1].trim(), widgets,
+      ...(hiddenTodayWorkspaceIds.has(workspace[0]) ? { todayHidden: true } : {}),
+    };
   });
 
   if (new Set(workspaces.map((workspace) => workspace.id)).size !== workspaces.length) throw new Error("Duplicate workspace ID.");
+  const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+  if ([...hiddenTodayWorkspaceIds].some((id) => !workspaceIds.has(id))) throw new Error("Invalid Today section visibility.");
   if ([...miniBlockStartIds].some((id) => !miniIds.has(id))) throw new Error("Invalid mini block placement.");
 
   return {

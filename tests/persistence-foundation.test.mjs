@@ -483,5 +483,42 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       assert.deepEqual(await getWorkspace(), beforeB, "mini-block state and revision remain isolated to its account");
       runtime.user = userA;
     });
+    await t.test("Today visibility stays account-owned and older clients cannot erase it", async () => {
+      runtime.user = userB;
+      const beforeB = await getWorkspace();
+      runtime.user = userA;
+      const original = await getWorkspace();
+      const decoded = decodeWorkspaceState(original.dashboard);
+      const hiddenWorkspaces = decoded.workspaces.map((item) => item.id === decoded.activeWorkspaceId ? { ...item, todayHidden: true } : item);
+      const dashboard = encodeWorkspaceState(hiddenWorkspaces, decoded.activeWorkspaceId, decoded.notes, decoded.data);
+      assert.equal((await workspace.PUT(request({ courses: original.courses, dashboard, baseRevision: original.revision }))).status, 200);
+      const saved = await getWorkspace();
+      assert.deepEqual(saved.dashboard.h, [decoded.activeWorkspaceId]);
+      assert.deepEqual(saved.courses, original.courses);
+      assert.deepEqual(decodeWorkspaceState(saved.dashboard).workspaces, hiddenWorkspaces);
+      assert.deepEqual(saved.dashboard.d, original.dashboard.d, "hiding Today leaves academic data intact");
+
+      const olderClient = structuredClone(saved.dashboard);
+      delete olderClient.h;
+      olderClient.n = "Older client must not reveal Today";
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: olderClient, baseRevision: saved.revision }))).status, 426);
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: { ...saved.dashboard, h: ["foreign-workspace"] }, baseRevision: saved.revision }))).status, 400);
+      const unchanged = await getWorkspace();
+      assert.equal(unchanged.revision, saved.revision);
+      assert.deepEqual(unchanged.dashboard, saved.dashboard, "rejected saves preserve visibility and unrelated work");
+
+      const restored = { ...saved.dashboard, h: [] };
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: restored, baseRevision: saved.revision }))).status, 200);
+      const cleared = await getWorkspace();
+      assert.deepEqual(cleared.dashboard.h, []);
+      assert.ok(decodeWorkspaceState(cleared.dashboard).workspaces.every((item) => !item.todayHidden));
+      const legacyVisible = structuredClone(cleared.dashboard);
+      delete legacyVisible.h;
+      assert.equal((await workspace.PUT(request({ courses: cleared.courses, dashboard: legacyVisible, baseRevision: cleared.revision }))).status, 200, "legacy clients remain usable when all sections are visible");
+
+      runtime.user = userB;
+      assert.deepEqual(await getWorkspace(), beforeB);
+      runtime.user = userA;
+    });
   } finally { delete globalThis.__foundationTest; await pg.close(); }
 });

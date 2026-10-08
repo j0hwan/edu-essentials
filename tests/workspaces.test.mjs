@@ -44,6 +44,41 @@ test("malformed or dangling mini placement choices are rejected", () => {
   ] }], "day", ""), /mini block placement/);
 });
 
+test("Today visibility is per workspace and round-trips alongside widgets and notes", () => {
+  const workspaces = [
+    { id: "day", name: "My day", todayHidden: true, widgets: [
+      { instanceId: "goal", type: "daily-goal", size: "mini", startsNewMiniBlock: true },
+      { instanceId: "note", type: "notes", size: "small", note: "Keep my work" },
+    ] },
+    { id: "study", name: "Study mode", widgets: [] },
+  ];
+  const data = { assignments: [], manualEvents: [], dashboardView: "cards" };
+  const payload = encode(workspaces, "day", "", data);
+  assert.equal(payload.v, 2);
+  assert.deepEqual(payload.h, ["day"]);
+  assert.deepEqual(payload.b, ["goal"]);
+  assert.ok(payload.w.every((workspace) => workspace.length === 3), "workspace tuples keep their existing format");
+  assert.deepEqual(decode(payload).workspaces, workspaces);
+  assert.deepEqual(decode(payload).data, data);
+  const olderSnapshot = { ...payload }; delete olderSnapshot.h;
+  assert.ok(decode(olderSnapshot).workspaces.every((workspace) => !workspace.todayHidden), "existing layouts show Today by default");
+  const copy = { ...workspaces[0], id: "copy", widgets: workspaces[0].widgets.map((widget) => ({ ...widget, instanceId: `${widget.instanceId}-copy` })) };
+  assert.deepEqual(encode([...workspaces, copy], "copy", "").h, ["day", "copy"]);
+  assert.deepEqual(encode([workspaces[1], copy], "copy", "").h, ["copy"], "deleted workspace IDs are pruned");
+  const restored = encode(workspaces.map((workspace) => ({ ...workspace, todayHidden: false })), "day", "");
+  assert.deepEqual(restored.h, [], "updated clients explicitly persist restoration");
+  assert.ok(decode(restored).workspaces.every((workspace) => !workspace.todayHidden));
+});
+
+test("Today visibility rejects malformed or dangling workspace IDs", () => {
+  const payload = encode([{ id: "day", name: "My day", widgets: [] }], "day", "");
+  for (const h of [null, {}, "day", [1], [""], ["day", "day"], ["missing"], Array(21).fill("day")]) {
+    assert.throws(() => decode({ ...payload, h }), /Today section visibility/);
+  }
+  assert.throws(() => decode({ ...legacy, h: [] }), /Today section visibility/);
+  assert.throws(() => encode([{ id: "day", name: "My day", widgets: [], todayHidden: "yes" }], "day", ""), /Today section visibility/);
+});
+
 test("v1 migration preserves every layout and note, with deterministic persistent identities", () => {
   const source = structuredClone(legacy), loaded = decode(source);
   const upgraded = pack(loaded);

@@ -1,5 +1,5 @@
-/* Appearance is scoped to widgets; navigation and editors keep their own theme. */
-.reference-ui .widget-card {
+/* Widgets and the Today options menu share appearance tokens. */
+.reference-ui :is(.widget-card, .today-section-menu) {
   --ui-unit: calc(var(--wa-font-size, 14px) / 14);
   --ink: var(--wa-text-color, #edf1ff);
   --muted: var(--wa-muted-color, #a5bbdf);
@@ -12,6 +12,8 @@
   --border-strong: var(--wa-border-color, #28405f);
   --subtle: var(--wa-muted-color, #a5bbdf);
   --brand-soft: color-mix(in srgb, var(--wa-accent, #6674ff) 12%, var(--wa-surface, #0d1b30));
+}
+.reference-ui .widget-card {
   contain: none;
   container: widget / inline-size;
   min-height: 0;
@@ -101,10 +103,15 @@
 }
 .reference-ui .widget-card .mini-days .today { color: white; border-color: var(--wa-accent); background: var(--wa-accent); }
 .reference-ui .widget-card .mini-days .today :is(strong, small) { color: white; }
-.reference-ui .widget-card .popover {
-  color: var(--wa-text-color);
-  border-color: var(--wa-border-color);
+.reference-ui :is(.widget-card .popover, .today-section-menu) {
+  color: var(--wa-text-color, #edf1ff);
+  border-color: var(--wa-border-color, #28405f);
   background: var(--surface-2);
+}
+.reference-ui .today-section-menu {
+  font-size: var(--wa-font-size, 14px);
+  line-height: var(--wa-line-height, 1.45);
+  letter-spacing: var(--wa-letter-spacing, 0em);
 }
 .reference-ui .widget-card[data-wa-hover="none"]:hover { border-color: var(--wa-border-color); box-shadow: var(--wa-shadow); }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
