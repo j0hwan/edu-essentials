@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, ArrowRight, CircleAlert } from "lucide-react";
 import { addDays, dateLabel, isDate, type Course, type CourseDetails } from "../lib/academics";
 import { calendarDays, calendarTime, placeCalendarItems, timeMinutes, type CalendarView } from "../lib/calendar-layout";
@@ -28,8 +28,48 @@ export default function AcademicCalendar({ courses, assignments, events, details
   const [selected, setSelected] = useState(today);
   const [sidebar, setSidebar] = useState(true);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterPopoverPosition, setFilterPopoverPosition] = useState({ left: 8, top: 8 });
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const toolbarScrollRef = useRef<HTMLDivElement>(null);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  const filterPopoverRef = useRef<HTMLFieldSetElement>(null);
   const [visibleKinds, setVisibleKinds] = useState({ class: true, event: true, deadline: true });
   const [allUpcoming, setAllUpcoming] = useState(false);
+  useLayoutEffect(() => {
+    if (!filtersOpen) return;
+    const positionPopover = () => {
+      const anchor = filterButtonRef.current;
+      const toolbar = toolbarRef.current;
+      if (!anchor || !toolbar) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const popoverRect = filterPopoverRef.current?.getBoundingClientRect();
+      const popoverWidth = popoverRect?.width ?? 210;
+      const popoverHeight = popoverRect?.height ?? 220;
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+      const viewportLeft = Math.max(8, Math.min(anchorRect.left, viewportWidth - popoverWidth - 8));
+      const viewportTop = Math.max(8, Math.min(anchorRect.bottom + 8, viewportHeight - popoverHeight - 8));
+      const left = viewportLeft - toolbarRect.left;
+      const top = viewportTop - toolbarRect.top;
+      setFilterPopoverPosition((current) => current.left === left && current.top === top ? current : { left, top });
+    };
+    positionPopover();
+    const scrollRegion = toolbarScrollRef.current;
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(positionPopover);
+    if (scrollRegion) resizeObserver?.observe(scrollRegion);
+    if (filterButtonRef.current) resizeObserver?.observe(filterButtonRef.current);
+    if (filterPopoverRef.current) resizeObserver?.observe(filterPopoverRef.current);
+    window.addEventListener("resize", positionPopover);
+    window.addEventListener("scroll", positionPopover, true);
+    scrollRegion?.addEventListener("scroll", positionPopover);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", positionPopover);
+      window.removeEventListener("scroll", positionPopover, true);
+      scrollRegion?.removeEventListener("scroll", positionPopover);
+    };
+  }, [filtersOpen, view, anchor]);
   const days = useMemo(() => calendarDays(anchor, view, monday), [anchor, view, monday]);
   const start = days[0], last = days[days.length - 1];
   const first = anchor.slice(0, 7) + "-01";
@@ -85,7 +125,9 @@ export default function AcademicCalendar({ courses, assignments, events, details
 
   return <div className="page calendar-page planner-page">
     <header className="planner-heading"><p className="eyebrow">Calendar</p><h1>{view === "month" ? period : "Calendar"}</h1>{view !== "month" && <p className="planner-period">{period}</p>}</header>
-    <div className="planner-toolbar">
+    <div className="planner-toolbar" ref={toolbarRef}>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- The named overflow region needs keyboard focus for horizontal scrolling. */}
+      <div className="planner-toolbar-scroll" ref={toolbarScrollRef} role="region" aria-label="Calendar controls" tabIndex={0}>
       <div className="planner-navigation">
         <button className="planner-control planner-today" onClick={() => chooseDate(today)}>Today</button>
         <button className="planner-control planner-icon" aria-label="Previous period" disabled={anchor <= "1900-02-01"} onClick={() => move(-1)}><ChevronLeft /></button>
@@ -96,10 +138,12 @@ export default function AcademicCalendar({ courses, assignments, events, details
       <div className="planner-actions">
         <div className="planner-view-toggle" role="group" aria-label="Calendar view">{(["month", "week", "day"] as const).map((v) => <button key={v} aria-pressed={view === v} onClick={() => { setView(v); onView(v); setAnchor(selected); }}>{v[0].toUpperCase() + v.slice(1)}</button>)}</div>
         <label className="planner-course-filter"><span className="planner-sr-only">Class filter</span><select value={filter} onChange={(e) => onFilter(e.target.value)}><option value="all">All courses</option><option value="personal">Personal</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select></label>
-        <div className="planner-filter-wrap"><button className="planner-control planner-icon" aria-label="Filter calendar items" aria-expanded={filtersOpen} aria-controls="calendar-item-filters" onClick={() => setFiltersOpen(!filtersOpen)}><SlidersHorizontal /></button>{filtersOpen && <fieldset id="calendar-item-filters" className="planner-filter-popover"><legend>Show in calendar</legend>{([['class', 'Classes'], ['event', 'Events'], ['deadline', 'Deadlines / exams']] as const).map(([kind, label]) => <label key={kind}><input type="checkbox" checked={visibleKinds[kind]} onChange={(e) => setVisibleKinds({ ...visibleKinds, [kind]: e.target.checked })} />{label}</label>)}</fieldset>}</div>
+        <div className="planner-filter-wrap"><button ref={filterButtonRef} className="planner-control planner-icon" aria-label="Filter calendar items" aria-expanded={filtersOpen} aria-controls="calendar-item-filters" onClick={() => setFiltersOpen(!filtersOpen)}><SlidersHorizontal /></button></div>
         <button className="planner-control planner-icon" aria-label={sidebar ? "Hide day details" : "Show day details"} title={sidebar ? "Hide day details" : "Show day details"} aria-expanded={sidebar} aria-controls="calendar-day-details" onClick={() => setSidebar(!sidebar)}>{sidebar ? <PanelRightClose /> : <PanelRightOpen />}</button>
         <button className="planner-add" onClick={() => onAdd(selected)}><Plus />Add event</button>
       </div>
+      </div>
+      {filtersOpen && <fieldset ref={filterPopoverRef} id="calendar-item-filters" className="planner-filter-popover" style={filterPopoverPosition}><legend>Show in calendar</legend>{([['class', 'Classes'], ['event', 'Events'], ['deadline', 'Deadlines / exams']] as const).map(([kind, label]) => <label key={kind}><input type="checkbox" checked={visibleKinds[kind]} onChange={(e) => setVisibleKinds({ ...visibleKinds, [kind]: e.target.checked })} />{label}</label>)}</fieldset>}
     </div>
     <div className="planner-legend" aria-label="Calendar colors">{courses.filter((c) => filter === "all" || c.id === filter).map((c) => <span key={c.id} style={{ "--event-color": c.color } as CSSProperties}><i className="planner-dot" />{c.name || c.code}</span>)}<span style={{ "--event-color": "#8ae6a4" } as CSSProperties}><i className="planner-dot" />Personal / Study</span><span style={{ "--event-color": "#ffcf62" } as CSSProperties}><i className="planner-dot" />Deadline / Exam</span></div>
     <div className={`planner-layout ${sidebar ? "has-details" : ""}`}>
