@@ -46,11 +46,12 @@ export async function PUT(request: Request) {
     const revision = requireSaveRevision(body.baseRevision);
     if (body.courses === undefined) return upgrade();
     const snapshot = validate(body.courses, body.dashboard);
-    const incoming = body.dashboard as { v?: number; d?: { study?: unknown; filePreferences?: unknown; widgetAppearance?: unknown } };
-    if (incoming?.v === 1 || incoming?.d?.study === undefined || incoming?.d?.filePreferences === undefined || incoming?.d?.widgetAppearance === undefined) {
+    const incoming = body.dashboard as { v?: number; b?: unknown; d?: { study?: unknown; filePreferences?: unknown; widgetAppearance?: unknown } };
+    if (incoming?.v === 1 || incoming?.b === undefined || incoming?.d?.study === undefined || incoming?.d?.filePreferences === undefined || incoming?.d?.widgetAppearance === undefined) {
       const current = await getSupabaseAdmin().from("dashboard_state").select("payload").eq("profile_id", profile.id).maybeSingle();
       if (current.error) throw current.error;
       if (incoming?.v === 1 && current.data?.payload?.v === 2) return upgrade();
+      if (incoming?.b === undefined && current.data?.payload?.b?.length > 0) return upgrade();
       if (incoming?.d?.study === undefined && current.data?.payload?.d?.study !== undefined) return upgrade();
       if (incoming?.d?.filePreferences === undefined && current.data?.payload?.d?.filePreferences !== undefined) return upgrade();
       if (incoming?.d?.widgetAppearance === undefined && current.data?.payload?.d?.widgetAppearance !== undefined) return upgrade();

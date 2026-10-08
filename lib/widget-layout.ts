@@ -39,7 +39,11 @@ export function getWidgetSizeFootprint(size: WidgetSize): WidgetSizeFootprint {
 }
 
 /** Place full small-cell footprints row-major, pairing mini cards in one cell. */
-export function calculateWidgetPlacements(sizes: readonly string[], columns: 2 | 4): WidgetPlacement[] {
+export function calculateWidgetPlacements(
+  sizes: readonly string[],
+  columns: 2 | 4,
+  startsNewMiniBlocks: readonly boolean[] = [],
+): WidgetPlacement[] {
   const widgetCellFootprints: Record<string, { width: number; height: number }> = {
     small: { width: 1, height: 1 },
     medium: { width: 2, height: 1 },
@@ -73,9 +77,9 @@ export function calculateWidgetPlacements(sizes: readonly string[], columns: 2 |
     }
   };
 
-  return sizes.map((size) => {
+  return sizes.map((size, index) => {
     if (size === "mini") {
-      if (pendingMini) {
+      if (pendingMini && !startsNewMiniBlocks[index]) {
         const placement = {
           column: pendingMini.column + 1,
           columnSpan: 1,

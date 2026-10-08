@@ -103,7 +103,8 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
     const cards = (Array.from(grid.children) as HTMLElement[]).filter((card) =>
       card.hasAttribute("data-widget-id") || card.classList.contains("wa-preview-card"),
     );
-    const placements = calculateWidgetPlacements(cards.map((card) => card.dataset.size ?? "small"), columns);
+    const placements = calculateWidgetPlacements(cards.map((card) => card.dataset.size ?? "small"), columns,
+      cards.map((card) => card.dataset.miniStart === "true"));
 
     cards.forEach((card, index) => {
       const placement = placements[index];

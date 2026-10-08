@@ -37,6 +37,41 @@ test("paired minis share a slot while other sizes start on whole small rows", ()
   ], "a lone mini reserves its entire small cell, including the unused lower half");
 });
 
+test("mini block flags opt out of legacy automatic pairing", () => {
+  const sizes = ["mini", "small", "mini"];
+  for (const columns of [2, 4]) {
+    const legacy = calculateWidgetPlacements(sizes, columns);
+    assert.deepEqual(legacy[2], { column: 1, columnSpan: 1, row: 2, rowSpan: 1 },
+      `${columns} columns retains legacy pairing across a full widget`);
+
+    const startsNewBlock = [false, false, true];
+    const flagsBefore = [...startsNewBlock];
+    const separated = calculateWidgetPlacements(sizes, columns, startsNewBlock);
+    assert.notDeepEqual(separated[2], legacy[2], `${columns} columns honors the fresh-cell flag`);
+    assert.deepEqual(startsNewBlock, flagsBefore, "placement does not mutate its flags");
+  }
+
+  assert.deepEqual(calculateWidgetPlacements(["mini", "small", "mini"], 2, [false, false, true]), [
+    { column: 1, columnSpan: 1, row: 1, rowSpan: 1 },
+    { column: 2, columnSpan: 1, row: 1, rowSpan: 2 },
+    { column: 1, columnSpan: 1, row: 3, rowSpan: 1 },
+  ], "a fresh mini block takes a new full cell on two columns");
+  assert.deepEqual(calculateWidgetPlacements(["mini", "small", "mini"], 4, [false, false, true]), [
+    { column: 1, columnSpan: 1, row: 1, rowSpan: 1 },
+    { column: 2, columnSpan: 1, row: 1, rowSpan: 2 },
+    { column: 3, columnSpan: 1, row: 1, rowSpan: 1 },
+  ], "a fresh mini block takes a new full cell on four columns");
+
+  assert.deepEqual(calculateWidgetPlacements(["mini", "mini", "mini"], 4, [false, true, false]), [
+    { column: 1, columnSpan: 1, row: 1, rowSpan: 1 },
+    { column: 2, columnSpan: 1, row: 1, rowSpan: 1 },
+    { column: 2, columnSpan: 1, row: 2, rowSpan: 1 },
+  ], "a flagged mini starts a fresh block that the following mini can join");
+  assert.deepEqual(calculateWidgetPlacements(["mini", "unknown", "mini"], 4),
+    calculateWidgetPlacements(["mini", "small", "mini"], 4),
+    "an unknown size keeps the legacy full-cell fallback and pending mini pair");
+});
+
 test("preview and live direct cards update placement after reorder and responsive resize", async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: "https://layout.example.invalid/" });
   globalThis.window = dom.window;
@@ -92,6 +127,7 @@ test("preview and live direct cards update placement after reorder and responsiv
     await act(async () => root.render(previewRender(reordered, 4, "preview-reordered")));
     assert.equal(preview("medium-a").style.gridColumn, "1 / span 2");
     assert.equal(preview("mini-a").style.gridRow, "1 / span 1");
+    assert.equal(preview("mini-b").style.gridColumn, "3 / span 1");
     assert.equal(preview("mini-b").style.gridRow, "2 / span 1", "the next mini fills the pending slot even after other cards");
 
     const grid = document.querySelector(".widget-grid");

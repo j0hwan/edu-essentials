@@ -105,11 +105,347 @@ async function beginMouseDrag(page, widgetId, destinationIndex) {
   await page.mouse.move(target.x, target.y, { steps: 8 });
   return { candidate: target.candidate };
 }
+async function physicalTarget(page, draggedId, targetId) {
+  const source = page.locator(`.widget-grid > [data-widget-id="${draggedId}"]`);
+  const target = page.locator(`.widget-grid > [data-widget-id="${targetId}"]`);
+  await source.locator("[data-widget-reorder-handle]").scrollIntoViewIfNeeded();
+  const sourceBox = await source.boundingBox();
+  const handleBox = await source.locator("[data-widget-reorder-handle]").boundingBox();
+  const targetBox = await target.boundingBox();
+  assert.ok(sourceBox && handleBox && targetBox, `Expected visible source and physical target for ${draggedId} → ${targetId}`);
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+  const offsetX = startX - sourceBox.x;
+  const offsetY = startY - sourceBox.y;
+  const x = targetBox.x + offsetX;
+  const y = targetBox.y + offsetY;
+  const hit = await page.evaluate(({ x: hitX, y: hitY }) => {
+    const element = document.elementFromPoint(hitX, hitY)?.closest("[data-widget-id]");
+    return element?.dataset.widgetId ?? null;
+  }, { x, y });
+  assert.equal(hit, targetId, `physical pointer target at (${x.toFixed(1)}, ${y.toFixed(1)}) is ${targetId}`);
+  return { startX, startY, x, y, hit, draggedId, targetId };
+}
+async function physicalLowerMiniSlotTarget(page, draggedId, miniId) {
+  const source = page.locator(`.widget-grid > [data-widget-id="${draggedId}"]`);
+  const mini = page.locator(`.widget-grid > [data-widget-id="${miniId}"]`);
+  await source.locator("[data-widget-reorder-handle]").scrollIntoViewIfNeeded();
+  const sourceBox = await source.boundingBox();
+  const handleBox = await source.locator("[data-widget-reorder-handle]").boundingBox();
+  const miniBox = await mini.boundingBox();
+  const gap = await page.locator(".widget-grid").evaluate((grid) => Number.parseFloat(getComputedStyle(grid).rowGap) || 0);
+  assert.ok(sourceBox && handleBox && miniBox, `Expected visible source and paired mini for ${draggedId} → below ${miniId}`);
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+  const offsetX = startX - sourceBox.x;
+  const offsetY = startY - sourceBox.y;
+  const x = miniBox.x + offsetX;
+  const y = miniBox.y + miniBox.height + gap + offsetY;
+  return { startX, startY, x, y, draggedId, targetId: miniId, targetHalf: "below" };
+}
+async function startMouseDragAt(page, target) {
+  await page.mouse.move(target.startX, target.startY);
+  await page.mouse.down();
+  await page.mouse.move(target.startX + 9, target.startY + 8, { steps: 2 });
+  await page.waitForSelector(".widget-reorder-overlay", { state: "attached", timeout: 3000 });
+  await page.mouse.move(target.x, target.y, { steps: 8 });
+  return target;
+}
+async function beginMouseDragToPhysicalWidget(page, draggedId, targetId) {
+  return startMouseDragAt(page, await physicalTarget(page, draggedId, targetId));
+}
+async function startTouchDragAt(page, target) {
+  const session = await page.context().newCDPSession(page);
+  await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 1, x: target.startX, y: target.startY, radiusX: 2, radiusY: 2, force: 1 }] });
+  await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ id: 1, x: target.startX + 10, y: target.startY + 8, radiusX: 2, radiusY: 2, force: 1 }] });
+  await page.waitForSelector(".widget-reorder-overlay", { state: "attached", timeout: 3000 });
+  await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ id: 1, x: target.x, y: target.y, radiusX: 2, radiusY: 2, force: 1 }] });
+  return { ...target, session };
+}
+async function beginTouchDragToPhysicalWidget(page, draggedId, targetId) {
+  return startTouchDragAt(page, await physicalTarget(page, draggedId, targetId));
+}
+async function widgetGridPositions(page) {
+  return page.locator(".widget-grid > [data-widget-id]").evaluateAll((cards) => Object.fromEntries(cards.map((card) => {
+    const style = getComputedStyle(card);
+    return [card.getAttribute("data-widget-id"), {
+      column: style.gridColumnStart,
+      row: style.gridRowStart,
+      size: card.getAttribute("data-size"),
+      miniStart: card.getAttribute("data-mini-start") === "true",
+    }];
+  })));
+}
+async function assertWidgetOrder(page, expected, message) {
+  const actual = await liveIds(page);
+  assert.deepEqual(actual, expected, `${message}; actual order: ${JSON.stringify(actual)}`);
+}
+async function resizeBrowserWidget(page, widgetId, label) {
+  const card = page.locator(`.widget-grid > [data-widget-id="${widgetId}"]`);
+  await card.getByRole("button", { name: "Weekly study goal options", exact: true }).click();
+  await page.getByRole("button", { name: `${label} widget`, exact: true }).click();
+  const size = label.toLowerCase();
+  await page.waitForFunction(({ id, expectedSize }) => document.querySelector(`.widget-grid > [data-widget-id="${id}"]`)?.getAttribute("data-size") === expectedSize, { id: widgetId, expectedSize: size });
+}
 async function assertNoBrowserErrors() {
   assert.deepEqual(consoleErrors, [], "browser console and page errors are empty");
 }
 
+async function verifyMiniPairReorder({ width = 1440, height = 1200, touch = false } = {}) {
+  const original = ["glance-mini", "alerts-small", "pomodoro-small", "weekly-mini", "daily-mini"];
+  const beforeTargetOrder = ["glance-mini", "alerts-small", "daily-mini", "pomodoro-small", "weekly-mini"];
+  const { context, page } = await loadPage({ width, height, touch, query: "?mini-pair=1" });
+  try {
+    await assertWidgetOrder(page, original, "mini-pair fixture starts in screenshot order");
+    const initialPositions = await widgetGridPositions(page);
+    assert.equal(initialPositions["weekly-mini"].size, "mini");
+    assert.equal(initialPositions["daily-mini"].size, "mini");
+    assert.equal(initialPositions["alerts-small"].size, "small");
+    assert.equal(initialPositions["pomodoro-small"].size, "small");
+    assert.equal(initialPositions["glance-mini"].column, initialPositions["weekly-mini"].column, "the screenshot pair shares the glance column before the drag");
+    assert.equal(Number(initialPositions["weekly-mini"].row), Number(initialPositions["glance-mini"].row) + 1, "Weekly Study Goal is paired in the lower half below At a Glance");
+    assert.equal(initialPositions["daily-mini"].miniStart, true, "Daily Study Goal starts a separate mini block in the saved screenshot layout");
+    assert.equal(initialPositions["daily-mini"].column, touch ? "2" : "4", "the separate Daily Study Goal keeps its initial screenshot column");
+
+    const writesBefore = await page.evaluate(() => window.__widgetFixture.writes);
+    const canceledDrag = touch
+      ? await beginTouchDragToPhysicalWidget(page, "daily-mini", "pomodoro-small")
+      : await beginMouseDragToPhysicalWidget(page, "daily-mini", "pomodoro-small");
+    await page.waitForTimeout(140);
+    await assertWidgetOrder(page, beforeTargetOrder, `dragging Daily Study Goal over Pomodoro's original physical slot previews insertion before it at ${canceledDrag.x.toFixed(1)},${canceledDrag.y.toFixed(1)}`);
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), writesBefore, "hovering a projected mini-pair reorder does not save it");
+    const splitPositions = await widgetGridPositions(page);
+    assert.equal(splitPositions["daily-mini"].column, touch ? "1" : "3", "Daily Study Goal occupies the Pomodoro card's former column");
+    assert.equal(splitPositions["pomodoro-small"].column, touch ? "2" : "4", "Pomodoro moves to the next physical column after the mini is inserted before it");
+    assert.ok(
+      splitPositions["glance-mini"].column !== splitPositions["weekly-mini"].column
+        || Math.abs(Number(splitPositions["glance-mini"].row) - Number(splitPositions["weekly-mini"].row)) !== 1,
+      "moving Daily Study Goal splits the original glance and weekly mini pair",
+    );
+    assert.equal(splitPositions["weekly-mini"].column, splitPositions["daily-mini"].column, "Weekly Study Goal joins the fresh Daily Study Goal mini block");
+    assert.equal(Number(splitPositions["weekly-mini"].row), Number(splitPositions["daily-mini"].row) + 1, "the new pair stacks Weekly Study Goal below Daily Study Goal");
+
+    await page.keyboard.press("Escape");
+    await page.waitForFunction((order) => [...document.querySelectorAll(".widget-grid > [data-widget-id]")].map((card) => card.getAttribute("data-widget-id")).join("|") === order.join("|"), original);
+    await page.waitForFunction(() => !document.querySelector(".widget-reorder-overlay"));
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), writesBefore, "canceling the projected reorder does not save it");
+    if (touch) await canceledDrag.session.detach();
+
+    const committedDrag = touch
+      ? await beginTouchDragToPhysicalWidget(page, "daily-mini", "pomodoro-small")
+      : await beginMouseDragToPhysicalWidget(page, "daily-mini", "pomodoro-small");
+    await page.waitForTimeout(140);
+    await assertWidgetOrder(page, beforeTargetOrder, "second physical drop target still previews the requested order");
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), writesBefore, "the order remains unsaved while the pointer is held over Pomodoro");
+    if (touch) await committedDrag.session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    else await page.mouse.up();
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, writesBefore);
+    assert.deepEqual((await page.evaluate(() => window.__widgetFixture.dashboard)).w[0][2].map((widget) => widget[2]), beforeTargetOrder, "release saves exactly the previewed order");
+    if (touch) {
+      assert.ok(await page.evaluate(() => window.__widgetFixture.pointerTypes.includes("touch")), "Chrome delivered a touch PointerEvent to the live Workspace");
+      await committedDrag.session.detach();
+    }
+
+    const stored = await page.evaluate(() => window.__widgetFixture.dashboard);
+    assert.deepEqual(stored.w[0][2].map((widget) => [widget[2], widget[1]]), [
+      ["glance-mini", 3], ["alerts-small", 0], ["daily-mini", 3], ["pomodoro-small", 0], ["weekly-mini", 3],
+    ], "the compact saved payload preserves every widget size after reorder");
+    assert.deepEqual(stored.b, ["daily-mini"], "the compact saved payload preserves the separate mini-block choice");
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".widget-grid")?.style.getPropertyValue("--widget-unit"));
+    await page.getByRole("button", { name: "Customize" }).click();
+    await page.locator("[data-widget-reorder-handle]").first().waitFor({ state: "visible" });
+    await assertWidgetOrder(page, beforeTargetOrder, "reload restores the persisted mini order");
+    const reloadedPositions = await widgetGridPositions(page);
+    assert.equal(reloadedPositions["daily-mini"].column, touch ? "1" : "3", "reload keeps Daily Study Goal in its committed footprint");
+    assert.equal(reloadedPositions["pomodoro-small"].column, touch ? "2" : "4", "reload keeps Pomodoro in its committed footprint");
+    assert.equal(reloadedPositions["daily-mini"].miniStart, true, "reload restores the separate mini-block choice");
+    assert.equal(reloadedPositions["weekly-mini"].column, reloadedPositions["daily-mini"].column, "reload restores the joined daily and weekly pair");
+    assert.equal(Number(reloadedPositions["weekly-mini"].row), Number(reloadedPositions["daily-mini"].row) + 1, "reload preserves the pair's upper and lower halves");
+  } finally { await context.close(); }
+}
+
+async function verifyFreshMiniCellAndLowerHalfJoin() {
+  const original = ["mini-a", "small-b", "mini-c"];
+  const movedBeforeSmall = ["mini-a", "mini-c", "small-b"];
+  const { context, page } = await loadPage({ query: "?fresh-mini=1" });
+  try {
+    await assertWidgetOrder(page, original, "fresh-mini fixture starts with a mini, a full small card, then another mini");
+    const initial = await widgetGridPositions(page);
+    assert.equal(initial["mini-a"].column, "1");
+    assert.equal(initial["small-b"].column, "2");
+    assert.equal(initial["mini-c"].column, "1", "the last mini initially pairs below the first across the small card");
+    assert.equal(initial["mini-c"].miniStart, false);
+
+    const writesBefore = await page.evaluate(() => window.__widgetFixture.writes);
+    const canceled = await beginMouseDragToPhysicalWidget(page, "mini-c", "small-b");
+    await page.waitForTimeout(140);
+    await assertWidgetOrder(page, movedBeforeSmall, `dragging mini-c to small-b's original physical cell previews insertion before it at ${canceled.x.toFixed(1)},${canceled.y.toFixed(1)}`);
+    const freshPreview = await widgetGridPositions(page);
+    assert.equal(freshPreview["mini-c"].column, "2", "the dragged mini can claim the previously unreachable second-column top half");
+    assert.equal(freshPreview["mini-c"].row, "1");
+    assert.equal(freshPreview["mini-c"].miniStart, true, "the fresh cell is represented in the live preview");
+    assert.equal(freshPreview["small-b"].column, "3", "the original full card flows after the fresh mini");
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), writesBefore, "fresh-cell hover does not save");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction((order) => [...document.querySelectorAll(".widget-grid > [data-widget-id]")].map((card) => card.getAttribute("data-widget-id")).join("|") === order.join("|"), original);
+    await page.waitForFunction(() => !document.querySelector(".widget-reorder-overlay"));
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), writesBefore, "canceling fresh-cell selection does not save");
+
+    await beginMouseDragToPhysicalWidget(page, "mini-c", "small-b");
+    await page.waitForTimeout(140);
+    await assertWidgetOrder(page, movedBeforeSmall, "the repeated fresh-cell drag previews the same order");
+    await page.mouse.up();
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, writesBefore);
+    let saved = await page.evaluate(() => window.__widgetFixture.dashboard);
+    assert.deepEqual(saved.w[0][2].map((widget) => widget[2]), movedBeforeSmall, "the first release saves the new widget order");
+    assert.deepEqual(saved.b, ["mini-c"], "the saved compact payload records mini-c as a fresh block");
+
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".widget-grid")?.style.getPropertyValue("--widget-unit"));
+    await page.getByRole("button", { name: "Customize" }).click();
+    await page.locator("[data-widget-reorder-handle]").first().waitFor({ state: "visible" });
+    await assertWidgetOrder(page, movedBeforeSmall, "reload restores the fresh mini order");
+    const reloadedFresh = await widgetGridPositions(page);
+    assert.equal(reloadedFresh["mini-c"].column, "2");
+    assert.equal(reloadedFresh["mini-c"].miniStart, true, "reload restores the fresh-cell placement bit");
+    const writesAfterReload = await page.evaluate(() => window.__widgetFixture.writes);
+
+    const lowerSlot = await physicalLowerMiniSlotTarget(page, "mini-c", "mini-a");
+    await startMouseDragAt(page, lowerSlot);
+    await page.waitForTimeout(140);
+    await assertWidgetOrder(page, original, "pairing below mini-a uses the readable order when the same physical slot has multiple candidates");
+    const joinedPreview = await widgetGridPositions(page);
+    assert.equal(joinedPreview["mini-c"].column, joinedPreview["mini-a"].column, "mini-c joins mini-a in its physical lower half");
+    assert.equal(Number(joinedPreview["mini-c"].row), Number(joinedPreview["mini-a"].row) + 1);
+    assert.equal(joinedPreview["mini-c"].miniStart, false, "the lower-half target clears the fresh-block flag");
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), writesAfterReload, "the lower-half pair change remains a preview until release");
+    await page.mouse.up();
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, writesAfterReload);
+    saved = await page.evaluate(() => window.__widgetFixture.dashboard);
+    assert.deepEqual(saved.w[0][2].map((widget) => widget[2]), original, "joining below mini-a saves the resolved order");
+    assert.deepEqual(saved.b, [], "committing the lower-half join clears the fresh-block marker");
+
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".widget-grid")?.style.getPropertyValue("--widget-unit"));
+    await page.getByRole("button", { name: "Customize" }).click();
+    await page.locator("[data-widget-reorder-handle]").first().waitFor({ state: "visible" });
+    await assertWidgetOrder(page, original, "reload restores the joined mini order");
+    const reloadedJoin = await widgetGridPositions(page);
+    assert.equal(reloadedJoin["mini-c"].column, reloadedJoin["mini-a"].column, "reload keeps the joined mini pair");
+    assert.equal(Number(reloadedJoin["mini-c"].row), Number(reloadedJoin["mini-a"].row) + 1);
+    assert.equal(reloadedJoin["mini-c"].miniStart, false);
+  } finally { await context.close(); }
+}
+
+async function verifyMetadataOnlyFreshMiniCommit() {
+  const order = ["mini-a", "mini-c", "small-b"];
+  const { context, page } = await loadPage({ query: "?mini-adjacent=1" });
+  try {
+    await assertWidgetOrder(page, order, "adjacent-mini fixture starts with a paired pair before a small card");
+    const initial = await widgetGridPositions(page);
+    assert.equal(initial["mini-c"].column, "1");
+    assert.equal(initial["mini-c"].row, "2", "mini-c starts in the lower half below mini-a");
+    assert.equal(initial["mini-c"].miniStart, false);
+    assert.equal(initial["small-b"].column, "2");
+
+    const writesBefore = await page.evaluate(() => window.__widgetFixture.writes);
+    const target = await beginMouseDragToPhysicalWidget(page, "mini-c", "small-b");
+    await page.waitForTimeout(140);
+    await assertWidgetOrder(page, order, `dragging mini-c to small-b's physical cell keeps the same ID order at ${target.x.toFixed(1)},${target.y.toFixed(1)}`);
+    const freshPreview = await widgetGridPositions(page);
+    assert.equal(freshPreview["mini-c"].column, "2", "the unchanged order can project mini-c into a fresh second-column cell");
+    assert.equal(freshPreview["mini-c"].row, "1");
+    assert.equal(freshPreview["mini-c"].miniStart, true, "projection changes only the mini-block choice");
+    assert.equal(freshPreview["small-b"].column, "3");
+    assert.equal(await page.evaluate(() => window.__widgetFixture.writes), writesBefore, "the metadata-only change is not saved during hover");
+    await page.mouse.up();
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, writesBefore);
+    const saved = await page.evaluate(() => window.__widgetFixture.dashboard);
+    assert.deepEqual(saved.w[0][2].map((widget) => widget[2]), order, "the metadata-only commit leaves widget IDs in the same order");
+    assert.deepEqual(saved.b, ["mini-c"], "the metadata-only commit persists the fresh mini block");
+    assert.deepEqual(saved.w[0][2].map((widget) => [widget[2], widget[1]]), [
+      ["mini-a", 3], ["mini-c", 3], ["small-b", 0],
+    ], "the metadata-only save preserves all widget sizes");
+
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".widget-grid")?.style.getPropertyValue("--widget-unit"));
+    await page.getByRole("button", { name: "Customize" }).click();
+    await page.locator("[data-widget-reorder-handle]").first().waitFor({ state: "visible" });
+    await assertWidgetOrder(page, order, "reload restores the same widget order after a metadata-only save");
+    const reloaded = await widgetGridPositions(page);
+    assert.equal(reloaded["mini-c"].column, "2");
+    assert.equal(reloaded["mini-c"].row, "1");
+    assert.equal(reloaded["mini-c"].miniStart, true, "reload restores the fresh block from compact state");
+    assert.equal(reloaded["small-b"].column, "3");
+  } finally { await context.close(); }
+}
+
+async function verifyMiniResizeClearsPlacement({ reloadWhileSmall }) {
+  const order = ["mini-a", "mini-c", "small-b"];
+  const { context, page } = await loadPage({ query: "?mini-adjacent=1" });
+  try {
+    await assertWidgetOrder(page, order, "resize fixture starts with an adjacent mini pair");
+    const initialWrites = await page.evaluate(() => window.__widgetFixture.writes);
+    await beginMouseDragToPhysicalWidget(page, "mini-c", "small-b");
+    await page.waitForTimeout(140);
+    const freshPreview = await widgetGridPositions(page);
+    assert.equal(freshPreview["mini-c"].miniStart, true, "physical second-column drop creates a fresh mini block before resizing");
+    await page.mouse.up();
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, initialWrites);
+
+    let currentWrites = await page.evaluate(() => window.__widgetFixture.writes);
+    await resizeBrowserWidget(page, "mini-c", "Small");
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, currentWrites);
+    currentWrites = await page.evaluate(() => window.__widgetFixture.writes);
+    let afterSmall = await page.evaluate(() => window.__widgetFixture.dashboard);
+    assert.deepEqual(afterSmall.b, [], "resizing to Small clears the mini-block marker in the saved payload");
+    assert.equal(afterSmall.w[0][2].find((widget) => widget[2] === "mini-c")[1], 0, "resizing to Small persists the small footprint");
+    assert.equal((await widgetGridPositions(page))["mini-c"].miniStart, false, "the live Small card has no mini-block marker");
+
+    if (reloadWhileSmall) {
+      await page.reload();
+      await page.waitForFunction(() => document.querySelector(".widget-grid")?.style.getPropertyValue("--widget-unit"));
+      await page.getByRole("button", { name: "Customize" }).click();
+      await page.locator("[data-widget-reorder-handle]").first().waitFor({ state: "visible" });
+      const reloadedSmall = await widgetGridPositions(page);
+      assert.equal(reloadedSmall["mini-c"].size, "small", "reload while Small keeps the resized footprint");
+      assert.equal(reloadedSmall["mini-c"].miniStart, false, "reload while Small does not resurrect the old mini-block marker");
+      afterSmall = await page.evaluate(() => window.__widgetFixture.dashboard);
+      assert.deepEqual(afterSmall.b, [], "reload while Small keeps the empty block list");
+      currentWrites = await page.evaluate(() => window.__widgetFixture.writes);
+    }
+
+    await resizeBrowserWidget(page, "mini-c", "Mini");
+    await page.waitForFunction((count) => window.__widgetFixture.writes === count + 1, currentWrites);
+    const afterMini = await widgetGridPositions(page);
+    assert.equal(afterMini["mini-c"].size, "mini");
+    assert.equal(afterMini["mini-c"].miniStart, false, "returning to Mini stays in legacy pairing mode");
+    assert.equal(afterMini["mini-c"].column, afterMini["mini-a"].column, "returning to Mini pairs below mini-a");
+    assert.equal(Number(afterMini["mini-c"].row), Number(afterMini["mini-a"].row) + 1);
+    const savedMini = await page.evaluate(() => window.__widgetFixture.dashboard);
+    assert.deepEqual(savedMini.b, [], "resizing back to Mini does not restore the old marker");
+
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".widget-grid")?.style.getPropertyValue("--widget-unit"));
+    await page.getByRole("button", { name: "Customize" }).click();
+    await page.locator("[data-widget-reorder-handle]").first().waitFor({ state: "visible" });
+    const finalPositions = await widgetGridPositions(page);
+    assert.equal(finalPositions["mini-c"].size, "mini", "final reload restores the Mini size");
+    assert.equal(finalPositions["mini-c"].miniStart, false, "final reload keeps the cleared mini-block marker");
+    assert.equal(finalPositions["mini-c"].column, finalPositions["mini-a"].column, "final reload keeps the legacy lower-half pair");
+    assert.equal(Number(finalPositions["mini-c"].row), Number(finalPositions["mini-a"].row) + 1);
+  } finally { await context.close(); }
+}
+
 try {
+  await verifyMetadataOnlyFreshMiniCommit();
+  await verifyFreshMiniCellAndLowerHalfJoin();
+  await verifyMiniResizeClearsPlacement({ reloadWhileSmall: false });
+  await verifyMiniResizeClearsPlacement({ reloadWhileSmall: true });
+  await verifyMiniPairReorder();
+  await verifyMiniPairReorder({ width: 390, height: 844, touch: true });
+
   const { context, page } = await loadPage();
   try {
     const before = await liveIds(page);

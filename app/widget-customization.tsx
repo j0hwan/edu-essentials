@@ -15,7 +15,7 @@ import type { WidgetSize } from "../lib/widget-layout";
 import AnimatedWidgetGrid from "./animated-widget-grid";
 import "./widget-customization.css";
 
-type WidgetOption = { instanceId: string; title: string; size: WidgetSize };
+type WidgetOption = { instanceId: string; title: string; size: WidgetSize; startsNewMiniBlock?: boolean };
 type Props = {
   value: WidgetAppearanceState | undefined;
   widgets: WidgetOption[];
@@ -123,7 +123,7 @@ const ADVANCED_GROUPS: { title: string; description: string; controls: Control[]
 
 const DEVICE_WIDTHS = { desktop: 860, tablet: 580, phone: 390 } as const;
 type Device = keyof typeof DEVICE_WIDTHS;
-type DemoCard = { id?: string; title: string; kind: "schedule" | "focus" | "progress"; size: WidgetSize };
+type DemoCard = { id?: string; title: string; kind: "schedule" | "focus" | "progress"; size: WidgetSize; startsNewMiniBlock?: boolean };
 
 const PREVIEW_SIZE_GALLERY: readonly WidgetSize[] = ["mini", "mini", "small", "medium", "medium-vertical", "large"];
 const PREVIEW_TITLES = ["Next up", "Focus session", "Weekly progress"] as const;
@@ -157,6 +157,7 @@ function PreviewCard({ card, appearance }: { card: DemoCard; appearance: WidgetA
       className="wa-preview-card"
       style={style as CSSProperties}
       data-size={card.size}
+      data-mini-start={card.size === "mini" && card.startsNewMiniBlock ? "true" : undefined}
       data-wa-texture={appearance.texture}
       data-wa-gradient={appearance.gradient}
       data-wa-icon-style={appearance.iconStyle}
@@ -360,6 +361,7 @@ export default function WidgetCustomization({ value, widgets, onApply, onClose }
         title: widget?.title ?? PREVIEW_TITLES[index % PREVIEW_TITLES.length],
         kind: (["schedule", "focus", "progress"] as const)[index % 3],
         size,
+        startsNewMiniBlock: widget?.startsNewMiniBlock,
       };
     });
   } else {
@@ -368,9 +370,10 @@ export default function WidgetCustomization({ value, widgets, onApply, onClose }
       title: widget.title,
       kind: (["schedule", "focus", "progress"] as const)[index % 3],
       size: widget.size,
+      startsNewMiniBlock: widget.startsNewMiniBlock,
     }));
     if (!demoCards.some((card) => card.id === targetId) && selectedWidget) {
-      const targetCard: DemoCard = { id: selectedWidget.instanceId, title: selectedWidget.title, kind: "schedule", size: selectedWidget.size };
+      const targetCard: DemoCard = { id: selectedWidget.instanceId, title: selectedWidget.title, kind: "schedule", size: selectedWidget.size, startsNewMiniBlock: selectedWidget.startsNewMiniBlock };
       demoCards = demoCards.length >= 3 ? [...demoCards.slice(0, 2), targetCard] : [...demoCards, targetCard];
     }
     if (demoCards.length === 0) {
@@ -387,7 +390,7 @@ export default function WidgetCustomization({ value, widgets, onApply, onClose }
     <AnimatedWidgetGrid
       className="wa-preview-cards"
       animateLayout={false}
-      layoutKey={`${prefix}:${JSON.stringify(state)}`}
+      layoutKey={`${prefix}:${JSON.stringify(state)}:${demoCards.map((card) => `${card.id}:${card.size}:${Boolean(card.startsNewMiniBlock)}`).join(",")}`}
       label={`${prefix === "saved" ? "Saved" : "Draft"} widget appearance preview`}
       style={widgetAppearanceStyle(state.defaults) as CSSProperties}
     >

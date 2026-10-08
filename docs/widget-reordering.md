@@ -43,9 +43,11 @@ sources. The motion and target thresholds here are application design choices.
    destination. Other widgets move into the layout that will be committed if
    the user releases there.
 4. Every candidate order uses the existing production packing function,
-   including mini pairing and both responsive column counts. Target selection
-   uses projected geometry rather than chasing neighbors while they animate;
-   a small hysteresis prevents boundary oscillation.
+   including mini pairing and both responsive column counts. A mini can start
+   a fresh block or fill the lower half beneath another mini; the chosen
+   placement is saved with its stable widget ID and restored after reload.
+   Target selection uses projected geometry rather than chasing neighbors
+   while they animate; a small hysteresis prevents boundary oscillation.
 5. A valid release commits the preview order once and settles the lifted widget
    into its destination. Moving outside the board removes the valid-drop cue.
 6. Escape, an invalid drop, pointer cancellation, or a change of workspace or
@@ -62,6 +64,10 @@ sources. The motion and target thresholds here are application design choices.
 The reorderable board owns temporary order and the drag lifecycle. The existing
 animated grid remains responsible for placement and interrupted FLIP animation.
 Workspace state is updated only through the existing validated commit path.
+Mini drop choices use an optional ID list in the existing compact snapshot;
+widget tuple positions and older saved layouts remain compatible. Updated
+writers include an empty list when clearing choices. The save API requires
+older clients to reload before overwriting a layout with explicit mini choices.
 The floating preview is an inert DOM snapshot, so notes and timer components
 remain mounted once with their stable IDs throughout the drag. Nested scroll
 positions are preserved for both the dragged widget and displaced neighbors.

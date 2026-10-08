@@ -436,5 +436,52 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       assert.deepEqual(await getWorkspace(), beforeB, "appearance data and revision remain isolated to its account");
       runtime.user = userA;
     });
+
+    await t.test("mini block flags round-trip, protect older clients, and can be cleared", async () => {
+      runtime.user = userB;
+      const beforeB = await getWorkspace();
+      runtime.user = userA;
+
+      const original = await getWorkspace();
+      const decoded = decodeWorkspaceState(original.dashboard);
+      const workspaces = decoded.workspaces.map((workspace) => workspace.id === decoded.activeWorkspaceId
+        ? { ...workspace, widgets: [...workspace.widgets, { instanceId: "fresh-mini-widget", type: "mini-calendar", size: "mini", startsNewMiniBlock: true }] }
+        : workspace);
+      const dashboard = encodeWorkspaceState(workspaces, decoded.activeWorkspaceId, decoded.notes, decoded.data);
+      assert.deepEqual(dashboard.b, ["fresh-mini-widget"]);
+
+      const savedResponse = await workspace.PUT(request({ courses: original.courses, dashboard, baseRevision: original.revision }));
+      assert.equal(savedResponse.status, 200);
+      const saved = await getWorkspace();
+      const savedMini = decodeWorkspaceState(saved.dashboard).workspaces.flatMap((item) => item.widgets).find((item) => item.instanceId === "fresh-mini-widget");
+      assert.equal(savedMini.startsNewMiniBlock, true, "GET preserves the mini's fresh-block choice");
+
+      const olderClient = structuredClone(saved.dashboard);
+      delete olderClient.b;
+      olderClient.n = "Older client must not overwrite this flag";
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: olderClient, baseRevision: saved.revision }))).status, 426);
+      const unchanged = await getWorkspace();
+      assert.equal(unchanged.revision, saved.revision, "rejected legacy writes do not advance the revision");
+      assert.deepEqual(unchanged.dashboard, saved.dashboard, "rejected legacy writes preserve flags and unrelated data");
+
+      const clearFlags = { ...saved.dashboard, b: [] };
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: clearFlags, baseRevision: saved.revision }))).status, 200,
+        "an explicit empty flag list clears the last choice");
+      const cleared = await getWorkspace();
+      assert.deepEqual(cleared.dashboard.b, []);
+      const clearedMini = decodeWorkspaceState(cleared.dashboard).workspaces.flatMap((item) => item.widgets).find((item) => item.instanceId === "fresh-mini-widget");
+      assert.equal(clearedMini.startsNewMiniBlock, undefined);
+
+      const legacyWithoutFlags = structuredClone(cleared.dashboard);
+      delete legacyWithoutFlags.b;
+      legacyWithoutFlags.n = "Legacy note update accepted without saved mini choices";
+      assert.equal((await workspace.PUT(request({ courses: cleared.courses, dashboard: legacyWithoutFlags, baseRevision: cleared.revision }))).status, 200,
+        "legacy writes remain valid when the current payload has no mini choices");
+      assert.equal((await getWorkspace()).dashboard.n, legacyWithoutFlags.n);
+
+      runtime.user = userB;
+      assert.deepEqual(await getWorkspace(), beforeB, "mini-block state and revision remain isolated to its account");
+      runtime.user = userA;
+    });
   } finally { delete globalThis.__foundationTest; await pg.close(); }
 });

@@ -16,13 +16,35 @@ const compactWidgets = [
   { instanceId: "stoplight-main", type: "stoplight" as const, size: "small" as const },
   { instanceId: "spacer-main", type: "spacer" as const, size: "large" as const },
 ];
+const miniPairWidgets = [
+  { instanceId: "glance-mini", type: "today" as const, size: "mini" as const },
+  { instanceId: "alerts-small", type: "red-alerts" as const, size: "small" as const },
+  { instanceId: "pomodoro-small", type: "pomodoro" as const, size: "small" as const },
+  { instanceId: "weekly-mini", type: "weekly-goal" as const, size: "mini" as const },
+  { instanceId: "daily-mini", type: "daily-goal" as const, size: "mini" as const, startsNewMiniBlock: true },
+];
+const freshMiniWidgets = [
+  { instanceId: "mini-a", type: "today" as const, size: "mini" as const },
+  { instanceId: "small-b", type: "red-alerts" as const, size: "small" as const },
+  { instanceId: "mini-c", type: "weekly-goal" as const, size: "mini" as const },
+];
+const adjacentMiniWidgets = [
+  { instanceId: "mini-a", type: "today" as const, size: "mini" as const },
+  { instanceId: "mini-c", type: "weekly-goal" as const, size: "mini" as const },
+  { instanceId: "small-b", type: "red-alerts" as const, size: "small" as const },
+];
 const longWidgets = Array.from({ length: 18 }, (_, index) => ({
   ...compactWidgets[index % compactWidgets.length],
   instanceId: `${compactWidgets[index % compactWidgets.length].instanceId}-${index}`,
 }));
-const widgets = location.search.includes("long=1") ? longWidgets : compactWidgets;
+const miniPairScenario = new URLSearchParams(location.search).has("mini-pair");
+const freshMiniScenario = new URLSearchParams(location.search).has("fresh-mini");
+const adjacentMiniScenario = new URLSearchParams(location.search).has("mini-adjacent");
+const miniScenario = miniPairScenario || freshMiniScenario || adjacentMiniScenario;
+const widgets = miniPairScenario ? miniPairWidgets : freshMiniScenario ? freshMiniWidgets : adjacentMiniScenario ? adjacentMiniWidgets : location.search.includes("long=1") ? longWidgets : compactWidgets;
 const initialDashboard = encodeWorkspaceState([{ id: "fixture-day", name: "Fixture day", widgets }], "fixture-day", "");
 const updatedAt = "2026-10-06T00:00:00.000Z";
+const persistedFixtureKey = miniPairScenario ? "widget-reorder-browser-mini-pair" : freshMiniScenario ? "widget-reorder-browser-fresh-mini" : "widget-reorder-browser-adjacent-mini";
 const profile = {
   ...validateProfile({ display_name: "Browser fixture" }),
   id: "browser-fixture-profile",
@@ -36,6 +58,14 @@ const profile = {
 
 let dashboard = initialDashboard;
 let revision = updatedAt;
+if (miniScenario) {
+  const persisted = sessionStorage.getItem(persistedFixtureKey);
+  if (persisted) {
+    const saved = JSON.parse(persisted) as { dashboard: typeof initialDashboard; revision: string };
+    dashboard = saved.dashboard;
+    revision = saved.revision;
+  }
+}
 const writes: Array<{ dashboard: typeof initialDashboard; revision: string }> = [];
 const pointerTypes: string[] = [];
 const pointerEvents: Array<{ type: string; id: number; x: number; y: number; target: string }> = [];
@@ -46,6 +76,7 @@ globalThis.fetch = async (input, init) => {
     const body = JSON.parse(String(init.body)) as { dashboard: typeof initialDashboard };
     dashboard = body.dashboard;
     revision = new Date(Date.parse(revision) + 1000).toISOString();
+    if (miniScenario) sessionStorage.setItem(persistedFixtureKey, JSON.stringify({ dashboard, revision }));
     writes.push({ dashboard: structuredClone(dashboard), revision });
     return Response.json({ ok: true, revision });
   }
@@ -105,9 +136,10 @@ window.__widgetFixture = {
     if (!grid) throw new Error("The fixture widget grid did not render.");
     const ids = [...grid.querySelectorAll<HTMLElement>(":scope > [data-widget-id]")].map((card) => card.dataset.widgetId!);
     const sizes = Object.fromEntries([...grid.querySelectorAll<HTMLElement>(":scope > [data-widget-id]")].map((card) => [card.dataset.widgetId!, card.dataset.size ?? "small"]));
+    const miniBlockStarts = Object.fromEntries([...grid.querySelectorAll<HTMLElement>(":scope > [data-widget-id]")].map((card) => [card.dataset.widgetId!, card.dataset.miniStart === "true"]));
     const candidate = reorderWidgetIds(ids, draggedId, destinationIndex);
     const orderedSizes = candidate.map((id) => sizes[id] ?? "small");
-    const placement = calculateWidgetPlacements(orderedSizes, window.innerWidth <= 600 ? 2 : 4)[candidate.indexOf(draggedId)];
+    const placement = calculateWidgetPlacements(orderedSizes, window.innerWidth <= 600 ? 2 : 4, candidate.map((id) => miniBlockStarts[id] ?? false))[candidate.indexOf(draggedId)];
     const rect = grid.getBoundingClientRect();
     const style = window.getComputedStyle(grid);
     const columns = window.innerWidth <= 600 ? 2 : 4;

@@ -6,6 +6,44 @@ const { widgetSizeOptions } = await import(await clientModule("lib/widget-layout
 const pack = (state) => encode(state.workspaces, state.activeWorkspaceId, state.notes, state.data);
 const legacy = { v: 1, a: "second", w: [["first", "First", widgetTypes.map((_, i) => [i, i % 3])], ["second", "Second", [[12, 2], [12, 0]]]], n: "Shared legacy text\nKeep every line." };
 
+test("mini fresh-block choices survive saving without changing tuples, notes or academic data", () => {
+  const widgets = [
+    { instanceId: "goal", type: "daily-goal", size: "mini", startsNewMiniBlock: true },
+    { instanceId: "note", type: "notes", size: "mini", note: "Keep my reminder", startsNewMiniBlock: true },
+    { instanceId: "timer", type: "pomodoro", size: "small" },
+    { instanceId: "weekly", type: "weekly-goal", size: "mini" },
+  ];
+  const workspaces = [{ id: "day", name: "My day", widgets }];
+  const data = { assignments: [], manualEvents: [], dashboardView: "cards" };
+  const payload = encode(workspaces, "day", "", data);
+  assert.equal(payload.v, 2);
+  assert.deepEqual(payload.b, ["goal", "note"]);
+  assert.deepEqual(payload.w[0][2].map((widget) => widget.length), [3, 4, 3, 3]);
+  assert.deepEqual(decode(payload).workspaces, workspaces);
+  assert.deepEqual(decode(payload).data, data);
+  assert.equal(decode(payload).workspaces[0].widgets[1].note, "Keep my reminder");
+  const oldPayload = { ...payload }; delete oldPayload.b;
+  assert.ok(decode(oldPayload).workspaces[0].widgets.every((widget) => widget.startsNewMiniBlock === undefined));
+  const copy = { ...widgets[0], instanceId: "goal-copy" };
+  assert.deepEqual(encode([{ ...workspaces[0], widgets: [copy, widgets[1]] }], "day", "").b, ["goal-copy", "note"]);
+  assert.deepEqual(encode([{ ...workspaces[0], widgets: [{ ...widgets[0], size: "small" }] }], "day", "").b, [], "resizing removes an irrelevant mini choice");
+  assert.deepEqual(encode([{ ...workspaces[0], widgets: [] }], "day", "").b, [], "deleted mini IDs are not retained");
+});
+
+test("malformed or dangling mini placement choices are rejected", () => {
+  const payload = encode([{ id: "day", name: "My day", widgets: [
+    { instanceId: "mini", type: "daily-goal", size: "mini" },
+    { instanceId: "full", type: "pomodoro", size: "small" },
+  ] }], "day", "");
+  for (const b of [null, {}, "mini", [1], [""], ["mini", "mini"], ["missing"], ["full"], Array(2001).fill("mini")]) {
+    assert.throws(() => decode({ ...payload, b }), /mini block placement/);
+  }
+  assert.throws(() => decode({ ...legacy, b: [] }), /mini block placement/);
+  assert.throws(() => encode([{ id: "day", name: "My day", widgets: [
+    { instanceId: "mini", type: "daily-goal", size: "mini", startsNewMiniBlock: "yes" },
+  ] }], "day", ""), /mini block placement/);
+});
+
 test("v1 migration preserves every layout and note, with deterministic persistent identities", () => {
   const source = structuredClone(legacy), loaded = decode(source);
   const upgraded = pack(loaded);

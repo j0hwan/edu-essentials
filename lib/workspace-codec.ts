@@ -33,6 +33,7 @@ export type WidgetInstance = {
   type: WidgetType;
   size: WidgetSize;
   note?: string;
+  startsNewMiniBlock?: boolean;
 };
 
 export type Workspace = {
@@ -48,6 +49,7 @@ export type CompactWorkspaceState = {
   v: 2;
   a: string;
   w: CompactWorkspace[];
+  b?: string[];
   n?: string;
   t?: string[];
   d?: WorkspaceData;
@@ -86,6 +88,8 @@ export const MAX_WORKSPACE_BYTES = 1_000_000;
  * holds legacy text only when no notes widget existed to receive it. Equal note
  * strings are packed once in t; references are rebuilt on each save, so edits
  * remain independent and large legacy layouts don't multiply shared text.
+ * b stores the mini IDs that start a fresh block. Updated writers always emit
+ * it, including an empty array, so legacy saves cannot erase placement choices.
  */
 export function encodeWorkspaceState(
   workspaces: Workspace[],
@@ -99,6 +103,7 @@ export function encodeWorkspaceState(
   if (new Set(workspaces.map((workspace) => workspace.id)).size !== workspaces.length) throw new Error("Duplicate workspace ID.");
 
   const texts: string[] = [], textIndexes = new Map<string, number>();
+  const miniBlockStarts: string[] = [];
   const compactWorkspaces: CompactWorkspace[] = workspaces.map((workspace) => {
     if (!workspace.id || workspace.id.length > 120) {
       throw new Error("Invalid workspace ID.");
@@ -114,6 +119,8 @@ export function encodeWorkspaceState(
       const type = widgetTypes.indexOf(widget.type);
       const size = widgetSizes.indexOf(widget.size);
       if (type < 0 || size < 0) throw new Error("Invalid widget layout.");
+      if (widget.startsNewMiniBlock !== undefined && typeof widget.startsNewMiniBlock !== "boolean") throw new Error("Invalid mini block placement.");
+      if (widget.size === "mini" && widget.startsNewMiniBlock) miniBlockStarts.push(widget.instanceId);
       if (widget.type !== "notes") return [type, size, widget.instanceId];
       const note = widget.note ?? "";
       if (typeof note !== "string" || note.length > MAX_NOTES_LENGTH) throw new Error("Quick notes cannot exceed 20,000 characters.");
@@ -136,6 +143,7 @@ export function encodeWorkspaceState(
     v: 2,
     a: active,
     w: compactWorkspaces,
+    b: miniBlockStarts,
     ...(texts.length ? { t: texts } : {}),
     ...(notes ? { n: notes } : {}),
     ...(data ? { d: validateWorkspaceData(data) } : {}),
@@ -155,6 +163,13 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
   const notes = value.n === undefined ? "" : value.n;
   if (typeof notes !== "string" || notes.length > MAX_NOTES_LENGTH) throw new Error("Invalid quick notes.");
   const widgetIds = new Set<string>();
+  const miniBlockStarts = value.b;
+  if (miniBlockStarts !== undefined && (value.v !== 2 || !Array.isArray(miniBlockStarts)
+    || miniBlockStarts.length > MAX_WORKSPACES * MAX_WIDGETS_PER_WORKSPACE
+    || miniBlockStarts.some((id) => typeof id !== "string" || !id.trim() || id.length > 120)
+    || new Set(miniBlockStarts).size !== miniBlockStarts.length)) throw new Error("Invalid mini block placement.");
+  const miniBlockStartIds = new Set<string>(miniBlockStarts as string[] | undefined);
+  const miniIds = new Set<string>();
   const texts = value.t ?? [];
   if (!Array.isArray(texts) || texts.length > MAX_WORKSPACES * MAX_WIDGETS_PER_WORKSPACE || texts.some((text) => typeof text !== "string" || text.length > MAX_NOTES_LENGTH)) throw new Error("Invalid note content.");
 
@@ -188,6 +203,7 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
       const instanceId = value.v === 1 ? `legacy-${workspaceIndex}-${widgetIndex}` : widget[2];
       if (typeof instanceId !== "string" || !instanceId.trim() || instanceId.length > 120 || widgetIds.has(instanceId)) throw new Error("Invalid or duplicate widget ID.");
       widgetIds.add(instanceId);
+      if (widgetSizes[widget[1]] === "mini") miniIds.add(instanceId);
       if (value.v === 2 && widgetTypes[widget[0]] === "notes" && (!Number.isInteger(widget[3]) || widget[3] < 0 || widget[3] >= texts.length)) throw new Error("Invalid note reference.");
       const note = value.v === 1 ? notes : texts[widget[3]];
       if (widgetTypes[widget[0]] === "notes" && (typeof note !== "string" || note.length > MAX_NOTES_LENGTH)) throw new Error("Quick notes cannot exceed 20,000 characters.");
@@ -196,6 +212,7 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
         instanceId,
         type: widgetTypes[widget[0]],
         size: widgetSizes[widget[1]],
+        ...(miniBlockStartIds.has(instanceId) ? { startsNewMiniBlock: true } : {}),
         ...(widgetTypes[widget[0]] === "notes" ? { note } : {}),
       };
     });
@@ -204,6 +221,7 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
   });
 
   if (new Set(workspaces.map((workspace) => workspace.id)).size !== workspaces.length) throw new Error("Duplicate workspace ID.");
+  if ([...miniBlockStartIds].some((id) => !miniIds.has(id))) throw new Error("Invalid mini block placement.");
 
   return {
     activeWorkspaceId: workspaces.some((workspace) => workspace.id === value.a)

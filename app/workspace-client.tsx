@@ -591,7 +591,12 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   };
 
   const resizeWidget = (instanceId: string, size: WidgetSize) => {
-    updateWorkspaceWidgets((widgets) => widgets.map((widget) => widget.instanceId === instanceId ? { ...widget, size } : widget));
+    updateWorkspaceWidgets((widgets) => widgets.map((widget) => {
+      if (widget.instanceId !== instanceId) return widget;
+      const next = { ...widget, size };
+      if (size !== "mini") delete next.startsNewMiniBlock;
+      return next;
+    }));
     closeWidgetMenu();
   };
 
@@ -838,7 +843,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       {aiApplying && <div className="assistant-apply-overlay" role="status">Applying your reviewed changes…</div>}
       {studyOpen && <StudyPanel data={study} courses={courses} system={activeGpaSystem} term={activeTerm} studyGoal={profile.study_goal} timezone={profile.timezone} now={now.getTime()} onChange={commitStudy} onTimer={controlTimer} onClose={() => setStudyOpen(false)} />}
       {widgetPickerOpen && renderWidgetPicker()}
-      {appearanceOpen && <WidgetCustomization value={extraData.widgetAppearance} widgets={activeWorkspace.widgets.map((widget) => ({ instanceId: widget.instanceId, title: widgetTemplates.find((template) => template.type === widget.type)!.title, size: widget.size }))} onClose={closeAppearance} onApply={(next) => {
+      {appearanceOpen && <WidgetCustomization value={extraData.widgetAppearance} widgets={activeWorkspace.widgets.map((widget) => ({ instanceId: widget.instanceId, title: widgetTemplates.find((template) => template.type === widget.type)!.title, size: widget.size, startsNewMiniBlock: widget.startsNewMiniBlock }))} onClose={closeAppearance} onApply={(next) => {
         if (aiApplying || !saveState.ready || !commitAcademic(courses, { widgetAppearance: next })) return false;
         setAppearanceOpen(false); flash(experimentalMode ? "Appearance preview updated — nothing saved to your account" : "Widget appearance applied"); return true;
       }} />}
@@ -1007,12 +1012,20 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               reflowKey={String(sidebarCollapsed)}
               enabled={customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId}
               onReorderStart={closeWidgetMenu}
-              onReorder={(orderedIds) => {
+              onReorder={(orderedIds, miniBlockChange) => {
                 const currentWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
                 if (!currentWorkspace || currentWorkspace.id !== activeWorkspace.id || orderedIds.length !== currentWorkspace.widgets.length) return false;
                 const widgetsById = new Map(currentWorkspace.widgets.map((widget) => [widget.instanceId, widget]));
                 if (new Set(orderedIds).size !== currentWorkspace.widgets.length || orderedIds.some((id) => !widgetsById.has(id))) return false;
-                return updateWorkspaceWidgets(() => orderedIds.map((id) => widgetsById.get(id)!));
+                if (miniBlockChange && widgetsById.get(miniBlockChange.widgetId)?.size !== "mini") return false;
+                return updateWorkspaceWidgets(() => orderedIds.map((id) => {
+                  const widget = widgetsById.get(id)!;
+                  if (id !== miniBlockChange?.widgetId) return widget;
+                  const next = { ...widget };
+                  delete next.startsNewMiniBlock;
+                  if (miniBlockChange.startsNewMiniBlock) next.startsNewMiniBlock = true;
+                  return next;
+                }));
               }}
               renderWidget={(widget, index, isDragged) => renderWidget(widget, index, isDragged)}
               addTile={<button className="add-widget-tile" onClick={() => setWidgetPickerOpen(true)}><Plus size={22} /><span>Add widget</span></button>}
@@ -1032,6 +1045,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         key={widget.instanceId}
         className={`widget-card widget-${widget.type} ${isDragged ? "widget-reorder-placeholder" : ""}`}
         data-size={widget.size}
+        data-mini-start={widget.size === "mini" && widget.startsNewMiniBlock ? "true" : undefined}
         data-widget-id={widget.instanceId}
         aria-hidden={isDragged ? true : undefined}
         inert={isDragged}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import type { WidgetInstance } from "../lib/workspace-codec";
 import { calculateWidgetUnit } from "./animated-widget-grid";
 import AnimatedWidgetGrid from "./animated-widget-grid";
-import { getWidgetInsertionIndex, reorderWidgetIds } from "../lib/widget-reorder";
+import { getWidgetInsertionCandidate, reorderWidgetIds } from "../lib/widget-reorder";
 
 type Props = {
   items: readonly WidgetInstance[];
@@ -16,7 +16,7 @@ type Props = {
   style?: CSSProperties;
   addTile: ReactNode;
   renderWidget: (widget: WidgetInstance, index: number, isDragged: boolean) => ReactNode;
-  onReorder: (ids: string[]) => boolean;
+  onReorder: (ids: string[], miniBlockChange?: { widgetId: string; startsNewMiniBlock: boolean }) => boolean;
   onReorderStart?: () => void;
 };
 
@@ -34,6 +34,9 @@ type DragSession = {
   currentOrder: string[];
   expectedOrder: string[] | null;
   sizes: Record<string, string>;
+  miniStarts: Record<string, boolean>;
+  currentMiniStart: boolean;
+  expectedItemDataKey: string | null;
   phase: DragPhase;
   valid: boolean;
   previewIndex: number | null;
@@ -116,6 +119,7 @@ export default function ReorderableWidgetGrid({
   onReorderStart,
 }: Props) {
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null);
+  const [previewMiniStart, setPreviewMiniStart] = useState<boolean | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [invalidDrop, setInvalidDrop] = useState(false);
   const [settleTick, setSettleTick] = useState(0);
@@ -130,8 +134,11 @@ export default function ReorderableWidgetGrid({
   const itemData = itemDataKey(items);
   const currentOrder = previewOrder && sameIdSet(previewOrder, ids) ? previewOrder : ids;
   const itemsById = new Map(items.map((item) => [item.instanceId, item]));
-  const orderedItems = currentOrder.map((id) => itemsById.get(id)).filter((item): item is WidgetInstance => Boolean(item));
-  const gridLayoutKey = `${layoutKey}:${orderedItems.map((item) => `${item.instanceId}:${item.size}`).join(",")}`;
+  const orderedItems = currentOrder.map((id) => itemsById.get(id)).filter((item): item is WidgetInstance => Boolean(item)).map((item) =>
+    item.instanceId === draggedId && item.size === "mini" && previewMiniStart !== null
+      ? { ...item, startsNewMiniBlock: previewMiniStart || undefined } : item,
+  );
+  const gridLayoutKey = `${layoutKey}:${orderedItems.map((item) => `${item.instanceId}:${item.size}:${Boolean(item.startsNewMiniBlock)}`).join(",")}`;
 
   useLayoutEffect(() => {
     latestProps.current = { workspaceId, layoutKey, enabled, items, onReorder, onReorderStart };
@@ -184,6 +191,7 @@ export default function ReorderableWidgetGrid({
     session.frame = null;
     if (session.phase === "pending") restoreBoardScroll(true);
     setPreviewOrder(null);
+    setPreviewMiniStart(null);
     setInvalidDrop(false);
     setDraggedId(null);
 
@@ -229,9 +237,10 @@ export default function ReorderableWidgetGrid({
     const gap = Number.isFinite(parsedGap) ? parsedGap : 16;
     const parsedUnit = Number.parseFloat(gridStyle.getPropertyValue("--widget-unit"));
     const unit = parsedUnit > 0 ? parsedUnit : calculateWidgetUnit({ gridWidth: rect.width, gap, columns });
-    const index = getWidgetInsertionIndex({
+    const insertion = getWidgetInsertionCandidate({
       ids: session.originIds,
       sizes: session.sizes,
+      miniStarts: session.miniStarts,
       draggedId: session.draggedId,
       columns,
       gridRect: rect,
@@ -242,23 +251,27 @@ export default function ReorderableWidgetGrid({
       grabOffsetX: session.grabOffsetX,
       grabOffsetY: session.grabOffsetY,
       previousIndex: session.previewIndex,
+      previousStartsNewMiniBlock: session.currentMiniStart,
     });
 
-    if (index === null) {
+    if (insertion === null) {
       session.valid = false;
       session.previewIndex = null;
       session.currentOrder = session.originIds;
       setPreviewOrder(null);
+      setPreviewMiniStart(null);
       setInvalidDrop(true);
       return;
     }
 
     session.valid = true;
-    session.previewIndex = index;
-    const candidate = reorderWidgetIds(session.originIds, session.draggedId, index);
+    session.previewIndex = insertion.index;
+    session.currentMiniStart = insertion.startsNewMiniBlock;
+    const candidate = reorderWidgetIds(session.originIds, session.draggedId, insertion.index);
     session.currentOrder = candidate;
     setInvalidDrop(false);
     setPreviewOrder((previous) => sameIds(previous ?? session.originIds, candidate) ? previous : candidate);
+    setPreviewMiniStart(insertion.startsNewMiniBlock);
   }, []);
 
   const processPointer = useCallback((session: DragSession) => {
@@ -342,6 +355,7 @@ export default function ReorderableWidgetGrid({
     session.phase = "active";
     positionOverlay(session);
     setDraggedId(session.draggedId);
+    setPreviewMiniStart(session.currentMiniStart);
     latestProps.current.onReorderStart?.();
   }, [cancelSession, positionOverlay]);
 
@@ -366,6 +380,7 @@ export default function ReorderableWidgetGrid({
       sessionRef.current = null;
       setDraggedId(null);
       setPreviewOrder(null);
+      setPreviewMiniStart(null);
       setInvalidDrop(false);
       return;
     }
@@ -379,6 +394,7 @@ export default function ReorderableWidgetGrid({
       sessionRef.current = null;
       setDraggedId(null);
       setPreviewOrder(null);
+      setPreviewMiniStart(null);
       setInvalidDrop(false);
       return;
     }
@@ -405,6 +421,7 @@ export default function ReorderableWidgetGrid({
       sessionRef.current = null;
       setDraggedId(null);
       setPreviewOrder(null);
+      setPreviewMiniStart(null);
       setInvalidDrop(false);
     });
   }, [removeOverlay]);
@@ -444,6 +461,9 @@ export default function ReorderableWidgetGrid({
       currentOrder: originIds,
       expectedOrder: null,
       sizes: Object.fromEntries(items.map((item) => [item.instanceId, item.size])),
+      miniStarts: Object.fromEntries(items.map((item) => [item.instanceId, Boolean(item.startsNewMiniBlock)])),
+      currentMiniStart: Boolean(sourceItem.startsNewMiniBlock),
+      expectedItemDataKey: null,
       phase: "pending",
       valid: true,
       previewIndex: items.findIndex((item) => item.instanceId === draggedId),
@@ -502,13 +522,27 @@ export default function ReorderableWidgetGrid({
         return;
       }
 
-      const changed = !sameIds(session.currentOrder, session.originIds);
-      const accepted = !changed || current.onReorder([...session.currentOrder]);
-      if (!accepted) session.currentOrder = session.originIds;
+      const miniChanged = session.sizes[session.draggedId] === "mini"
+        && session.currentMiniStart !== session.miniStarts[session.draggedId];
+      const changed = !sameIds(session.currentOrder, session.originIds) || miniChanged;
+      const accepted = !changed || current.onReorder([...session.currentOrder], session.sizes[session.draggedId] === "mini"
+        ? { widgetId: session.draggedId, startsNewMiniBlock: session.currentMiniStart } : undefined);
+      if (!accepted) {
+        session.currentOrder = session.originIds;
+        session.currentMiniStart = session.miniStarts[session.draggedId];
+      }
       session.expectedOrder = accepted ? session.currentOrder : session.originIds;
+      session.expectedItemDataKey = itemDataKey(current.items.map((item) => {
+        if (item.instanceId !== session.draggedId || item.size !== "mini") return item;
+        const next = { ...item };
+        delete next.startsNewMiniBlock;
+        if (session.currentMiniStart) next.startsNewMiniBlock = true;
+        return next;
+      }));
       session.phase = "settling";
       removePointerListeners(session);
       setPreviewOrder(accepted && changed ? [...session.currentOrder] : null);
+      setPreviewMiniStart(accepted ? session.currentMiniStart : null);
       setInvalidDrop(false);
       setSettleTick((value) => value + 1);
     };
@@ -547,7 +581,7 @@ export default function ReorderableWidgetGrid({
     const identityChanged = workspaceId !== session.workspaceId
       || layoutKey !== session.layoutKey
       || !enabled
-      || itemData !== session.itemDataKey;
+      || itemData !== (session.phase === "settling" ? session.expectedItemDataKey : session.itemDataKey);
     const expectedOrder = session.phase === "settling" ? session.expectedOrder : session.originIds;
     const orderChanged = !expectedOrder || !sameIds(currentIds, expectedOrder);
     if (identityChanged || orderChanged) cancelSession(session, false);
