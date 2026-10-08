@@ -64,6 +64,8 @@ import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
 import StudyWidget, { studyWidgetTypes } from "./study-widgets";
 import ReorderableWidgetGrid from "./reorderable-widget-grid";
 import WidgetCustomization from "./widget-customization";
+import HomeLoadTransition from "./home-load-transition";
+import type { HomeSkeletonPresetId } from "../lib/home-skeleton";
 import TodaySection from "./today-section";
 import { defaultTodaySections, type TodaySectionId } from "../lib/today-sections";
 import { resolveWidgetAppearance, widgetAppearanceStyle, type WidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
@@ -80,6 +82,7 @@ import SaveToast from "./save-toast";
 import type { Profile } from "../lib/profile";
 import "./auth.css";
 import "./reference-ui.css";
+import "./home-skeleton.css";
 import "./widget-appearance.css";
 import "./widget-block-layout.css";
 import "./widget-reorder.css";
@@ -239,7 +242,7 @@ function CourseStamp({ course, small = false }: { course: Course; small?: boolea
   );
 }
 
-export default function EduEssentialsApp({ initialProfile, children }: { initialProfile: Profile; children?: React.ReactNode }) {
+export default function EduEssentialsApp({ initialProfile, children, initialHomeSkeletonPreset }: { initialProfile: Profile; children?: React.ReactNode; initialHomeSkeletonPreset?: HomeSkeletonPresetId }) {
   const pathname = usePathname();
   const router = useRouter();
   const page = pageFromPathname(pathname);
@@ -857,15 +860,19 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           <span><strong>{experimentalMode.charAt(0).toUpperCase() + experimentalMode.slice(1)} experimental mode</strong> — fake data is shown only in this tab and is not saved.</span>
           <button type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit"}</button>
         </div>}
-        {!saveState.ready && (persistenceStatus === "loading" ? (
+        {page === "home" && (saveState.ready || persistenceStatus === "loading") && (
+          <HomeLoadTransition key={`home-load-${reloadAttempt}`} ready={saveState.ready} preset={initialHomeSkeletonPreset} reducedMotion={profile.preferences.reducedMotion}>
+            {saveState.ready ? renderHome() : null}
+          </HomeLoadTransition>
+        )}
+        {!saveState.ready && (persistenceStatus === "loading" ? (page !== "home" && (
           <section className="workspace-loading is-pending" role="status" aria-live="polite">
             <span className="workspace-loading-spinner" aria-hidden="true" />
             <h1>Loading your workspace...</h1>
           </section>
-        ) : (
+        )) : (
           <section className="workspace-loading"><h1>Your workspace could not be loaded</h1><p>Your saved work will be available here when the connection is restored.</p></section>
         ))}
-        {saveState.ready && page === "home" && renderHome()}
         {saveState.ready && page === "dashboard" && renderDashboard()}
         {saveState.ready && page === "tasks" && <div className="page">{renderPageHeader("Your coursework", "Tasks", "All your assignments, across every course.", <button className="primary-button" onClick={newAssignment}><Plus size={16} /> Add assignment</button>)}{renderAssignmentTable(assignments)}</div>}
         {saveState.ready && page === "calendar" && renderCalendar()}

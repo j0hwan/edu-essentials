@@ -193,6 +193,14 @@ alongside existing account data. Older clients cannot erase saved appearance.
 Experimental workspaces let you try styles with sample data without saving them
 to the account. System and account reduced-motion preferences remain respected.
 
+Home displays one of five curated skeleton layouts while workspace data loads.
+Each page refresh selects a preset of empty widget outlines with mixed footprints.
+The Today outline is present from the start; it fades away if the saved workspace
+has that section hidden. Preset cards move into the actual widget positions before
+content fades in. Toolbar placeholders match the three workspace actions.
+The transition uses the live layout dimensions, respects reduced-motion preferences,
+and does not change saved data.
+
 ## Validation
 
 - npm run build: production Worker build.
@@ -207,6 +215,10 @@ to the account. System and account reduced-motion preferences remain respected.
   Uses synthetic workspace data and the same Playwright/Chrome environment
   variables as the layout checks. Research and interaction design are recorded
   in [docs/widget-reordering.md](docs/widget-reordering.md).
+- node scripts/verify-home-skeleton.mjs: optional Chrome checks of all five Home
+  loading presets and their handoff to saved layouts on desktop and phones,
+  hydration, reduced motion, successful loading, retry, and other routes. Uses synthetic workspace data; set
+  PLAYWRIGHT_MODULE and ESBUILD_MODULE when using external tooling bundles.
 - npm test: build, account/API tests with a fake Supabase adapter, and HTTP route
   integration tests against a temporary local development server.
 - tests/persistence-foundation.test.mjs additionally executes all app migrations
