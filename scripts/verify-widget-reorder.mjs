@@ -67,18 +67,15 @@ async function loadPage({ width = 1440, height = 1200, reducedMotion = "no-prefe
   await page.waitForFunction(() => document.querySelector(".widget-grid")?.style.getPropertyValue("--widget-unit"));
   await page.getByRole("button", { name: "Customize" }).click();
   await page.locator("[data-widget-reorder-handle]").first().waitFor({ state: "visible" });
+  assert.ok(await page.locator(".widget-grid > [data-widget-id]").evaluateAll((cards) =>
+    cards.every((card) => getComputedStyle(card).animationName === "none" && getComputedStyle(card).rotate === "none"),
+  ), "widgets remain still in customize mode");
   return { context, page };
 }
 async function liveIds(page) {
   return page.locator(".widget-grid > [data-widget-id]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-widget-id")));
 }
-async function pauseCustomizeJiggle(page) {
-  await page.addStyleTag({ content: ".reorderable-widget-grid.is-reorder-enabled .widget-card { animation-play-state: paused !important; }" });
-}
 async function beginMouseDrag(page, widgetId, destinationIndex) {
-  // Pause only the decorative jiggle so the real handle stays under the
-  // measured pointer. The reduced-motion pass separately checks its styling.
-  await pauseCustomizeJiggle(page);
   const card = page.locator(`.widget-grid > [data-widget-id="${widgetId}"]`);
   const handle = card.locator("[data-widget-reorder-handle]");
   await handle.scrollIntoViewIfNeeded();
@@ -193,7 +190,7 @@ try {
   const { context: reducedContext, page: reducedPage } = await loadPage({ reducedMotion: "reduce" });
   try {
     const startAnimation = await reducedPage.locator(".widget-grid > [data-widget-id]").first().evaluate((card) => getComputedStyle(card).animationName);
-    assert.equal(startAnimation, "none", "reduced motion removes customize jiggle");
+    assert.equal(startAnimation, "none", "widgets also remain still with reduced motion");
     const before = await liveIds(reducedPage);
     const drag = await beginMouseDrag(reducedPage, "timer-main", before.length - 1);
     const liftTransform = await reducedPage.locator(".widget-reorder-overlay .widget-card").evaluate((card) => getComputedStyle(card).transform);
@@ -205,7 +202,6 @@ try {
 
   const { context: edgeContext, page: edgePage } = await loadPage({ width: 1280, height: 760, query: "?long=1" });
   try {
-    await pauseCustomizeJiggle(edgePage);
     await edgePage.evaluate(() => window.scrollTo(0, 0));
     const source = edgePage.locator('.widget-grid > [data-widget-id="notes-main-0"]');
     const handle = source.locator("[data-widget-reorder-handle]");
@@ -236,7 +232,6 @@ try {
 }
 
 async function beginTouchDrag(page, widgetId, destinationIndex) {
-  await pauseCustomizeJiggle(page);
   const source = page.locator(`.widget-grid > [data-widget-id="${widgetId}"]`);
   await source.locator("[data-widget-reorder-handle]").scrollIntoViewIfNeeded();
   const sourceBox = await source.boundingBox();

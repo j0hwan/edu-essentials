@@ -2616,6 +2616,7 @@ html[data-theme="dark"] .tone-blue { background: #1d3546; color: #78c8ff; }
 .save-toast-card {
   width: 100%;
   min-height: 0;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   align-items: stretch;

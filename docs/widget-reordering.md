@@ -35,7 +35,8 @@ sources. The motion and target thresholds here are application design choices.
 
 ## Planned behavior
 
-1. Customize exposes drag handles and a subtle edit cue.
+1. Customize exposes drag handles and a static dashed outline. Widgets remain
+   still until moved.
 2. Moving a handle beyond a small activation threshold lifts a full-content
    preview of that widget. The grab position remains anchored to the pointer.
 3. The board reserves the dragged widget's entire footprint at the projected
@@ -54,7 +55,7 @@ sources. The motion and target thresholds here are application design choices.
    widgets below the viewport. Existing Move earlier / Move later controls
    remain available for keyboard and assistive-technology use.
 8. Reduced motion retains the layout preview and pointer tracking while
-   suppressing edit jiggle, lift scaling, and animated layout travel.
+   suppressing lift scaling and animated layout travel.
 
 ## Implementation boundaries
 

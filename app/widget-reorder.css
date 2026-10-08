@@ -9,27 +9,6 @@
   -webkit-user-select: none;
 }
 
-.reorderable-widget-grid.is-reorder-enabled .widget-card:not(.widget-reorder-placeholder) {
-  animation: widget-reorder-jiggle 260ms ease-in-out infinite alternate;
-}
-
-.reorderable-widget-grid.is-reorder-enabled .widget-card:nth-child(3n + 1) { animation-delay: -170ms; }
-.reorderable-widget-grid.is-reorder-enabled .widget-card:nth-child(3n + 2) { animation-delay: -85ms; }
-.reorderable-widget-grid.is-reorder-enabled .widget-card[data-size="large"],
-.reorderable-widget-grid.is-reorder-enabled .widget-card[data-size="medium-vertical"] {
-  animation-name: widget-reorder-jiggle-large;
-}
-
-@keyframes widget-reorder-jiggle {
-  from { rotate: -0.38deg; }
-  to { rotate: 0.38deg; }
-}
-
-@keyframes widget-reorder-jiggle-large {
-  from { rotate: -0.2deg; }
-  to { rotate: 0.2deg; }
-}
-
 .reorderable-widget-grid .widget-card.widget-reorder-placeholder {
   border-style: dashed !important;
   border-color: color-mix(in srgb, var(--wa-accent, #7181ff) 68%, white) !important;
@@ -78,17 +57,12 @@
   transition: none !important;
 }
 
-html[data-motion="reduced"] .reorderable-widget-grid.is-reorder-enabled .widget-card {
-  animation: none !important;
-}
-
 html[data-motion="reduced"] .reference-ui .widget-reorder-overlay > .widget-card.widget-reorder-lift {
   transform: none;
   box-shadow: var(--wa-shadow, none) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reorderable-widget-grid.is-reorder-enabled .widget-card { animation: none !important; }
   .reference-ui .widget-reorder-overlay > .widget-card.widget-reorder-lift {
     transform: none;
     box-shadow: var(--wa-shadow, none) !important;
