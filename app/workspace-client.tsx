@@ -294,21 +294,54 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     const timeout = window.setTimeout(closeWidgetMenu, 130);
     return () => window.clearTimeout(timeout);
   }, [openWidgetMenu, closingWidgetMenu, closeWidgetMenu]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const menu = widgetMenuRef.current;
     if (!openWidgetMenu || !menu) return;
-    const card = menu.parentElement!;
-    const anchor = card.querySelector<HTMLElement>(".widget-header .menu-wrap > button")!;
+    const card = menu.parentElement;
+    const anchor = card?.querySelector<HTMLElement>(".widget-header .menu-wrap > button");
+    if (!card || !anchor) return;
     const grid = menu.closest(".widget-grid");
+    const referenceRoot = menu.closest(".reference-ui") ?? document;
+    const mobileHeader = referenceRoot.querySelector<HTMLElement>(".mobile-header");
+    const mobileBottomNav = referenceRoot.querySelector<HTMLElement>(".mobile-bottom-nav");
     const placeMenu = () => {
       const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-      const width = menu.offsetWidth || Math.min(240, viewportWidth * .85);
+      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+      let minTop = 12;
+      let maxBottom = viewportHeight - 12;
+      const headerRect = mobileHeader?.getBoundingClientRect();
+      if (headerRect && headerRect.height > 0 && headerRect.top <= 0 && headerRect.bottom > 0) {
+        minTop = Math.max(minTop, headerRect.bottom + 12);
+      }
+      const navRect = mobileBottomNav?.getBoundingClientRect();
+      if (navRect && navRect.height > 0 && navRect.top < viewportHeight && navRect.bottom >= viewportHeight) {
+        maxBottom = Math.min(maxBottom, navRect.top - 12);
+      }
+      const maxMenuHeight = Math.max(0, maxBottom - minTop);
+      menu.style.setProperty("--widget-menu-available-width", `${Math.max(0, viewportWidth - 24)}px`);
+      menu.style.maxHeight = `${maxMenuHeight}px`;
+      const width = menu.offsetWidth || Math.min(240, Math.max(0, viewportWidth - 24));
       const rect = anchor.getBoundingClientRect();
       const cardRect = card.getBoundingClientRect();
-      const left = Math.max(12, Math.min(rect.right - width, viewportWidth - width - 12));
+      const gridRect = grid?.getBoundingClientRect();
+      const cardCenter = cardRect.left + cardRect.width / 2;
+      const gridCenter = gridRect ? gridRect.left + gridRect.width / 2 : viewportWidth / 2;
+      const preferredLeft = cardCenter < gridCenter ? rect.left : rect.right - width;
+      const left = Math.max(12, Math.min(preferredLeft, viewportWidth - width - 12));
+      const belowTop = rect.bottom + 4;
+      const belowSpace = Math.max(0, maxBottom - belowTop);
+      const aboveTop = rect.top - 4 - menu.offsetHeight;
+      const aboveSpace = Math.max(0, rect.top - 4 - minTop);
+      let top = belowTop;
+      if (belowTop < minTop || belowTop + menu.offsetHeight > maxBottom) {
+        top = aboveTop >= minTop
+          ? aboveTop
+          : (aboveSpace > belowSpace ? aboveTop : belowTop);
+      }
+      top = Math.max(minTop, Math.min(top, maxBottom - menu.offsetHeight));
       menu.style.left = `${left - cardRect.left - card.clientLeft}px`;
       menu.style.right = "auto";
-      menu.style.top = `${rect.bottom - cardRect.top - card.clientTop + 4}px`;
+      menu.style.top = `${top - cardRect.top - card.clientTop}px`;
     };
     const dismissMenu = (event: MouseEvent) => {
       const target = event.target as Node | null;
@@ -317,10 +350,12 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     placeMenu();
     document.addEventListener("click", dismissMenu, true);
     window.addEventListener("resize", placeMenu);
-    card.addEventListener("scroll", placeMenu, true);
+    document.addEventListener("scroll", placeMenu, true);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(placeMenu);
     if (grid) observer?.observe(grid);
-    return () => { document.removeEventListener("click", dismissMenu, true); window.removeEventListener("resize", placeMenu); card.removeEventListener("scroll", placeMenu, true); observer?.disconnect(); };
+    observer?.observe(card);
+    observer?.observe(menu);
+    return () => { document.removeEventListener("click", dismissMenu, true); window.removeEventListener("resize", placeMenu); document.removeEventListener("scroll", placeMenu, true); observer?.disconnect(); };
   }, [openWidgetMenu, sidebarCollapsed, dismissWidgetMenu]);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDialog, setWorkspaceDialog] = useState<"new" | "rename" | null>(null);

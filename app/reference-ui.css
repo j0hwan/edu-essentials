@@ -305,7 +305,7 @@
 .reference-ui .widget-body .text-button,
 .reference-ui .widget-menu button,
 .reference-ui .widget-menu p { font-size: calc(14 * var(--ui-unit)); }
-.reference-ui .widget-menu { width: min(240px, 85vw); min-width: min(240px, 85vw); max-width: 85vw; }
+.reference-ui .widget-menu { width: min(240px, 85vw, var(--widget-menu-available-width, calc(100vw - 24px))); min-width: min(240px, 85vw, var(--widget-menu-available-width, calc(100vw - 24px))); max-width: var(--widget-menu-available-width, calc(100vw - 24px)); }
 .reference-ui .widget-menu.is-closing { pointer-events: none; animation: widget-menu-dismiss 90ms ease-out forwards; }
 @keyframes widget-menu-dismiss {
   from { opacity: 1; }

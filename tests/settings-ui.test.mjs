@@ -114,6 +114,108 @@ function widgetMenuAnimationEnd(animationName = "widget-menu-dismiss") {
 async function finishWidgetMenuDismissal(menu, animationName) {
   await act(async () => menu.dispatchEvent(widgetMenuAnimationEnd(animationName)));
 }
+function installWidgetMenuGeometry(card, initial = {}) {
+  const anchor = card.querySelector(".widget-header .menu-wrap > button");
+  assert.ok(anchor, "widget menu trigger exists");
+  const geometry = {
+    viewportWidth: 1200,
+    viewportHeight: 800,
+    cardRect: { left: 100, top: 100, width: 400, height: 700 },
+    anchorRect: { left: 145, top: 180, width: 24, height: 24 },
+    menuWidth: 240,
+    naturalMenuHeight: 320,
+    ...initial,
+  };
+  const rect = (value) => ({
+    x: value.left, y: value.top, left: value.left, top: value.top,
+    right: value.left + value.width, bottom: value.top + value.height,
+    width: value.width, height: value.height, toJSON() { return this; },
+  });
+  const menuHeight = () => Math.min(geometry.naturalMenuHeight, geometry.viewportHeight - 24);
+  const grid = card.closest(".widget-grid");
+  const cardRect = card.getBoundingClientRect;
+  const anchorRect = anchor.getBoundingClientRect;
+  const gridRect = grid?.getBoundingClientRect;
+  card.getBoundingClientRect = () => rect(geometry.cardRect);
+  anchor.getBoundingClientRect = () => rect(geometry.anchorRect);
+  if (grid) grid.getBoundingClientRect = () => rect({ left: 12, top: 0, width: geometry.viewportWidth - 24, height: geometry.viewportHeight });
+
+  const documentElement = document.documentElement;
+  const viewportDescriptors = {
+    innerWidth: Object.getOwnPropertyDescriptor(window, "innerWidth"),
+    innerHeight: Object.getOwnPropertyDescriptor(window, "innerHeight"),
+    clientWidth: Object.getOwnPropertyDescriptor(documentElement, "clientWidth"),
+    clientHeight: Object.getOwnPropertyDescriptor(documentElement, "clientHeight"),
+  };
+  Object.defineProperties(window, {
+    innerWidth: { configurable: true, value: geometry.viewportWidth },
+    innerHeight: { configurable: true, value: geometry.viewportHeight },
+  });
+  Object.defineProperties(documentElement, {
+    clientWidth: { configurable: true, get: () => geometry.viewportWidth },
+    clientHeight: { configurable: true, get: () => geometry.viewportHeight },
+  });
+
+  const menuDimensionDescriptors = new Map();
+  for (const [name, getter] of Object.entries({
+    offsetWidth() { return geometry.menuWidth; },
+    offsetHeight() { return menuHeight(); },
+    clientHeight() { return menuHeight(); },
+    scrollHeight() { return geometry.naturalMenuHeight; },
+  })) {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
+    menuDimensionDescriptors.set(name, descriptor);
+    Object.defineProperty(HTMLElement.prototype, name, {
+      configurable: true,
+      get() {
+        if (this.matches?.(".widget-menu")) return getter.call(this);
+        return descriptor?.get ? descriptor.get.call(this) : descriptor?.value;
+      },
+    });
+  }
+
+  const menuRectPrototype = Element.prototype;
+  const menuRectDescriptor = Object.getOwnPropertyDescriptor(menuRectPrototype, "getBoundingClientRect");
+  Object.defineProperty(menuRectPrototype, "getBoundingClientRect", {
+    configurable: true,
+    writable: true,
+    value: function () {
+      if (!this.matches?.(".widget-menu")) return menuRectDescriptor.value.call(this);
+      const fixed = this.style.position === "fixed";
+      const left = Number.parseFloat(this.style.left);
+      const right = Number.parseFloat(this.style.right);
+      const top = Number.parseFloat(this.style.top);
+      const bottom = Number.parseFloat(this.style.bottom);
+      const menuLeft = Number.isFinite(left) ? (fixed ? left : geometry.cardRect.left + left)
+        : Number.isFinite(right) ? geometry.cardRect.left + geometry.cardRect.width - right - geometry.menuWidth
+          : geometry.cardRect.left;
+      const menuTop = Number.isFinite(top) ? (fixed ? top : geometry.cardRect.top + top)
+        : Number.isFinite(bottom) ? geometry.cardRect.top + geometry.cardRect.height - bottom - menuHeight()
+          : geometry.cardRect.top;
+      return rect({ left: menuLeft, top: menuTop, width: geometry.menuWidth, height: menuHeight() });
+    },
+  });
+
+  return {
+    geometry,
+    restore() {
+      card.getBoundingClientRect = cardRect;
+      anchor.getBoundingClientRect = anchorRect;
+      if (grid && gridRect) grid.getBoundingClientRect = gridRect;
+      for (const [name, descriptor] of menuDimensionDescriptors) {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+        else delete HTMLElement.prototype[name];
+      }
+      if (menuRectDescriptor) Object.defineProperty(menuRectPrototype, "getBoundingClientRect", menuRectDescriptor);
+      else delete menuRectPrototype.getBoundingClientRect;
+      for (const [name, descriptor] of Object.entries(viewportDescriptors)) {
+        const target = name.startsWith("inner") ? window : documentElement;
+        if (descriptor) Object.defineProperty(target, name, descriptor);
+        else delete target[name];
+      }
+    },
+  };
+}
 async function waitForMilliseconds(duration) {
   await act(async () => new Promise((resolve) => setTimeout(resolve, duration)));
 }
@@ -481,6 +583,54 @@ test("widget options fade on outside clicks while inside clicks and actions keep
     assert.ok(!rootNode.querySelector(".widget-menu"));
     assert.equal(menu.classList.contains("is-closing"), false, "size action removes its menu immediately without starting a fade");
     assert.equal(menu.isConnected, false);
+  } finally { if (root) await unmount(); }
+});
+
+test("widget menu positions and repositions within the viewport", async () => {
+  reset(); installWorkspaceServer();
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    const [first] = cards();
+    const layout = installWidgetMenuGeometry(first);
+    const frames = installFrameQueue();
+    try {
+      await clickAria("Quick notes options", first);
+      const menu = first.querySelector(".widget-menu");
+      assert.ok(menu);
+      let bounds = menu.getBoundingClientRect();
+      assert.equal(bounds.left, 145, "a left-half trigger aligns the menu's left edge with the trigger");
+      assert.equal(bounds.top, 208, "the menu opens below a trigger with room beneath it");
+
+      layout.geometry.cardRect = { left: 800, top: 100, width: 400, height: 700 };
+      layout.geometry.anchorRect = { left: 970, top: 350, width: 24, height: 24 };
+      await act(async () => {
+        window.dispatchEvent(new window.Event("scroll"));
+        document.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+      });
+      bounds = menu.getBoundingClientRect();
+      assert.equal(bounds.right, 994, "a right-half trigger aligns the menu's right edge with the trigger");
+      assert.equal(bounds.top, 378, "document scrolling recomputes the menu position");
+
+      layout.geometry.viewportWidth = 600;
+      layout.geometry.viewportHeight = 400;
+      layout.geometry.cardRect = { left: 200, top: 0, width: 400, height: 700 };
+      layout.geometry.anchorRect = { left: 570, top: 350, width: 24, height: 24 };
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+      frames.flush();
+      bounds = menu.getBoundingClientRect();
+      assert.equal(bounds.left, 348, "resizing clamps the menu to a 12px viewport margin");
+      assert.equal(bounds.top, 26, "the menu flips above when there is not enough room below");
+
+      layout.geometry.naturalMenuHeight = 900;
+      await act(async () => window.dispatchEvent(new window.Event("resize")));
+      frames.flush();
+      bounds = menu.getBoundingClientRect();
+      assert.equal(menu.style.maxHeight, "376px", "a tall menu is limited to viewport height minus 24px");
+      assert.equal(menu.scrollHeight, 900);
+      assert.equal(menu.clientHeight, 376);
+      assert.equal(bounds.top, 12, "the tallest menu is clamped to a 12px viewport margin");
+      assert.equal(bounds.bottom, 388);
+    } finally { layout.restore(); frames.restore(); }
   } finally { if (root) await unmount(); }
 });
 

@@ -1358,6 +1358,10 @@ html[data-theme="dark"] .tone-blue { background: #1d3546; color: #78c8ff; }
 .widget-menu {
   right: -3px;
   top: 34px;
+  min-width: min(178px, var(--widget-menu-available-width, calc(100vw - 24px)));
+  max-width: var(--widget-menu-available-width, calc(100vw - 24px));
+  max-height: max(0px, calc(100vh - 24px));
+  overflow: auto;
 }
 
 .widget-menu > p {
