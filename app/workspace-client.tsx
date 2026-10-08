@@ -737,21 +737,20 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
   const workspaceError = ["load-error", "save-error", "conflict", "session-error"].includes(persistenceStatus);
   const workspacePending = persistenceStatus === "dirty" || persistenceStatus === "saving";
-  const showWorkspaceToast = !experimentalMode && (persistenceStatus === "loading" || workspaceError || workspacePending || (profilePending && persistenceStatus === "saved"));
+  const showWorkspaceToast = !experimentalMode && (workspaceError || workspacePending || (profilePending && persistenceStatus === "saved"));
   const workspaceToastTitle = persistenceStatus === "load-error" ? "Couldn't load workspace"
     : persistenceStatus === "save-error" ? ""
       : persistenceStatus === "conflict" ? "Workspace changed elsewhere"
         : persistenceStatus === "session-error" ? "Sign in to continue saving"
-          : persistenceStatus === "loading" ? "Loading your workspace…"
-            : workspacePending ? "Saving workspace…"
-              : profileSaving ? "Saving settings…"
-                : "Settings have unsaved changes";
+          : workspacePending ? "Saving workspace…"
+            : profileSaving ? "Saving settings…"
+              : "Settings have unsaved changes";
   const workspaceToastMessage = workspaceError ? saveState.message || "Something went wrong while saving your workspace."
     : workspacePending ? undefined
       : profileSaving ? "Your settings changes are being saved."
         : profilePending ? "Your settings changes have not been saved yet."
           : undefined;
-  const workspaceToastLoading = persistenceStatus === "loading" || workspacePending || (profileSaving && persistenceStatus === "saved");
+  const workspaceToastLoading = workspacePending || (profileSaving && persistenceStatus === "saved");
 
   return (
     <div className={`app-shell reference-ui ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -857,7 +856,14 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           <span><strong>{experimentalMode.charAt(0).toUpperCase() + experimentalMode.slice(1)} experimental mode</strong> — fake data is shown only in this tab and is not saved.</span>
           <button type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit"}</button>
         </div>}
-        {!saveState.ready && <section className="workspace-loading"><h1>{persistenceStatus === "loading" ? "Loading your workspace" : "Your workspace could not be loaded"}</h1><p>Your saved work will be available here when the connection is restored.</p></section>}
+        {!saveState.ready && (persistenceStatus === "loading" ? (
+          <section className="workspace-loading is-pending" role="status" aria-live="polite">
+            <span className="workspace-loading-spinner" aria-hidden="true" />
+            <h1>Loading your workspace...</h1>
+          </section>
+        ) : (
+          <section className="workspace-loading"><h1>Your workspace could not be loaded</h1><p>Your saved work will be available here when the connection is restored.</p></section>
+        ))}
         {saveState.ready && page === "home" && renderHome()}
         {saveState.ready && page === "dashboard" && renderDashboard()}
         {saveState.ready && page === "tasks" && <div className="page">{renderPageHeader("Your coursework", "Tasks", "All your assignments, across every course.", <button className="primary-button" onClick={newAssignment}><Plus size={16} /> Add assignment</button>)}{renderAssignmentTable(assignments)}</div>}

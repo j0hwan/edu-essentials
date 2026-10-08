@@ -81,6 +81,9 @@
 .reference-ui .topbar-actions { grid-column: 3; justify-self: end; margin-left: 0; }
 .reference-ui .topbar-icon { background: none; border: none; color: #b9cbed; }
 .reference-ui .main-content { margin-left: var(--content-offset); min-width: 0; min-height: calc(100svh - calc(70 * var(--ui-unit))); padding: 0 var(--page-gutter) var(--page-gutter) 0; container: workspace / inline-size; transition: margin-left var(--shell-reflow-duration) var(--shell-reflow-easing); }
+.reference-ui .workspace-loading.is-pending { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100svh - calc(70 * var(--ui-unit)) - var(--page-gutter)); gap: 24px; padding: 16px; text-align: center; }
+.reference-ui .workspace-loading.is-pending h1 { margin: 0; font-size: 18px; font-weight: 500; line-height: 1.5; }
+.reference-ui .workspace-loading-spinner { width: 80px; height: 80px; border: 6px solid var(--border-strong); border-top-color: var(--brand); border-radius: 50%; animation: spin .9s linear infinite; }
 .reference-ui .page { width: 100%; margin: 0; padding: calc(20 * var(--ui-unit)) 0; max-width: none; }
 .reference-ui .home-page { padding: calc(6 * var(--ui-unit)) 0 0; }
 .reference-ui .save-bar-quiet { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); border: 0; }
@@ -281,6 +284,7 @@
   .reference-ui .topbar-actions { display: none; }
   .reference-ui .topbar-search { max-width: none; }
   .reference-ui .main-content { margin-left: 0; min-height: calc(100svh - calc(116 * var(--ui-unit))); padding: 0 var(--page-gutter) calc(80 * var(--ui-unit)); }
+  .reference-ui .workspace-loading.is-pending { min-height: calc(100svh - calc(196 * var(--ui-unit))); }
   .reference-ui .mobile-header, .reference-ui .mobile-bottom-nav { background: #0b1a2fef; }
   .reference-ui .mountain-backdrop { left: 0; height: calc(190 * var(--ui-unit)); }
   .reference-ui .home-greeting { padding: 0 0 var(--layout-gap); min-height: calc(74 * var(--ui-unit)); }
