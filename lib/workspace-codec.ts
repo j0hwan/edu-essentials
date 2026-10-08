@@ -2,6 +2,7 @@ import { validateCourseDetails, validateDraft, type CourseDetails, type Syllabus
 import { validateStudy, type StudyData } from "./study";
 import { validateWidgetAppearanceState, type WidgetAppearanceState } from "./widget-appearance";
 import { widgetSizes, type WidgetSize } from "./widget-layout";
+import { validateTodaySections, type TodaySectionId } from "./today-sections";
 export { widgetSizes };
 export type { WidgetSize };
 
@@ -41,6 +42,7 @@ export type Workspace = {
   name: string;
   widgets: WidgetInstance[];
   todayHidden?: boolean;
+  todaySections?: TodaySectionId[];
 };
 
 type CompactWidget = [type: number, size: number, instanceId: string, noteIndex?: number];
@@ -52,6 +54,7 @@ export type CompactWorkspaceState = {
   w: CompactWorkspace[];
   b?: string[];
   h?: string[];
+  ts?: [workspaceId: string, sections: TodaySectionId[]][];
   n?: string;
   t?: string[];
   d?: WorkspaceData;
@@ -94,6 +97,8 @@ export const MAX_WORKSPACE_BYTES = 1_000_000;
  * it, including an empty array, so legacy saves cannot erase placement choices.
  * h stores workspace IDs with a hidden Today section; an empty list explicitly
  * restores every section and distinguishes updated writers from older clients.
+ * ts stores per-workspace Today content choices. An empty list uses the defaults
+ * everywhere and distinguishes updated writers from older clients.
  */
 export function encodeWorkspaceState(
   workspaces: Workspace[],
@@ -109,6 +114,7 @@ export function encodeWorkspaceState(
   const texts: string[] = [], textIndexes = new Map<string, number>();
   const miniBlockStarts: string[] = [];
   const hiddenTodayWorkspaces: string[] = [];
+  const todaySections: [string, TodaySectionId[]][] = [];
   const compactWorkspaces: CompactWorkspace[] = workspaces.map((workspace) => {
     if (!workspace.id || workspace.id.length > 120) {
       throw new Error("Invalid workspace ID.");
@@ -118,6 +124,7 @@ export function encodeWorkspaceState(
     }
     if (workspace.todayHidden !== undefined && typeof workspace.todayHidden !== "boolean") throw new Error("Invalid Today section visibility.");
     if (workspace.todayHidden) hiddenTodayWorkspaces.push(workspace.id);
+    if (workspace.todaySections !== undefined) todaySections.push([workspace.id, validateTodaySections(workspace.todaySections)]);
     if (workspace.widgets.length > MAX_WIDGETS_PER_WORKSPACE) {
       throw new Error("A workspace cannot contain more than 100 widgets.");
     }
@@ -152,6 +159,7 @@ export function encodeWorkspaceState(
     w: compactWorkspaces,
     b: miniBlockStarts,
     h: hiddenTodayWorkspaces,
+    ts: todaySections,
     ...(texts.length ? { t: texts } : {}),
     ...(notes ? { n: notes } : {}),
     ...(data ? { d: validateWorkspaceData(data) } : {}),
@@ -184,6 +192,15 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
     || hiddenTodayWorkspaces.some((id) => typeof id !== "string" || !id.trim() || id.length > 120)
     || new Set(hiddenTodayWorkspaces).size !== hiddenTodayWorkspaces.length)) throw new Error("Invalid Today section visibility.");
   const hiddenTodayWorkspaceIds = new Set<string>(hiddenTodayWorkspaces as string[] | undefined);
+  const todaySections = new Map<string, TodaySectionId[]>();
+  if (value.ts !== undefined) {
+    if (value.v !== 2 || !Array.isArray(value.ts) || value.ts.length > MAX_WORKSPACES) throw new Error("Invalid Today section choices.");
+    for (const entry of value.ts) {
+      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string" || !entry[0].trim()
+        || entry[0].length > 120 || todaySections.has(entry[0])) throw new Error("Invalid Today section choices.");
+      todaySections.set(entry[0], validateTodaySections(entry[1]));
+    }
+  }
   const texts = value.t ?? [];
   if (!Array.isArray(texts) || texts.length > MAX_WORKSPACES * MAX_WIDGETS_PER_WORKSPACE || texts.some((text) => typeof text !== "string" || text.length > MAX_NOTES_LENGTH)) throw new Error("Invalid note content.");
 
@@ -233,12 +250,14 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
 
     return { id: workspace[0], name: workspace[1].trim(), widgets,
       ...(hiddenTodayWorkspaceIds.has(workspace[0]) ? { todayHidden: true } : {}),
+      ...(todaySections.has(workspace[0]) ? { todaySections: todaySections.get(workspace[0])! } : {}),
     };
   });
 
   if (new Set(workspaces.map((workspace) => workspace.id)).size !== workspaces.length) throw new Error("Duplicate workspace ID.");
   const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
   if ([...hiddenTodayWorkspaceIds].some((id) => !workspaceIds.has(id))) throw new Error("Invalid Today section visibility.");
+  if ([...todaySections.keys()].some((id) => !workspaceIds.has(id))) throw new Error("Invalid Today section choices.");
   if ([...miniBlockStartIds].some((id) => !miniIds.has(id))) throw new Error("Invalid mini block placement.");
 
   return {

@@ -65,6 +65,7 @@ import StudyWidget, { studyWidgetTypes } from "./study-widgets";
 import ReorderableWidgetGrid from "./reorderable-widget-grid";
 import WidgetCustomization from "./widget-customization";
 import TodaySection from "./today-section";
+import { defaultTodaySections, type TodaySectionId } from "../lib/today-sections";
 import { resolveWidgetAppearance, widgetAppearanceStyle, type WidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
 import StudyPanel from "./study-panel";
 import { useStudyStats } from "./use-study-stats";
@@ -958,6 +959,99 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       if (today >= meeting.from && today <= meeting.until && meeting.days.includes(new Date(today + "T12:00:00Z").getUTCDay())) schedule.push({ time: meeting.start, title: course.name, detail: meeting.location || course.room, color: course.color, onOpen: () => setSelectedClass(course) });
     }
     schedule.sort((a, b) => a.time.localeCompare(b.time));
+    const futureAssignments = assignments.filter((assignment) => assignment.dateKey > today && assignment.status !== "done").slice(0, 3);
+
+    const renderTodaySection = (sectionId: TodaySectionId) => {
+      switch (sectionId) {
+        case "next-class":
+          return (
+            <section key={sectionId} className="today-panel-section today-next-class" aria-labelledby="next-class-title">
+              <div className="today-section-heading"><span className="today-heading-icon"><GraduationCap /></span><h2 id="next-class-title">Next Class</h2></div>
+              <div className="next-class-content">{nextClass ? <button onClick={() => setSelectedClass(nextClass.course)}><div className="next-class-title"><strong>{nextClass.course.name}</strong><small>{nextClass.meeting.start <= localTime ? "Now" : "Today"}</small></div><p>{timeLabel(nextClass.meeting.start)} | {nextClass.course.code} · {nextClass.meeting.location || nextClass.course.room}</p></button> : <><strong>No more classes today</strong><p>Enjoy a little breathing room.</p></>}</div>
+            </section>
+          );
+        case "due-today":
+          return (
+            <section key={sectionId} className="today-panel-section" aria-labelledby="today-tasks-title">
+              <div className="today-section-heading"><span className="today-heading-icon"><FileText /></span><h2 id="today-tasks-title">Due Today ({featuredAssignments.length})</h2></div>
+              <div className="today-task-list">
+                {featuredAssignments.length === 0 && <p className="today-empty">Nothing due today.</p>}
+                {featuredAssignments.slice(0, 2).map((assignment) => {
+                  const course = courseFor(courses, assignment.courseId);
+                  return (
+                    <button key={assignment.id} className="today-task-row" onClick={() => setSelectedAssignment(assignment)}>
+                      <span className="task-circle" aria-hidden="true" />
+                      <span className="today-task-copy"><strong>{assignment.title}</strong><small>{course.name}</small></span>
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        case "schedule":
+          return (
+            <section key={sectionId} className="today-panel-section today-schedule" aria-labelledby="today-schedule-title">
+              <div className="today-section-heading"><span className="today-heading-icon"><CalendarDays /></span><h2 id="today-schedule-title">Today’s Schedule</h2></div>
+              <div className="today-schedule-list">
+                {schedule.length === 0 && <p className="today-empty">No events yet. Your schedule will appear here.</p>}
+                {schedule.slice(0, 3).map((item) => (
+                  <button key={`${item.time}-${item.title}`} className="today-schedule-row" onClick={item.onOpen}>
+                    <time>{timeLabel(item.time)}</time>
+                    <span className="today-schedule-copy"><span><i style={{ background: item.color }} aria-hidden="true" />{item.title}</span></span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          );
+        case "study-goal":
+          return (
+            <section key={sectionId} className="today-panel-section" aria-labelledby="today-study-goal-title">
+              <div className="today-section-heading"><span className="today-heading-icon"><Target /></span><h2 id="today-study-goal-title">Study Goal</h2></div>
+              <div className="today-metric-content">
+                {study.dailyMinutes > 0 ? <>
+                  <div className="today-goal-summary"><strong>{dailyPercent}%</strong><span>{durationLabel(stats.dailySeconds)} of {durationLabel(study.dailyMinutes * 60)}</span></div>
+                  <div className="today-goal-track" role="progressbar" aria-label="Daily study goal progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={dailyPercent}><span style={{ width: `${dailyPercent}%` }} /></div>
+                  <p>{dailyPercent >= 100 ? "Today’s study goal is complete." : `${durationLabel(Math.max(0, study.dailyMinutes * 60 - stats.dailySeconds))} left toward today’s target.`}</p>
+                  <button type="button" className="today-inline-action" onClick={() => setStudyOpen(true)}>Study details <ArrowRight size={14} /></button>
+                </> : <>
+                  <p className="today-empty">No daily study goal is set yet.</p>
+                  <button type="button" className="today-inline-action" onClick={() => setStudyOpen(true)}>Set a study goal <ArrowRight size={14} /></button>
+                </>}
+              </div>
+            </section>
+          );
+        case "upcoming-deadlines":
+          return (
+            <section key={sectionId} className="today-panel-section" aria-labelledby="today-upcoming-title">
+              <div className="today-section-heading"><span className="today-heading-icon"><FileSearch /></span><h2 id="today-upcoming-title">Upcoming Deadlines</h2></div>
+              {futureAssignments.length ? <div className="today-task-list">
+                {futureAssignments.map((assignment) => {
+                  const course = courseFor(courses, assignment.courseId);
+                  return (
+                    <button key={assignment.id} className="today-task-row" onClick={() => setSelectedAssignment(assignment)}>
+                      <span className="task-circle" aria-hidden="true" />
+                      <span className="today-task-copy"><strong>{assignment.title}</strong><small>{course.name} · {dateLabel(assignment.dateKey, { month: "short", day: "numeric" })}</small></span>
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div> : <div className="today-metric-content"><p className="today-empty">No future deadlines are scheduled.</p><button type="button" className="today-inline-action" onClick={() => navigate("tasks")}>View assignments <ArrowRight size={14} /></button></div>}
+            </section>
+          );
+        case "study-streak":
+          return (
+            <section key={sectionId} className="today-panel-section" aria-labelledby="today-streak-title">
+              <div className="today-section-heading"><span className="today-heading-icon"><Flame /></span><h2 id="today-streak-title">Study Streak</h2></div>
+              <div className="today-metric-content">
+                <div className="today-streak-summary"><strong>{stats.streak}</strong><span>{stats.streak === 1 ? "day" : "days"}</span></div>
+                <p>{stats.streak > 0 ? "Keep your momentum going with another focused session." : "Start a study session to begin your streak."}</p>
+                <button type="button" className="today-inline-action" onClick={() => setStudyOpen(true)}>{stats.streak > 0 ? "View study log" : "Start studying"} <ArrowRight size={14} /></button>
+              </div>
+            </section>
+          );
+      }
+    };
 
     return (
       <div className="page home-page">
@@ -966,8 +1060,10 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           key={activeWorkspace.id}
           hidden={Boolean(activeWorkspace.todayHidden)}
           customizing={customizing}
+          sections={activeWorkspace.todaySections ?? defaultTodaySections}
           menuStyle={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
           onHiddenChange={(hidden) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todayHidden: hidden } : workspace))}
+          onSectionsChange={(sections) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todaySections: sections } : workspace))}
           onCalendar={() => navigate("calendar")}
           onOptionsOpen={() => { closeWidgetMenu(); setWorkspaceMenuOpen(false); }}
           onHideFocus={() => window.requestAnimationFrame(() => {
@@ -975,49 +1071,8 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
             else customizeButtonRef.current?.focus();
           })}
         >
-          <div className="today-panel-grid">
-            <section className="today-panel-section today-next-class" aria-labelledby="next-class-title">
-              <div className="today-section-heading"><span className="today-heading-icon"><GraduationCap /></span><h2 id="next-class-title">Next Class</h2></div>
-              <div className="next-class-content">{nextClass ? <button onClick={() => setSelectedClass(nextClass.course)}><div className="next-class-title"><strong>{nextClass.course.name}</strong><small>{nextClass.meeting.start <= localTime ? "Now" : "Today"}</small></div><p>{timeLabel(nextClass.meeting.start)} | {nextClass.course.code} · {nextClass.meeting.location || nextClass.course.room}</p></button> : <><strong>No more classes today</strong><p>Enjoy a little breathing room.</p></>}</div>
-            </section>
-            <section className="today-panel-section" aria-labelledby="today-tasks-title">
-              <div className="today-section-heading">
-                <span className="today-heading-icon"><FileText /></span><h2 id="today-tasks-title">Due Today ({featuredAssignments.length})</h2>
-              </div>
-              <div className="today-task-list">
-                {featuredAssignments.length === 0 && <p className="today-empty">Nothing due today.</p>}
-                {featuredAssignments.slice(0, 2).map((assignment) => {
-                  const course = courseFor(courses, assignment.courseId);
-                  return (
-                    <button key={assignment.id} className="today-task-row" onClick={() => setSelectedAssignment(assignment)}>
-                      <span className="task-circle" aria-hidden="true" />
-                      <span className="today-task-copy">
-                        <strong>{assignment.title}</strong>
-                        <small>{course.name}</small>
-                      </span>
-                      <ChevronRight size={16} aria-hidden="true" />
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="today-panel-section today-schedule" aria-labelledby="today-schedule-title">
-              <div className="today-section-heading">
-                <span className="today-heading-icon"><CalendarDays /></span><h2 id="today-schedule-title">Today’s Schedule</h2>
-              </div>
-              <div className="today-schedule-list">
-                {schedule.length === 0 && <p className="today-empty">No events yet. Your schedule will appear here.</p>}
-                {schedule.slice(0, 3).map((item) => (
-                  <button key={`${item.time}-${item.title}`} className="today-schedule-row" onClick={item.onOpen}>
-                    <time>{timeLabel(item.time)}</time>
-                    <span className="today-schedule-copy">
-                      <span><i style={{ background: item.color }} aria-hidden="true" />{item.title}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </section>
+          <div className="today-panel-grid" data-section-count={activeWorkspace.todaySections?.length ?? defaultTodaySections.length}>
+            {(activeWorkspace.todaySections ?? defaultTodaySections).map(renderTodaySection)}
           </div>
         </TodaySection>
 

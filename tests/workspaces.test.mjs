@@ -3,6 +3,7 @@ import test from "node:test";
 import { clientModule } from "./helpers/client-modules.mjs";
 const { encodeWorkspaceState: encode, decodeWorkspaceState: decode, widgetTypes, widgetSizes, MAX_WORKSPACE_BYTES } = await import(await clientModule("lib/workspace-codec.ts"));
 const { widgetSizeOptions } = await import(await clientModule("lib/widget-layout.ts"));
+const { todaySectionOptions, defaultTodaySections, validateTodaySections } = await import(await clientModule("lib/today-sections.ts"));
 const pack = (state) => encode(state.workspaces, state.activeWorkspaceId, state.notes, state.data);
 const legacy = { v: 1, a: "second", w: [["first", "First", widgetTypes.map((_, i) => [i, i % 3])], ["second", "Second", [[12, 2], [12, 0]]]], n: "Shared legacy text\nKeep every line." };
 
@@ -77,6 +78,85 @@ test("Today visibility rejects malformed or dangling workspace IDs", () => {
   }
   assert.throws(() => decode({ ...legacy, h: [] }), /Today section visibility/);
   assert.throws(() => encode([{ id: "day", name: "My day", widgets: [], todayHidden: "yes" }], "day", ""), /Today section visibility/);
+});
+
+test("Today content choices round-trip independently per workspace and retain their order", () => {
+  assert.deepEqual(todaySectionOptions.map(({ id }) => id), [
+    "next-class", "due-today", "schedule", "study-goal", "upcoming-deadlines", "study-streak",
+  ]);
+  assert.deepEqual(defaultTodaySections, ["next-class", "due-today", "schedule"]);
+
+  const workspaces = [
+    { id: "day", name: "My day", widgets: [], todaySections: ["study-goal", "schedule", "due-today"] },
+    { id: "study", name: "Study mode", widgets: [], todaySections: ["upcoming-deadlines"] },
+    { id: "default", name: "Defaults", widgets: [] },
+  ];
+  const compact = encode(workspaces, "day", "");
+  assert.deepEqual(compact.ts, [
+    ["day", ["study-goal", "schedule", "due-today"]],
+    ["study", ["upcoming-deadlines"]],
+  ], "only explicit choices are stored, in workspace and section order");
+  assert.deepEqual(decode(compact).workspaces, workspaces);
+
+  const oldV1 = decode(legacy);
+  assert.ok(oldV1.workspaces.every((workspace) => workspace.todaySections === undefined), "v1 layouts defer to UI defaults");
+  const oldV2 = { ...encode([{ id: "day", name: "Day", widgets: [] }], "day", "") };
+  delete oldV2.ts;
+  assert.equal(decode(oldV2).workspaces[0].todaySections, undefined, "v2 layouts saved before this field also defer to UI defaults");
+  assert.deepEqual(encode([{ id: "day", name: "Day", widgets: [] }], "day", "").ts, [], "current writers identify that no custom choices are saved");
+});
+
+test("Today content choices survive hiding, workspace duplication and deletion", () => {
+  const source = { id: "day", name: "My day", widgets: [], todayHidden: true, todaySections: ["schedule", "study-goal"] };
+  const loaded = decode(encode([source], "day", "")).workspaces[0];
+  const duplicate = { ...loaded, id: "copy", name: "Copy", widgets: [] };
+
+  const withDuplicate = encode([loaded, duplicate], "copy", "");
+  assert.deepEqual(withDuplicate.h, ["day", "copy"], "hidden state is retained on both copied workspaces");
+  assert.deepEqual(withDuplicate.ts, [
+    ["day", ["schedule", "study-goal"]],
+    ["copy", ["schedule", "study-goal"]],
+  ]);
+
+  const afterDelete = encode([duplicate], "copy", "");
+  assert.deepEqual(afterDelete.h, ["copy"], "deleting a workspace prunes only its hidden-state entry");
+  assert.deepEqual(afterDelete.ts, [["copy", ["schedule", "study-goal"]]], "deleting a workspace prunes its choice entry and keeps the duplicate's choices");
+});
+
+test("Today content choices reject malformed lists and dangling workspace IDs", () => {
+  const payload = encode([{ id: "day", name: "Day", widgets: [] }], "day", "");
+  const valid = ["schedule", "study-goal"];
+  const invalidLists = [
+    null, {}, "day", [1],
+    [["day"]], [["", valid]], [["day", "schedule"]],
+    [["day", []]], [["day", ["unknown"]]], [["day", ["schedule", "schedule"]]],
+    [["day", ["next-class", "due-today", "schedule", "study-goal"]]],
+    [["day", valid], ["day", valid]], [["missing", valid]],
+  ];
+  for (const ts of invalidLists) assert.throws(() => decode({ ...payload, ts }), /Today section choices|Choose between 1 and 3/);
+  assert.throws(() => decode({ ...legacy, ts: [] }), /Today section choices/);
+
+  for (const todaySections of [[], ["unknown"], ["schedule", "schedule"], ["next-class", "due-today", "schedule", "study-goal"]]) {
+    assert.throws(() => encode([{ id: "day", name: "Day", widgets: [], todaySections }], "day", ""), /Choose between 1 and 3/);
+  }
+});
+
+test("Today content choice arrays are defensively copied", () => {
+  const input = ["study-goal", "schedule"];
+  const validated = validateTodaySections(input);
+  assert.notStrictEqual(validated, input);
+  validated.reverse();
+  assert.deepEqual(input, ["study-goal", "schedule"]);
+
+  const sections = ["study-goal", "schedule"];
+  const compact = encode([{ id: "day", name: "Day", widgets: [], todaySections: sections }], "day", "");
+  sections.reverse();
+  assert.deepEqual(compact.ts, [["day", ["study-goal", "schedule"]]], "encoding does not retain the caller's mutable array");
+  const decoded = decode(compact);
+  compact.ts[0][1].reverse();
+  assert.deepEqual(decoded.workspaces[0].todaySections, ["study-goal", "schedule"], "decoding does not retain the compact payload's mutable array");
+  decoded.workspaces[0].todaySections.reverse();
+  assert.deepEqual(compact.ts[0][1], ["schedule", "study-goal"], "decoded state does not share its choice array with the payload");
 });
 
 test("v1 migration preserves every layout and note, with deterministic persistent identities", () => {

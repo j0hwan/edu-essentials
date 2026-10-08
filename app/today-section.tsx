@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowRight, EyeOff, MoreHorizontal, Pencil } from "lucide-react";
+import { ArrowRight, EyeOff, MoreHorizontal, Pencil, X } from "lucide-react";
+import { defaultTodaySections, todaySectionOptions, type TodaySectionId } from "../lib/today-sections";
 
 type TodaySectionProps = {
   hidden: boolean;
   customizing: boolean;
+  sections: TodaySectionId[];
   children: ReactNode;
   onHiddenChange: (hidden: boolean) => boolean;
+  onSectionsChange: (sections: TodaySectionId[]) => boolean;
   onCalendar: () => void;
   onOptionsOpen: () => void;
   onHideFocus?: () => void;
@@ -18,18 +21,25 @@ type TodaySectionProps = {
 export default function TodaySection({
   hidden,
   customizing,
+  sections,
   children,
   onHiddenChange,
+  onSectionsChange,
   onCalendar,
   onOptionsOpen,
   onHideFocus,
   menuStyle,
 }: TodaySectionProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [sectionDraft, setSectionDraft] = useState<TodaySectionId[]>(sections);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const applyingRef = useRef(false);
   const sectionRef = useRef<HTMLElement>(null);
   const focusLastItemOnOpenRef = useRef(false);
   const focusOnOpenRef = useRef(false);
@@ -51,6 +61,78 @@ export default function TodaySection({
     setMenuOpen(false);
     if (returnFocus) triggerRef.current?.focus();
   }, []);
+
+  const closeEditor = (returnFocus = false) => {
+    setEditorOpen(false);
+    if (returnFocus) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  const openEditor = () => {
+    setSectionDraft([...sections]);
+    setApplyError(null);
+    closeMenu();
+    setEditorOpen(true);
+  };
+
+  useLayoutEffect(() => {
+    if (!editorOpen) return;
+    const firstEnabledChoice = editorRef.current?.querySelector<HTMLInputElement>('input[type="checkbox"]:not(:disabled)');
+    (firstEnabledChoice ?? editorRef.current)?.focus({ preventScroll: true });
+  }, [editorOpen]);
+
+  const handleEditorKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeEditor(true);
+      return;
+    }
+    if (event.key !== "Tab" || !editorRef.current) return;
+    const focusable = Array.from(editorRef.current.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.tabIndex >= 0 && element.getClientRects().length > 0);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      editorRef.current.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === editorRef.current)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const applySections = () => {
+    if (applyingRef.current) return;
+    applyingRef.current = true;
+    const changed = sections.length !== sectionDraft.length || sections.some((section, index) => section !== sectionDraft[index]);
+    try {
+      if (changed && !onSectionsChange([...sectionDraft])) {
+        setApplyError("Today sections could not be saved. Try again after checking your workspace save status.");
+        applyingRef.current = false;
+        return;
+      }
+      closeEditor(true);
+    } catch {
+      setApplyError("Today sections could not be saved. Try again after checking your workspace save status.");
+    } finally {
+      applyingRef.current = false;
+    }
+  };
+
+  const toggleSection = (section: TodaySectionId, checked: boolean) => {
+    setApplyError(null);
+    setSectionDraft((current) => checked ? [...current, section] : current.filter((item) => item !== section));
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -228,8 +310,50 @@ export default function TodaySection({
           onKeyDown={handleMenuKeyDown}
           style={{ ...menuStyle, position: "fixed", left: menuPosition?.left ?? -9999, top: menuPosition?.top ?? -9999, right: "auto", visibility: menuPosition ? "visible" : "hidden" }}
         >
-          <button type="button" role="menuitem" disabled title="Coming soon"><Pencil size={15} /> Edit section</button>
+          <button type="button" role="menuitem" onClick={openEditor}><Pencil size={15} /> Edit section</button>
           <button type="button" role="menuitem" onClick={hide}><EyeOff size={15} /> Hide section</button>
+        </div>,
+        portalTarget ?? document.body,
+      )}
+      {editorOpen && createPortal(
+        <div className="modal-backdrop today-section-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeEditor(true); }}>
+          {/* The dialog owns Escape and Tab so focus stays inside while editing. */}
+          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+          <div ref={editorRef} className="small-modal today-section-editor" role="dialog" aria-modal="true" aria-labelledby="today-section-editor-title" aria-describedby="today-section-editor-help" tabIndex={-1} onKeyDown={handleEditorKeyDown}>
+            <div className="today-section-editor-header">
+              <div><p className="eyebrow">TODAY LAYOUT</p><h2 id="today-section-editor-title">Edit Today sections</h2></div>
+              <button type="button" className="icon-button" aria-label="Close Today section editor" onClick={() => closeEditor(true)}><X size={19} /></button>
+            </div>
+            <p id="today-section-editor-help" className="form-hint">Choose 1–3 sections. To swap a section, remove one first, then add its replacement.</p>
+            <fieldset className="today-section-editor-choices">
+              <legend>Sections to show</legend>
+              {todaySectionOptions.map((option) => {
+                const checked = sectionDraft.includes(option.id);
+                const disabled = checked ? sectionDraft.length <= 1 : sectionDraft.length >= 3;
+                return (
+                  <div key={option.id} className="today-section-editor-choice">
+                    <input
+                      id={`today-section-choice-${option.id}`}
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      aria-label={option.label}
+                      aria-describedby={`today-section-description-${option.id}`}
+                      onChange={(event) => toggleSection(option.id, event.currentTarget.checked)}
+                    />
+                    <label htmlFor={`today-section-choice-${option.id}`}><strong>{option.label}</strong><small id={`today-section-description-${option.id}`}>{option.description}</small></label>
+                  </div>
+                );
+              })}
+            </fieldset>
+            <p className="today-section-editor-count" aria-live="polite">{sectionDraft.length} of 3 selected</p>
+            {applyError && <p className="auth-error" role="alert">{applyError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => { setSectionDraft([...defaultTodaySections]); setApplyError(null); }}>Reset to defaults</button>
+              <button type="button" className="secondary-button" onClick={() => closeEditor(true)}>Cancel</button>
+              <button type="button" className="primary-button" onClick={applySections}>Apply</button>
+            </div>
+          </div>
         </div>,
         portalTarget ?? document.body,
       )}

@@ -62,6 +62,7 @@ try {
   for (const scenario of [
     { width: 320, height: 900, touch: true, restore: "touch" },
     { width: 390, height: 900, touch: false, restore: "keyboard" },
+    { width: 1000, height: 1000, touch: false, restore: "mouse" },
     { width: 1440, height: 1000, touch: false, restore: "mouse" },
   ]) {
     const context = await browser.newContext({
@@ -159,7 +160,7 @@ try {
     assert.ok(menuGeometry.x >= 0 && menuGeometry.y >= 0, `menu begins within the viewport at ${scenario.width}px`);
     assert.ok(menuGeometry.x + menuGeometry.width <= scenario.width + 1, `menu fits the viewport width at ${scenario.width}px`);
     assert.ok(menuGeometry.y + menuGeometry.height <= scenario.height + 1, `menu fits the viewport height at ${scenario.width}px`);
-    assert.equal(await menu.getByRole("menuitem", { name: /Edit section/ }).isDisabled(), true, "Edit section stays a disabled placeholder");
+    assert.equal(await menu.getByRole("menuitem", { name: /Edit section/ }).isDisabled(), false, "Edit section opens the content editor");
     assert.equal(page.url(), urlBefore, "opening Today options never navigates away");
 
     if (scenario.restore === "keyboard") {
@@ -231,7 +232,10 @@ try {
       await trigger.click();
     }
     const writesBeforeHide = await page.evaluate(() => window.__todayFixture.writes);
-    if (scenario.restore === "keyboard") await page.keyboard.press("Space");
+    if (scenario.restore === "keyboard") {
+      await menu.getByRole("menuitem", { name: "Hide section" }).focus();
+      await page.keyboard.press("Space");
+    }
     else await menu.getByRole("menuitem", { name: "Hide section" }).click();
     await panel.waitFor({ state: "detached" });
     await page.waitForFunction((count) => window.__todayFixture.writes === count + 1, writesBeforeHide);
@@ -270,10 +274,62 @@ try {
     assert.equal(await page.evaluate(() => window.__todayFixture.writes), writesBeforeHide + 2, "hide and restore each save once");
     assert.equal(await page.locator(".today-section-restore").count(), 0, "restored Today replaces its placeholder");
 
+    // Exercise real layout at each section count, including narrow viewports.
+    const editToday = async () => {
+      await trigger.click();
+      await menu.getByRole("menuitem", { name: "Edit section" }).click();
+      const dialog = page.getByRole("dialog", { name: "Edit Today sections" });
+      await dialog.waitFor({ state: "visible" });
+      const geometry = await dialog.boundingBox();
+      assert.ok(geometry && geometry.x >= 0 && geometry.x + geometry.width <= scenario.width + 1, "editor fits the viewport");
+      return dialog;
+    };
+    const assertSectionsFillGrid = async (count) => {
+      const sections = panel.locator(".today-panel-grid > .today-panel-section");
+      assert.equal(await sections.count(), count);
+      const gridBox = await panel.locator(".today-panel-grid").boundingBox();
+      const boxes = await sections.evaluateAll((elements) => elements.map((element) => {
+        const { x, y, width } = element.getBoundingClientRect();
+        return { x, y, width };
+      }));
+      for (const box of boxes) assert.ok(box.width > 0 && box.x >= gridBox.x && box.x + box.width <= gridBox.x + gridBox.width + 1, "section stays within the grid");
+      for (const y of new Set(boxes.map((box) => box.y))) {
+        const row = boxes.filter((box) => box.y === y);
+        assert.ok(Math.abs(row.reduce((sum, box) => sum + box.width, 0) - (gridBox.width - 2)) < 3, `visible sections fill each row: ${JSON.stringify({ viewport: scenario.width, count, gridBox, boxes, row })}`);
+        if (row.length > 1) assert.ok(Math.max(...row.map((box) => box.width)) - Math.min(...row.map((box) => box.width)) < 2, "sections in the same row share width equally");
+      }
+    };
+    const applyChoices = async (dialog) => {
+      const writes = await page.evaluate(() => window.__todayFixture.writes);
+      await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+      await dialog.waitFor({ state: "detached" });
+      await page.waitForFunction((count) => window.__todayFixture.writes === count + 1, writes);
+    };
+    await assertSectionsFillGrid(3);
+    let dialog = await editToday();
+    await dialog.getByRole("checkbox", { name: "Today’s Schedule", exact: true }).uncheck();
+    await applyChoices(dialog);
+    await assertSectionsFillGrid(2);
+    dialog = await editToday();
+    await dialog.getByRole("checkbox", { name: "Due Today", exact: true }).uncheck();
+    await applyChoices(dialog);
+    await assertSectionsFillGrid(1);
+    dialog = await editToday();
+    await dialog.getByRole("checkbox", { name: "Study Goal", exact: true }).check();
+    await dialog.getByRole("checkbox", { name: "Upcoming Deadlines", exact: true }).check();
+    await dialog.getByRole("checkbox", { name: "Next Class", exact: true }).uncheck();
+    await dialog.getByRole("checkbox", { name: "Study Streak", exact: true }).check();
+    await applyChoices(dialog);
+    await assertSectionsFillGrid(3);
+    await page.reload();
+    await panel.waitFor({ state: "visible" });
+    await panel.getByRole("heading", { name: "Study Streak" }).waitFor({ state: "visible" });
+    await assertSectionsFillGrid(3);
+
     await page.screenshot({ path: resolve(screenshotDir, `today-${scenario.width}.png`), fullPage: false });
     if (browserErrors.length) assert.deepEqual(browserErrors, [], "browser console stays clean");
     await context.close();
-    console.log(`PASS ${scenario.width}px ${scenario.touch ? "touch" : scenario.restore} viewport: menu bounds, hide/save/reload, geometry, restore`);
+    console.log(`PASS ${scenario.width}px ${scenario.touch ? "touch" : scenario.restore} viewport: menu bounds, hide/restore, editor, 1–3 section layouts, saved choices`);
   }
 } finally {
   if (browser) await browser.close();

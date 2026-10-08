@@ -520,5 +520,53 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       assert.deepEqual(await getWorkspace(), beforeB);
       runtime.user = userA;
     });
+    await t.test("Today content choices persist per account and guard older clients", async () => {
+      runtime.user = userB;
+      const beforeB = await getWorkspace();
+      runtime.user = userA;
+
+      const original = await getWorkspace();
+      const decoded = decodeWorkspaceState(original.dashboard);
+      const selections = decoded.workspaces.map((item) => item.id === decoded.activeWorkspaceId
+        ? { ...item, todaySections: ["study-goal", "schedule"] }
+        : item);
+      const dashboard = encodeWorkspaceState(selections, decoded.activeWorkspaceId, decoded.notes, decoded.data);
+      assert.deepEqual(dashboard.ts, [[decoded.activeWorkspaceId, ["study-goal", "schedule"]]]);
+      const response = await workspace.PUT(request({ courses: original.courses, dashboard, baseRevision: original.revision }));
+      assert.equal(response.status, 200);
+      const saved = await getWorkspace();
+      assert.deepEqual(saved.dashboard.ts, dashboard.ts);
+      assert.deepEqual(decodeWorkspaceState(saved.dashboard).workspaces, selections, "GET retains the chosen sections and their order");
+      assert.deepEqual(saved.courses, original.courses);
+      assert.deepEqual(saved.dashboard.d, original.dashboard.d, "Today preferences do not affect academic data");
+
+      const olderClient = structuredClone(saved.dashboard);
+      delete olderClient.ts;
+      olderClient.n = "Older client must not reset Today content";
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: olderClient, baseRevision: saved.revision }))).status, 426);
+      const malformed = { ...saved.dashboard, ts: [["foreign-workspace", ["study-goal"]]] };
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: malformed, baseRevision: saved.revision }))).status, 400);
+      const unchanged = await getWorkspace();
+      assert.equal(unchanged.revision, saved.revision, "rejected content-choice writes do not advance the revision");
+      assert.deepEqual(unchanged.dashboard, saved.dashboard, "rejected content-choice writes preserve the saved choices");
+
+      const reset = { ...saved.dashboard, ts: [] };
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: reset, baseRevision: saved.revision }))).status, 200,
+        "an explicit empty list resets all workspaces to their UI defaults");
+      const cleared = await getWorkspace();
+      assert.deepEqual(cleared.dashboard.ts, []);
+      assert.ok(decodeWorkspaceState(cleared.dashboard).workspaces.every((item) => item.todaySections === undefined));
+
+      const legacyWithoutChoices = structuredClone(cleared.dashboard);
+      delete legacyWithoutChoices.ts;
+      legacyWithoutChoices.n = "Legacy update accepted with default Today content";
+      assert.equal((await workspace.PUT(request({ courses: cleared.courses, dashboard: legacyWithoutChoices, baseRevision: cleared.revision }))).status, 200,
+        "omitting choices remains valid when no custom choices are stored");
+      assert.equal((await getWorkspace()).dashboard.n, legacyWithoutChoices.n);
+
+      runtime.user = userB;
+      assert.deepEqual(await getWorkspace(), beforeB, "Today content choices and revision remain isolated to their account");
+      runtime.user = userA;
+    });
   } finally { delete globalThis.__foundationTest; await pg.close(); }
 });

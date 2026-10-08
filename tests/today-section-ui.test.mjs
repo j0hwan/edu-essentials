@@ -127,6 +127,30 @@ function buttonAria(label, scope = rootNode) {
   assert.ok(found, `Missing button ${label}`);
   return found;
 }
+function todayEditorOrNull() {
+  return [...rootNode.querySelectorAll('[role="dialog"]')].find((node) => node.querySelector("h2")?.textContent.trim() === "Edit Today sections") ?? null;
+}
+function todayEditor() {
+  const found = todayEditorOrNull();
+  assert.ok(found, "Missing the Edit Today sections dialog");
+  assert.equal(found.getAttribute("aria-modal"), "true");
+  return found;
+}
+function sectionChoice(dialog, name) {
+  const row = [...dialog.querySelectorAll(".today-section-editor-choice")].find((node) => node.querySelector("strong")?.textContent.trim() === name);
+  assert.ok(row, `Missing Today section choice ${name}`);
+  const input = row.querySelector('input[type="checkbox"]');
+  assert.ok(input, `Missing checkbox for ${name}`);
+  return input;
+}
+function selectedSectionNames(dialog) {
+  return [...dialog.querySelectorAll(".today-section-editor-choice")]
+    .filter((row) => row.querySelector('input[type="checkbox"]')?.checked)
+    .map((row) => row.querySelector("strong")?.textContent.trim());
+}
+function todayHeadings() {
+  return [...rootNode.querySelectorAll(".today-panel-grid > .today-panel-section h2")].map((heading) => heading.textContent.trim());
+}
 async function click(text, scope = rootNode) {
   const control = button(text, scope);
   await act(async () => control.click());
@@ -137,6 +161,20 @@ async function clickAria(label, scope = rootNode) {
 }
 async function key(target, key, extra = {}) {
   await act(async () => target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...extra })));
+}
+async function openTodayEditor() {
+  await clickAria("Today section options");
+  const menu = rootNode.querySelector(".today-section-menu");
+  assert.ok(menu, "Today options menu opens");
+  await click("Edit section", menu);
+  await waitUntil(() => todayEditorOrNull(), "Today section editor");
+  return todayEditor();
+}
+async function setSectionChoice(dialog, name, checked) {
+  const input = sectionChoice(dialog, name);
+  assert.equal(input.disabled, false, `${name} can be changed`);
+  await act(async () => input.click());
+  assert.equal(input.checked, checked, `${name} selection updates`);
 }
 function decoded() { return decodeWorkspaceState(server.dashboard); }
 function activeWorkspace() { return decoded().workspaces.find((workspace) => workspace.id === decoded().activeWorkspaceId); }
@@ -167,10 +205,14 @@ test("legacy layouts show Today by default and its options stay accessible witho
   assert.ok(menu, "the options trigger opens an accessible menu");
   assert.equal(trigger.getAttribute("aria-expanded"), "true");
   const edit = [...menu.querySelectorAll("button")].find((control) => control.textContent.includes("Edit section"));
-  assert.ok(edit, "Edit section remains visible as a placeholder");
-  assert.equal(edit.disabled, true);
-  assert.match(edit.title, /coming soon/i);
+  assert.ok(edit, "Edit section is available");
+  assert.equal(edit.disabled, false);
   assert.equal([...menu.querySelectorAll("button")].find((control) => control.textContent.includes("Hide section")).disabled, false);
+  await act(async () => edit.click());
+  await waitUntil(() => todayEditorOrNull(), "Today section editor");
+  assert.deepEqual(todayHeadings(), ["Next Class", "Due Today (0)", "Today’s Schedule"], "legacy workspaces retain the default Today content");
+  await key(todayEditor(), "Escape");
+  await waitUntil(() => todayEditorOrNull() === null && document.activeElement === trigger, "Escape closes the editor and restores focus");
   assert.equal(server.writes, 0);
 
   await key(menu, "Escape");
@@ -178,8 +220,8 @@ test("legacy layouts show Today by default and its options stay accessible witho
   assert.equal(document.activeElement === trigger, true, "Escape returns focus to the menu trigger");
   await key(trigger, "ArrowDown");
   const reopenedMenu = rootNode.querySelector(".today-section-menu");
-  const hideItem = [...reopenedMenu.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent.includes("Hide section"));
-  await waitUntil(() => document.activeElement === hideItem, "ArrowDown focuses the first enabled menu item");
+  const editItem = [...reopenedMenu.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent.includes("Edit section"));
+  await waitUntil(() => document.activeElement === editItem, "ArrowDown focuses the first enabled menu item");
   await key(reopenedMenu, "Tab");
   assert.equal(rootNode.querySelector(".today-section-menu") === null, true, "Tab closes the menu without trapping focus");
   assert.equal(document.activeElement.closest(".home-today-panel") === null, true, "Tab moves focus outside the Today panel");
@@ -188,6 +230,90 @@ test("legacy layouts show Today by default and its options stay accessible witho
   assert.equal(rootNode.querySelector(".today-section-menu") === null, true, "an outside pointer press dismisses the menu");
   assert.equal(window.location.pathname, "/home");
   assert.equal(server.writes, 0);
+});
+
+test("Today content editing enforces 1–3 choices, cancels drafts, saves only changes, and survives reload", async () => {
+  reset(); installServer(); await render();
+  await waitUntil(() => rootNode.querySelector(".home-today-panel"), "Today panel");
+
+  let dialog = await openTodayEditor();
+  assert.deepEqual([...dialog.querySelectorAll(".today-section-editor-choice strong")].map((node) => node.textContent.trim()), [
+    "Next Class", "Due Today", "Today’s Schedule", "Study Goal", "Upcoming Deadlines", "Study Streak",
+  ], "all catalog choices are named in the editor");
+  assert.deepEqual(selectedSectionNames(dialog), ["Next Class", "Due Today", "Today’s Schedule"]);
+  assert.equal(sectionChoice(dialog, "Next Class").disabled, false);
+  assert.equal(sectionChoice(dialog, "Study Goal").disabled, true, "unchecked choices are disabled at the three-section limit");
+  assert.equal(document.activeElement, sectionChoice(dialog, "Next Class"), "opening the dialog focuses its first checkbox");
+  for (const modifier of [{ ctrlKey: true }, { metaKey: true }]) {
+    const focusedChoice = document.activeElement;
+    await key(focusedChoice, "k", modifier);
+    assert.equal(document.activeElement, focusedChoice, "the search shortcut cannot move focus outside the modal editor");
+  }
+  await click("Apply", dialog);
+  await waitUntil(() => todayEditorOrNull() === null, "unchanged editor closes");
+  assert.equal(server.writes, 0, "applying an unchanged layout does not write");
+
+  dialog = await openTodayEditor();
+  await setSectionChoice(dialog, "Next Class", false);
+  assert.match(dialog.querySelector(".today-section-editor-count").textContent, /2 of 3 selected/);
+  await setSectionChoice(dialog, "Due Today", false);
+  assert.deepEqual(selectedSectionNames(dialog), ["Today’s Schedule"]);
+  assert.equal(sectionChoice(dialog, "Today’s Schedule").disabled, true, "the final selected section cannot be removed");
+  await setSectionChoice(dialog, "Next Class", true);
+  await click("Cancel", dialog);
+  await waitUntil(() => todayEditorOrNull() === null, "cancel closes the editor");
+  assert.deepEqual(todayHeadings(), ["Next Class", "Due Today (0)", "Today’s Schedule"], "cancel discards the draft");
+  assert.equal(server.writes, 0, "cancelling a draft does not write");
+
+  dialog = await openTodayEditor();
+  await setSectionChoice(dialog, "Next Class", false);
+  assert.deepEqual(selectedSectionNames(dialog), ["Due Today", "Today’s Schedule"]);
+  await click("Apply", dialog);
+  await waitForWrite(1);
+  assert.deepEqual(activeWorkspace().todaySections, ["due-today", "schedule"]);
+  assert.deepEqual(todayHeadings(), ["Due Today (0)", "Today’s Schedule"]);
+  assert.equal(rootNode.querySelectorAll(".today-panel-grid > .today-panel-section").length, 2);
+
+  dialog = await openTodayEditor();
+  await setSectionChoice(dialog, "Due Today", false);
+  assert.equal(sectionChoice(dialog, "Today’s Schedule").disabled, true);
+  assert.deepEqual(selectedSectionNames(dialog), ["Today’s Schedule"]);
+  await click("Apply", dialog);
+  await waitForWrite(2);
+  assert.deepEqual(activeWorkspace().todaySections, ["schedule"]);
+  assert.deepEqual(todayHeadings(), ["Today’s Schedule"]);
+  assert.equal(rootNode.querySelectorAll(".today-panel-grid > .today-panel-section").length, 1);
+
+  dialog = await openTodayEditor();
+  assert.equal(sectionChoice(dialog, "Today’s Schedule").disabled, true);
+  await setSectionChoice(dialog, "Upcoming Deadlines", true);
+  assert.equal(sectionChoice(dialog, "Study Streak").disabled, false);
+  await setSectionChoice(dialog, "Study Streak", true);
+  assert.deepEqual(selectedSectionNames(dialog), ["Today’s Schedule", "Upcoming Deadlines", "Study Streak"]);
+  assert.equal(sectionChoice(dialog, "Next Class").disabled, true, "unchecked choices are disabled again at three selections");
+
+  const firstFocusable = buttonAria("Close Today section editor", dialog);
+  const lastFocusable = button("Apply", dialog);
+  await act(async () => firstFocusable.focus());
+  await key(firstFocusable, "Tab", { shiftKey: true });
+  assert.equal(document.activeElement, lastFocusable, "Shift+Tab wraps to the last dialog control");
+  await key(lastFocusable, "Tab");
+  assert.equal(document.activeElement, firstFocusable, "Tab wraps to the first dialog control");
+
+  await click("Apply", dialog);
+  await waitForWrite(3);
+  assert.deepEqual(activeWorkspace().todaySections, ["schedule", "upcoming-deadlines", "study-streak"]);
+  assert.deepEqual(todayHeadings(), ["Today’s Schedule", "Upcoming Deadlines", "Study Streak"]);
+  assert.equal(rootNode.querySelectorAll(".today-panel-grid > .today-panel-section").length, 3);
+  assert.equal(decoded().workspaces.find((workspace) => workspace.id === "study").todaySections, undefined, "saving one workspace leaves the other workspace choices unchanged");
+  assert.deepEqual(decoded().data.assignments, [assignment], "Today layout saves preserve assignments");
+  assert.deepEqual(decoded().data.manualEvents, [event], "Today layout saves preserve events");
+  assert.deepEqual(decoded().data.study.grades, study.grades, "Today layout saves preserve grades");
+
+  await reloadSavedWorkspace();
+  assert.deepEqual(activeWorkspace().todaySections, ["schedule", "upcoming-deadlines", "study-streak"]);
+  assert.deepEqual(todayHeadings(), ["Today’s Schedule", "Upcoming Deadlines", "Study Streak"], "the selected order survives save and reload");
+  assert.equal(server.writes, 3, "each changed layout produces one workspace save");
 });
 
 test("hiding and restoring Today saves one workspace revision each and preserves other workspace data", async () => {
@@ -236,20 +362,28 @@ test("hiding and restoring Today saves one workspace revision each and preserves
   assert.equal(rootNode.querySelector('[data-widget-id="notes-day"] textarea')?.value, "Saved notes");
 });
 
-test("workspace copies retain Today visibility, new workspaces start visible, and deletion prunes the hidden ID", async () => {
+test("workspace copies retain Today content and visibility, new workspaces start visible, and deletion prunes the hidden ID", async () => {
   reset(); installServer(); await render();
   await waitUntil(() => rootNode.querySelector(".home-today-panel"), "Today panel");
+  const editor = await openTodayEditor();
+  await setSectionChoice(editor, "Next Class", false);
+  await setSectionChoice(editor, "Today’s Schedule", false);
+  await click("Apply", editor);
+  await waitForWrite(1);
+  assert.deepEqual(activeWorkspace().todaySections, ["due-today"]);
+
   await clickAria("Today section options");
   await click("Hide section", rootNode.querySelector(".today-section-menu"));
-  await waitForWrite(1);
+  await waitForWrite(2);
 
   await clickAria("Workspace options");
   await click("Duplicate", rootNode.querySelector(".workspace-menu"));
   await waitUntil(() => rootNode.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes("copy"), "duplicated workspace");
   assert.equal(rootNode.querySelector(".home-today-panel") === null, true, "duplicating carries the source Today visibility setting");
-  await waitForWrite(2);
+  await waitForWrite(3);
   const duplicateId = decoded().activeWorkspaceId;
   assert.equal(activeWorkspace().todayHidden, true);
+  assert.deepEqual(activeWorkspace().todaySections, ["due-today"], "duplicating copies the source Today content choices");
 
   await act(async () => buttonAria("Add workspace").click());
   const nameInput = rootNode.querySelector('.small-modal input');
@@ -262,32 +396,42 @@ test("workspace copies retain Today visibility, new workspaces start visible, an
   await click("Create workspace", rootNode);
   await waitUntil(() => rootNode.querySelector('[role="tab"][aria-selected="true"]')?.textContent === "Fresh space", "new workspace");
   assert.ok(rootNode.querySelector(".home-today-panel"), "a new workspace starts with Today visible");
-  await waitForWrite(3);
+  await waitForWrite(4);
   const freshId = decoded().activeWorkspaceId;
   assert.notEqual(activeWorkspace().todayHidden, true);
+  assert.deepEqual(todayHeadings(), ["Next Class", "Due Today (0)", "Today’s Schedule"], "a new workspace uses the default Today content");
 
   await clickAria("Today section options");
   await click("Hide section", rootNode.querySelector(".today-section-menu"));
-  await waitForWrite(4);
+  await waitForWrite(5);
   assert.equal(activeWorkspace().todayHidden, true);
   await clickAria("Workspace options");
   await click("Delete", rootNode.querySelector(".workspace-menu"));
   await waitUntil(() => decoded().activeWorkspaceId !== freshId, "deleted workspace");
-  await waitForWrite(5);
+  await waitForWrite(6);
   assert.equal(decoded().workspaces.some((workspace) => workspace.id === freshId), false);
   assert.deepEqual(server.dashboard.h, ["day", duplicateId], "deleting a hidden workspace prunes its visibility ID");
   await act(async () => [...rootNode.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent.trim() === "My Day").click());
   assert.equal(rootNode.querySelector(".home-today-panel") === null, true, "deleting the new workspace leaves the source workspace hidden");
-  assert.equal(server.writes, 5);
+  assert.equal(server.writes, 6);
 });
 
-test("experimental Today visibility changes are local and never overwrite the saved workspace", async () => {
+test("experimental Today content and visibility changes are local and never overwrite the saved workspace", async () => {
   reset(); installServer(); await render();
   await waitUntil(() => rootNode.querySelector(".home-today-panel"), "Today panel");
   await clickAria("Experimental mode");
   await clickAria("Load Light experimental data");
   assert.match(rootNode.textContent, /Light experimental mode/);
   assert.ok(rootNode.querySelector(".home-today-panel"));
+
+  const editor = await openTodayEditor();
+  await setSectionChoice(editor, "Next Class", false);
+  await setSectionChoice(editor, "Due Today", false);
+  await setSectionChoice(editor, "Study Streak", true);
+  await click("Apply", editor);
+  await waitUntil(() => todayHeadings().join("|") === "Today’s Schedule|Study Streak", "experimental Today content preview");
+  assert.equal(server.writes, 0, "experimental content choices never write to the account");
+
   await clickAria("Today section options");
   await click("Hide section", rootNode.querySelector(".today-section-menu"));
   assert.equal(rootNode.querySelector(".home-today-panel") === null, true, "experimental preview responds to the visibility control");
@@ -296,6 +440,8 @@ test("experimental Today visibility changes are local and never overwrite the sa
   await clickAria("Experimental mode");
   await click("Exit experimental mode", rootNode.querySelector(".experimental-menu"));
   await waitUntil(() => rootNode.querySelector(".home-today-panel"), "saved workspace restore");
+  assert.deepEqual(todayHeadings(), ["Next Class", "Due Today (0)", "Today’s Schedule"], "leaving the preview restores saved Today content choices");
   assert.equal(server.writes, 0);
   assert.equal(activeWorkspace().todayHidden, undefined, "leaving the preview restores the saved visible state");
+  assert.equal(activeWorkspace().todaySections, undefined, "experimental choices are not written into the saved workspace");
 });
