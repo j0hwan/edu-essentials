@@ -41,6 +41,36 @@ test("calendar interactions", async (t) => {
     await click("Day"); assert.equal(node.querySelectorAll(".planner-time-day").length, 1);
     await click("Today"); assert.match(node.querySelector(".planner-details h2").textContent, /Thursday, September 17/);
   });
+  await t.test("week empty timed and all-day areas select the date used for new events", async () => {
+    let addDate;
+    await mount({ onAdd: (date) => { addDate = date; } });
+    const column = node.querySelector('.planner-time-day[aria-label="2026-09-18"]');
+    await act(async () => column.querySelector(".planner-day-hit-area").click());
+    assert.match(node.querySelector(".planner-details h2").textContent, /Friday, September 18/);
+    assert.equal(column.querySelector(".planner-day-hit-area").getAttribute("aria-pressed"), "true");
+    await click("Add event"); assert.equal(addDate, "2026-09-18");
+    const allDay = node.querySelector('.planner-deadlines .planner-day-hit-area[aria-label="Select Sep 19, 2026"]');
+    await act(async () => allDay.click());
+    assert.match(node.querySelector(".planner-details h2").textContent, /Saturday, September 19/);
+    await click("Add to this day"); assert.equal(addDate, "2026-09-19");
+  });
+  await t.test("item content clicks open editors without selecting the underlying day", async () => {
+    const opened = [];
+    await mount({ onCourse: (item) => opened.push(item), onEvent: (item) => opened.push(item), onAssignment: (item) => opened.push(item) });
+    await click("Select Sep 18, 2026");
+    for (const button of node.querySelectorAll(".calendar-chip")) {
+      await act(async () => button.querySelector("span, strong").click());
+      assert.match(node.querySelector(".planner-details h2").textContent, /Friday, September 18/);
+    }
+    assert.deepEqual(new Set(opened), new Set([course, event, assignment]));
+    opened.length = 0;
+    await click("Month");
+    for (const button of node.querySelectorAll(".calendar-chip")) {
+      await act(async () => button.querySelector("span").click());
+      assert.match(node.querySelector(".planner-details h2").textContent, /Friday, September 18/);
+    }
+    assert.deepEqual(new Set(opened), new Set([course, event, assignment]));
+  });
   await t.test("classes, events and deadlines keep their original editor callbacks", async () => {
     const opened = [];
     await mount({ onCourse: (item) => opened.push(item), onEvent: (item) => opened.push(item), onAssignment: (item) => opened.push(item) });
