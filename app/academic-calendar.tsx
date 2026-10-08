@@ -126,7 +126,7 @@ export default function AcademicCalendar({ courses, assignments, events, details
   </button>;
 
   return <div className="page calendar-page planner-page">
-    <header className="planner-heading"><p className="eyebrow">Calendar</p><h1>{view === "month" ? period : "Calendar"}</h1>{view !== "month" && <p className="planner-period">{period}</p>}</header>
+    <header className="planner-heading"><h1>{period}</h1></header>
     <div className="planner-toolbar" ref={toolbarRef}>
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- The named overflow region needs keyboard focus for horizontal scrolling. */}
       <div className="planner-toolbar-scroll" ref={toolbarScrollRef} role="region" aria-label="Calendar controls" tabIndex={0}>
