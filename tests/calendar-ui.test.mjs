@@ -11,7 +11,7 @@ const { default: Calendar } = await import(await clientModule("app/academic-cale
 const course = { id: "cs", name: "Circuit Analysis", code: "EE305", room: "Lab 4", color: "#4cb8ff" };
 const assignment = { id: "due", dateKey: "2026-09-17", title: "Lab report", courseId: "cs", dueTime: "23:59", status: "today" };
 const event = { id: "study", dateKey: "2026-09-17", title: "Study group", courseId: "", time: "16:00", type: "Personal" };
-const props = { today: "2026-09-17", monday: true, timezone: "America/Los_Angeles", filter: "all", courses: [course], assignments: [assignment], events: [event], details: { cs: { meetings: [{ id: "lecture", days: [4], from: "2026-09-01", until: "2026-12-01", start: "14:00", end: "15:15", location: "Lab 4" }] } }, onView() {}, onFilter() {}, onAssignment() {}, onEvent() {}, onCourse() {}, onAdd() {} };
+const props = { today: "2026-09-17", monday: true, timezone: "America/Los_Angeles", filter: "all", courses: [course], assignments: [assignment], events: [event], details: { cs: { meetings: [{ id: "lecture", days: [4], from: "2026-09-01", until: "2026-12-01", start: "14:00", end: "15:15", location: "Lab 4" }] } }, onFilter() {}, onAssignment() {}, onEvent() {}, onCourse() {}, onAdd() {} };
 const node = document.getElementById("root");
 let root;
 async function mount(overrides = {}) { root = createRoot(node); await act(async () => root.render(createElement(Calendar, { ...props, ...overrides }))); }
@@ -28,6 +28,19 @@ test("calendar interactions", async (t) => {
     const lecture = [...node.querySelectorAll(".planner-time-event")].find((n) => n.textContent.includes("Circuit Analysis"));
     assert.ok(Math.abs(parseFloat(lecture.style.top) - (6 / 13 * 100)) < .01);
     assert.match(lecture.textContent, /2:00 PM.*3:15 PM/);
+  });
+  await t.test("removed calendar controls and helper copy are absent while the toolbar sidebar toggle works", async () => {
+    await mount({ assignments: [], events: [], courses: [], details: {} });
+    assert.equal(node.querySelector('input[type="date"], [aria-label="Go to date"], [aria-label="Close day details"], .planner-zone, .planner-footnote'), null);
+    assert.doesNotMatch(node.textContent, /A little room to breathe|Times shown in|Select a day for details/);
+    assert.equal(node.querySelector(".planner-day-agenda").textContent, "Nothing scheduled.");
+    assert.equal(node.querySelector(".planner-upcoming h3").textContent, "Upcoming");
+    assert.equal(node.querySelector(".planner-upcoming-empty span").textContent, "No items in the next 30 days.");
+    assert.equal(node.querySelector(".planner-course-chevron").getAttribute("aria-hidden"), "true");
+    await click("Hide day details");
+    assert.equal(node.querySelector(".planner-details"), null);
+    await click("Show day details");
+    assert.ok(node.querySelector(".planner-details"));
   });
   await t.test("month tabs, selected-day details, sidebar collapse and prefilled add date work", async () => {
     let addDate;

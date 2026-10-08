@@ -70,12 +70,12 @@ async function renderCalendarMarkup() {
   const props = {
     courses, assignments, events, details, today, monday: true,
     timezone: "America/Argentina/Buenos_Aires", filter: "all",
-    onView() {}, onFilter() {}, onAssignment() {}, onEvent() {}, onCourse() {}, onAdd() {},
+    onFilter() {}, onAssignment() {}, onEvent() {}, onCourse() {}, onAdd() {},
   };
   const rootNode = document.getElementById("root");
   const root = createRoot(rootNode);
   await act(async () => root.render(createElement(AcademicCalendar, props)));
-  const output = { visible: {}, hidden: {} };
+  const output = { visible: {}, hidden: {}, empty: {} };
   const clickLabel = async (label) => {
     const button = [...rootNode.querySelectorAll("button")].find((item) => item.getAttribute("aria-label") === label || item.textContent.trim() === label);
     assert.ok(button, `actual AcademicCalendar markup contains ${label}`);
@@ -88,6 +88,16 @@ async function renderCalendarMarkup() {
     output.hidden[view] = rootNode.innerHTML;
     await clickLabel("Show day details");
   }
+  await clickLabel("Week");
+  await act(async () => root.render(createElement(AcademicCalendar, {
+    ...props, courses: [], assignments: [], events: [], details: {},
+  })));
+  for (const view of ["week", "month", "day"]) {
+    if (view !== "week") await clickLabel(view[0].toUpperCase() + view.slice(1));
+    output.empty[view] = rootNode.innerHTML;
+  }
+  await clickLabel("Week");
+  await act(async () => root.render(createElement(AcademicCalendar, props)));
   await clickLabel("Filter calendar items");
   output.filterOpenWeek = rootNode.innerHTML;
   await act(async () => root.unmount());
@@ -96,10 +106,14 @@ async function renderCalendarMarkup() {
 }
 
 const markup = await renderCalendarMarkup();
+const removedCalendarMarkup = /class="(?:[^"]*\s)?planner-(?:date-control|zone|details-close|footnote)(?:\s|")|Go to date|Close day details|Los Angeles|Buenos Aires|A little room to breathe\.|Select a day for details/i;
 for (const view of ["week", "month", "day"]) {
   assert.match(markup.visible[view], /planner-toolbar/, `${view} fixture comes from AcademicCalendar`);
   assert.match(markup.visible[view], /planner-details/, `${view} fixture includes the production day details`);
   assert.doesNotMatch(markup.hidden[view], /class="planner-details"/, `${view} hidden fixture exercises the production no-details state`);
+  assert.doesNotMatch(markup.visible[view], removedCalendarMarkup, `${view} fixture omits removed controls and helper copy`);
+  assert.match(markup.empty[view], /Nothing scheduled\./, `${view} empty fixture includes the actual day-empty state`);
+  assert.doesNotMatch(markup.empty[view], removedCalendarMarkup, `${view} empty fixture omits removed controls and helper copy`);
 }
 assert.match(markup.filterOpenWeek, /planner-filter-popover/, "filter popover fixture comes from the actual open Calendar state");
 
@@ -117,7 +131,7 @@ function shellDocument(calendarMarkup) {
         const collapsed = app.classList.toggle("sidebar-collapsed");
         document.querySelector(".sidebar-toggle").setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
       });
-      document.querySelectorAll(".planner-details-close, .planner-toolbar button[aria-label='Hide day details'], .planner-toolbar button[aria-label='Show day details']").forEach((trigger) => trigger.addEventListener("click", () => {
+      document.querySelectorAll(".planner-toolbar button[aria-label='Hide day details'], .planner-toolbar button[aria-label='Show day details']").forEach((trigger) => trigger.addEventListener("click", () => {
         const layout = document.querySelector(".planner-layout");
         const current = layout.querySelector(".planner-details");
         const control = document.querySelector(".planner-toolbar button[aria-controls='calendar-day-details']");
@@ -199,7 +213,6 @@ async function inspect(label, { desktop = true, requireDetails = true, screensho
     const visibleDays = view === "month"
       ? [...document.querySelectorAll(".planner-month-day")].slice(0, 7).map((day) => day.getAttribute("aria-label"))
       : [...document.querySelectorAll(".planner-time-date")].map((day) => day.getAttribute("aria-label"));
-    const zone = document.querySelector(".planner-zone");
     const allToolbarControls = [...document.querySelectorAll(".planner-navigation > *, .planner-actions > *")].map(rect);
     const controlLeft = allToolbarControls.length ? Math.min(...allToolbarControls.map((item) => item.x)) : 0;
     const controlRight = allToolbarControls.length ? Math.max(...allToolbarControls.map((item) => item.right)) : 0;
@@ -226,8 +239,6 @@ async function inspect(label, { desktop = true, requireDetails = true, screensho
       columns: colRects, visibleDays,
       firstColumnWidth: colRects[0]?.width ?? 0,
       longContentFitsDetails: details ? details.scrollWidth <= details.clientWidth + 1 : true,
-      zoneText: zone?.textContent.replace(/\s+/g, " ").trim() ?? "",
-      zoneRect: rect(zone),
     };
   });
   metrics.label = label;
@@ -273,7 +284,6 @@ async function inspect(label, { desktop = true, requireDetails = true, screensho
       fail(metrics.columns.every((column) => column.x >= metrics.calendar.x - 1 && column.right <= metrics.calendar.right + 1), "one or more calendar columns are clipped at the calendar edges");
       fail(metrics.firstColumnWidth >= 34, `calendar columns are too narrow to read (${metrics.firstColumnWidth.toFixed(1)}px)`);
     }
-    fail(metrics.zoneText.includes("Buenos Aires"), `long time-zone label is missing (${metrics.zoneText})`);
     fail(metrics.longContentFitsDetails, "long selected-day text widens or overflows the details panel");
   }
   if (screenshot) await page.screenshot({ path: resolve(screenshotDir, screenshot), fullPage: true });
@@ -387,14 +397,14 @@ try {
   for (const width of [390, 600]) await checkFilterPopover(markup.filterOpenWeek, width, false);
 
   console.log("Calendar browser layout metrics:");
-  console.table(reports.map(({ label, view, viewportWidth, calendar, details, navigationActionsSameRow, navigationWidth, actionsWidth, naturalToolbarWidth, toolbarOuterWidth, mainContentWidth, calendarScrollWidth, calendarClientWidth, toolbarScrollWidth, toolbarClientWidth, firstColumnWidth, zoneText }) => ({
+  console.table(reports.map(({ label, view, viewportWidth, calendar, details, navigationActionsSameRow, navigationWidth, actionsWidth, naturalToolbarWidth, toolbarOuterWidth, mainContentWidth, calendarScrollWidth, calendarClientWidth, toolbarScrollWidth, toolbarClientWidth, firstColumnWidth }) => ({
     label, view, viewportWidth,
     calendarWidth: calendar?.width?.toFixed?.(1), detailsX: details?.x?.toFixed?.(1),
     navWidth: navigationWidth?.toFixed?.(1), actionsWidth: actionsWidth?.toFixed?.(1), naturalToolbarWidth: naturalToolbarWidth?.toFixed?.(1), toolbarWidth: toolbarOuterWidth?.toFixed?.(1),
     workspace: mainContentWidth,
     toolbarOneRow: navigationActionsSameRow, toolbarOverflow: toolbarScrollWidth > toolbarClientWidth,
     calendarOverflow: calendarScrollWidth > calendarClientWidth,
-    firstColumnWidth: firstColumnWidth?.toFixed?.(1), zone: zoneText,
+    firstColumnWidth: firstColumnWidth?.toFixed?.(1),
   })));
   if (failures.length) {
     console.error(`\n${failures.length} calendar layout assertion(s) failed:\n- ${failures.join("\n- ")}`);

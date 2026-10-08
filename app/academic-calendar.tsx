@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, ArrowRight, CircleAlert } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, ArrowRight, CircleAlert } from "lucide-react";
 import { addDays, dateLabel, isDate, type Course, type CourseDetails } from "../lib/academics";
 import { calendarDays, calendarTime, placeCalendarItems, timeMinutes, type CalendarView } from "../lib/calendar-layout";
 import type { SavedAssignment, SavedEvent } from "../lib/workspace-codec";
@@ -133,7 +133,6 @@ export default function AcademicCalendar({ courses, assignments, events, details
   const nowParts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
   const nowMinutes = Number(nowParts.find((p) => p.type === "hour")?.value) * 60 + Number(nowParts.find((p) => p.type === "minute")?.value);
   const upcoming = Array.from({ length: 30 }, (_, i) => addDays(selected, i + 1)).flatMap(rows).filter((item) => !item.done);
-  const timezoneLabel = (timezone || Intl.DateTimeFormat().resolvedOptions().timeZone).replaceAll("_", " ").split("/").pop();
   const itemLabel = (item: Item) => `${item.title}, ${calendarTime(item.time)}${item.endTime ? ` – ${calendarTime(item.endTime)}` : ""}, ${item.subtitle}${item.done ? ", completed" : ""}`;
   const sidebarRow = (item: Item, upcomingRow = false) => <button key={`${item.date}-${item.id}`} className={`planner-agenda-item ${item.done ? "is-complete" : ""}`} style={itemStyle(item)} onClick={() => open(item)}>
     <time>{upcomingRow ? dateLabel(item.date, { weekday: "short", month: "short", day: "numeric" }) : calendarTime(item.time)}</time>
@@ -149,12 +148,12 @@ export default function AcademicCalendar({ courses, assignments, events, details
         <button className="planner-control planner-today" onClick={() => chooseDate(today)}>Today</button>
         <button className="planner-control planner-icon" aria-label="Previous period" disabled={anchor <= "1900-02-01"} onClick={() => move(-1)}><ChevronLeft /></button>
         <button className="planner-control planner-icon" aria-label="Next period" disabled={anchor >= "2200-11-30"} onClick={() => move(1)}><ChevronRight /></button>
-        <label className="planner-date-control"><span className="planner-sr-only">Go to date</span><span aria-hidden="true">{view === "month" ? period : dateLabel(anchor, { month: "short", day: "numeric", year: "numeric" })}<CalendarDays /></span><input aria-label="Go to date" type="date" min="1900-01-01" max="2200-12-31" value={anchor} onChange={(e) => chooseDate(e.target.value)} /></label>
-        <span className="planner-zone" title={`All meeting and due times use ${timezone || "your device time zone"}. Change your time zone in Settings.`}><Clock3 />{timezoneLabel}</span>
+        <span className="planner-date-spacer" aria-hidden="true" />
+        <span className="planner-zone-spacer" aria-hidden="true" />
       </div>
       <div className="planner-actions">
         <div className="planner-view-toggle" role="group" aria-label="Calendar view">{(["month", "week", "day"] as const).map((v) => <button key={v} aria-pressed={view === v} onClick={() => chooseView(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}</div>
-        <label className="planner-course-filter"><span className="planner-sr-only">Class filter</span><select value={filter} onChange={(e) => onFilter(e.target.value)}><option value="all">All courses</option><option value="personal">Personal</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select></label>
+        <label className="planner-course-filter"><span className="planner-sr-only">Class filter</span><select value={filter} onChange={(e) => onFilter(e.target.value)}><option value="all">All courses</option><option value="personal">Personal</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select><ChevronDown className="planner-course-chevron" aria-hidden="true" /></label>
         <div className="planner-filter-wrap"><button ref={filterButtonRef} className="planner-control planner-icon" aria-label="Filter calendar items" aria-expanded={filtersOpen} aria-controls="calendar-item-filters" onClick={() => setFiltersOpen(!filtersOpen)}><SlidersHorizontal /></button></div>
         <button className="planner-control planner-icon" aria-label={sidebar ? "Hide day details" : "Show day details"} title={sidebar ? "Hide day details" : "Show day details"} aria-expanded={sidebar} aria-controls="calendar-day-details" onClick={() => setSidebar(!sidebar)}>{sidebar ? <PanelRightClose /> : <PanelRightOpen />}</button>
         <button className="planner-add" onClick={() => onAdd(selected)}><Plus />Add event</button>
@@ -186,13 +185,12 @@ export default function AcademicCalendar({ courses, assignments, events, details
         </div>}
       </div>
       {sidebar && <aside id="calendar-day-details" className="planner-details" aria-label="Day details">
-        <header><h2>{dateLabel(selected, { weekday: "long", month: "long", day: "numeric" })}</h2><button className="planner-details-close" aria-label="Close day details" onClick={() => setSidebar(false)}><PanelRightClose /></button></header>
+        <header><h2>{dateLabel(selected, { weekday: "long", month: "long", day: "numeric" })}</h2><span className="planner-details-close-space" aria-hidden="true" /></header>
         <span className="planner-date-badge">{selected === today ? "Today" : dateLabel(selected, { year: "numeric" })}</span>
-        <div className="planner-day-agenda">{rows(selected).length ? rows(selected).map((item) => sidebarRow(item)) : <p className="planner-empty">Nothing scheduled.<br /><span>A little room to breathe.</span></p>}</div>
+        <div className="planner-day-agenda">{rows(selected).length ? rows(selected).map((item) => sidebarRow(item)) : <p className="planner-empty planner-day-empty">Nothing scheduled.</p>}</div>
         <button className="planner-add planner-add-day" onClick={() => onAdd(selected)}><Plus />Add to this day</button>
-        <div className="planner-upcoming"><header><h3>Upcoming</h3>{upcoming.length > 3 && <button onClick={() => setAllUpcoming(!allUpcoming)}>{allUpcoming ? "Show less" : "View all"}<ArrowRight /></button>}</header>{upcoming.length ? upcoming.slice(0, allUpcoming ? undefined : 3).map((item) => sidebarRow(item, true)) : <p className="planner-empty">You’re all caught up.<br /><span>No items in the next 30 days.</span></p>}</div>
+        <div className="planner-upcoming"><header><h3>Upcoming</h3>{upcoming.length > 3 && <button onClick={() => setAllUpcoming(!allUpcoming)}>{allUpcoming ? "Show less" : "View all"}<ArrowRight /></button>}</header>{upcoming.length ? upcoming.slice(0, allUpcoming ? undefined : 3).map((item) => sidebarRow(item, true)) : <p className="planner-empty planner-upcoming-empty">You’re all caught up.<span>No items in the next 30 days.</span></p>}</div>
       </aside>}
     </div>
-    <p className="planner-footnote">Times shown in {timezone || "your device time zone"}. Select a day for details or an item to edit it.</p>
   </div>;
 }

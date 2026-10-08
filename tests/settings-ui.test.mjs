@@ -82,6 +82,24 @@ async function click(text) {
     else control.click();
   });
 }
+async function selectCalendarDate(date) {
+  const previousView = rootNode.querySelector('.planner-view-toggle [aria-pressed="true"]').textContent;
+  await click("Month");
+  const targetMonth = Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1;
+  const months = Array.from({ length: 12 }, (_, month) => new Date(Date.UTC(2026, month, 1)).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" }));
+  for (let steps = 0; ; steps++) {
+    const [month, year] = rootNode.querySelector(".planner-heading h1").textContent.split(" ");
+    const currentMonth = Number(year) * 12 + months.indexOf(month);
+    if (currentMonth === targetMonth) break;
+    assert.ok(steps < 24, `Could not navigate to ${date}`);
+    const control = rootNode.querySelector(`.planner-navigation [aria-label="${currentMonth < targetMonth ? "Next" : "Previous"} period"]`);
+    await act(async () => control.click());
+  }
+  const day = rootNode.querySelector(`.planner-month-day[aria-label="${date}"] .planner-day-number`);
+  assert.ok(day, `Missing calendar date ${date}`);
+  await act(async () => day.click());
+  await click(previousView);
+}
 function unloadBlocked() { const event = new window.Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; }
 function pointerEvent(type, values = {}) {
   const event = new window.Event(type, { bubbles: true, cancelable: true });
@@ -678,13 +696,13 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     reset();
     const initial = { ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { history: { officeHours: "", meetings: [{ id: "m", days: [1, 3], start: "09:30", end: "11:00", from: "2026-10-01", until: "2026-10-31", location: "Hall 2" }] } } } };
     installWorkspaceServer(initial, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Calendar");
-    await edit("Go to date", "2026-10-05");
+    await selectCalendarDate("2026-10-05");
     assert.match(rootNode.querySelector('[aria-label="2026-10-05"]').textContent, /History.*9:30 AM.*11:00 AM.*HIST 205.*Hall 2/);
     assert.ok(!rootNode.querySelector('[aria-label="2026-10-06"]').textContent.includes("HIST 205"));
     await click("Week"); assert.equal(rootNode.querySelectorAll(".calendar-chip").length, 2);
     await click("Day"); assert.equal(rootNode.querySelectorAll(".calendar-chip").length, 1);
     await act(async () => rootNode.querySelector(".calendar-chip").click()); assert.match(rootNode.querySelector('[aria-label="Class details"]').textContent, /Hall 2/);
-    await click("Close class"); await edit("Go to date", "2026-11-02"); assert.equal(rootNode.querySelectorAll(".calendar-chip").length, 0);
+    await click("Close class"); await selectCalendarDate("2026-11-02"); assert.equal(rootNode.querySelectorAll(".calendar-chip").length, 0);
   });
 
   await t.test("class fields and schedule survive a failed save, retry, edit, and reload", async () => {
@@ -717,7 +735,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     const server = installWorkspaceServer(savedDashboard, [sampleCourse], profile); await render(Workspace, { initialProfile: profile }); await click("Calendar"); await click("Add event");
     await edit("Event name", "Personal appointment"); await edit("Event date", "2026-10-15"); await edit("Time", "15:45"); await edit("Description", "Bring notes"); await click("Save event"); await saveAndReload(); await click("Calendar");
     assert.equal(server.dashboard.d.manualEvents[0].courseId, "");
-    await edit("Go to date", "2026-10-15"); await click("Month"); assert.equal(rootNode.querySelector(".calendar-weekdays span").textContent, "Mon");
+    await selectCalendarDate("2026-10-15"); await click("Month"); assert.equal(rootNode.querySelector(".calendar-weekdays span").textContent, "Mon");
     assert.match(rootNode.querySelector(".academic-calendar").textContent, /Personal appointment/);
     await click("Week"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 7); assert.match(rootNode.querySelector(".academic-calendar").textContent, /Personal appointment/);
     await click("Day"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 1);
@@ -727,7 +745,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await edit("Class filter", "personal"); await saveAndReload(); await click("Calendar");
     assert.equal(field("Class filter").value, "personal"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 1);
     assert.equal(rootNode.querySelector('.planner-view-toggle [aria-pressed="true"]').textContent, "Day", "a remounted calendar restores the browser's selected Day view");
-    await edit("Go to date", "2026-10-15"); await act(async () => rootNode.querySelector(".calendar-chip").click()); await click("Delete event"); await saveAndReload(); assert.equal(server.dashboard.d.manualEvents.length, 0);
+    await selectCalendarDate("2026-10-15"); await act(async () => rootNode.querySelector(".calendar-chip").click()); await click("Delete event"); await saveAndReload(); assert.equal(server.dashboard.d.manualEvents.length, 0);
   });
 
   await t.test("syllabus source and edited review resume, then approve exactly once after a lost response", async () => {

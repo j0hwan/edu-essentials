@@ -19,7 +19,7 @@ published during Step 5.
 | Assignment editor / detail → Delete | Confirmed deletion, including notes/checklist; attached file metadata is detached by the database transaction |
 | Calendar → Add event; event → editor | Title, class or Personal, date, optional time (blank means all day), type, description; create, edit, and confirmed deletion |
 | Calendar → Month / Week / Day / Class filter | The view is browser-local; the class/personal filter remains saved, and each view displays the same assignments, events, and recurring meetings |
-| Calendar → Today / previous / next / Go to date | Actual dates and month/year navigation; browsing position remains transient; saved week start and time zone apply |
+| Calendar → Today / previous / next / select a day | Actual dates and month/year navigation; browsing position remains transient; saved week start and time zone apply |
 | Home → Today; mini calendar; topbar date | Current dates and actual due/overdue tasks and today's schedule; mini calendar shows the current week |
 | Dashboard → Import syllabus / Resume; Add class → Import syllabus | Account-saved review draft, complete pasted/read source text, source filename, editable course fields and review rows |
 | Syllabus review → Suggest dated items / Add / Remove | Suggestions from explicit YYYY-MM-DD dates in the actual source; editable title, date, type, description, and weight; incomplete review rows may be saved for later |
