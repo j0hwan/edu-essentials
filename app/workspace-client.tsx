@@ -75,6 +75,7 @@ import { emptyStudy, settleTimer, timerAction, goalPercent, durationLabel, compl
 import { academicSnapshot, validateAcademicEdit } from "../lib/academic-snapshot";
 import { dayKey, dateLabel, addDays, weekStart, assignmentStatus, legacyEventTime, emptyCourse, emptyCourseDetails, type Course, type CourseDetails, type SyllabusDraft } from "../lib/academics";
 import { experimentalData, type ExperimentalDensity } from "../lib/experimental-data";
+import OnboardingFlow from "./onboarding-flow";
 import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
 import ProfileEditor from "./profile-editor";
 import AcademicAssistant from "./academic-assistant";
@@ -272,6 +273,7 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
     catch { /* Keep the preference for this session even if it cannot be stored. */ }
   };
   const [experimentalMenuOpen, setExperimentalMenuOpen] = useState(false);
+  const [onboardingTest, setOnboardingTest] = useState(false);
   const [experimentalMode, setExperimentalMode] = useState<ExperimentalDensity | null>(null);
   const [experimentalRestoring, setExperimentalRestoring] = useState(false);
   usePreferences(profile.preferences);
@@ -434,6 +436,7 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
   const dailyPercent = goalPercent(stats.dailySeconds, study.dailyMinutes), weeklyPercent = goalPercent(stats.weeklySeconds, study.weeklyMinutes);
   const weeklyCompleted = completedInWeek(assignments, today, profile.timezone, profile.week_starts_on === "Monday");
   useEffect(() => {
+    if (onboardingTest) return;
     // Completion consumes the active timer and adds its stable session ID in the
     // same account snapshot. Ticks alone never cause database writes.
     const tick = () => {
@@ -443,7 +446,7 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
     const interval = setInterval(tick, 1000);
     window.addEventListener("focus", tick); document.addEventListener("visibilitychange", tick);
     return () => { clearInterval(interval); window.removeEventListener("focus", tick); document.removeEventListener("visibilitychange", tick); };
-  }, [saveState.ready]);
+  }, [saveState.ready, onboardingTest]);
 
   useEffect(() => {
     if (!toast) return;
@@ -503,10 +506,10 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
   }, [reloadAttempt, accountFetch, autosave, initialProfile.id]);
 
   useEffect(() => {
-    if (experimentalMode) return;
+    if (experimentalMode || onboardingTest) return;
     try { autosave.change(canonicalJson(academicSnapshot(courses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData })))); }
     catch (error) { autosave.invalidate(error instanceof Error ? error.message : "Invalid workspace data."); }
-  }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarFilter, extraData, courses, autosave, experimentalMode]);
+  }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarFilter, extraData, courses, autosave, experimentalMode, onboardingTest]);
 
   const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarFilter, ...extraData });
   const reloadWorkspace = () => {
@@ -756,6 +759,11 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
           : undefined;
   const workspaceToastLoading = workspacePending || (profileSaving && persistenceStatus === "saved");
 
+  if (onboardingTest) return <OnboardingFlow initialProfile={profile} preview onExit={() => {
+    setOnboardingTest(false);
+    window.setTimeout(() => document.querySelector<HTMLButtonElement>(".experimental-trigger")?.focus(), 0);
+  }} />;
+
   return (
     <div className={`app-shell reference-ui ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <div className="mountain-backdrop" aria-hidden="true" />
@@ -801,6 +809,12 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
                 ["medium", "Medium", "4 classes · 14 tasks"],
                 ["packed", "Packed", "6 classes · 28 tasks"],
               ] as const).map(([value, label, detail]) => <button key={value} type="button" aria-label={`Load ${label} experimental data`} className={experimentalMode === value ? "selected" : ""} disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring} onClick={() => applyExperimentalData(value)}><span><strong>{label}</strong><small>{detail}</small></span>{experimentalMode === value && <CheckCircle2 size={15} />}</button>)}
+              <button type="button" disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying} onClick={() => {
+                const current = autosave.getSnapshot();
+                if (!current.ready || current.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying) return;
+                autosave.stop();
+                setExperimentalMenuOpen(false); setSidebarOpen(false); setOnboardingTest(true);
+              }}><strong>Onboard test</strong></button>
               {experimentalMode && <button className="experimental-exit" type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit experimental mode"}</button>}
               <small>Your saved workspace stays untouched.</small>
             </div>}

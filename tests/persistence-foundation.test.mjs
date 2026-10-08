@@ -96,6 +96,7 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
     });
     await pg.exec(migration);
     await pg.exec(await readFile(new URL("../supabase/migrations/20260907000000_private_files.sql", import.meta.url), "utf8"));
+    await pg.exec(await readFile(new URL("../supabase/migrations/20261008000000_onboarding_details.sql", import.meta.url), "utf8"));
 
     await t.test("additive migration preserves existing payloads and revisions", async () => {
       const after = (await sql("select payload, updated_at from dashboard_state where profile_id = $1", [a.id])).rows[0];
@@ -202,7 +203,7 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
     });
 
     await t.test("every settings field round-trips, partial edits preserve values, and optional values can be cleared", async () => {
-      const details = validateProfile({ display_name: "Taylor", last_name: "Lee", university: "Example University", major: "History", academic_year: "Senior", age: 22, study_goal: "Read every day", current_term: "Fall", academic_structure: "Quarter", gpa_system: "Percentage", week_starts_on: "Monday", timezone: "America/New_York", preferences: { theme: "system", reducedMotion: true, highContrast: false, deadlineReminders: false, dailyStudyPlan: false, streakNudges: true } });
+      const details = validateProfile({ display_name: "Taylor", last_name: "Lee", university: "Example University", major: "History", academic_year: "Senior", birthday: "2004-02-29", school_type: "college", graduation_year: "2028", program_length: "4", age: 22, study_goal: "Read every day", current_term: "Fall", academic_structure: "Quarter", gpa_system: "Percentage", week_starts_on: "Monday", timezone: "America/New_York", preferences: { theme: "system", reducedMotion: true, highContrast: false, deadlineReminders: false, dailyStudyPlan: false, streakNudges: true } });
       const beforeB = await profileFor(userB);
       const saved = await profileApi.PUT(request({ ...details, baseRevision: (await profileFor(userA)).updated_at }, "profile"));
       assert.equal(saved.status, 200);

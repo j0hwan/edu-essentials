@@ -1,4 +1,4 @@
-export const profileFields = ["display_name", "last_name", "university", "major", "academic_year", "study_goal", "academic_structure", "gpa_system", "current_term", "week_starts_on", "timezone"] as const;
+export const profileFields = ["display_name", "last_name", "university", "major", "academic_year", "birthday", "school_type", "graduation_year", "program_length", "study_goal", "academic_structure", "gpa_system", "current_term", "week_starts_on", "timezone"] as const;
 export type ProfileDetails = Record<(typeof profileFields)[number], string> & { age: number | null };
 export type Preferences = {
   theme: "light" | "dark" | "system";
@@ -24,7 +24,25 @@ export const defaultPreferences: Preferences = {
 };
 
 export function editableProfile(profile: Profile): ProfileDetails & { preferences: Preferences } {
-  return { ...Object.fromEntries(profileFields.map((key) => [key, profile[key]])) as Omit<ProfileDetails, "age">, age: profile.age, preferences: { ...profile.preferences } };
+  return { ...Object.fromEntries(profileFields.map((key) => [key, profile[key] ?? ""])) as Omit<ProfileDetails, "age">, age: profile.age ?? null, preferences: { ...profile.preferences } };
+}
+
+/** Returns a UTC-based age for a valid birthday, or null for blank/invalid dates. */
+export function birthdayAge(birthday: string, now: Date = new Date()): number | null {
+  if (typeof birthday !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(birthday) || Number.isNaN(now.getTime())) return null;
+  const [year, month, day] = birthday.split("-").map(Number);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) return null;
+
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth() + 1;
+  const currentDay = now.getUTCDate();
+  if (year > currentYear || (year === currentYear && (month > currentMonth || (month === currentMonth && day > currentDay)))) return null;
+
+  let age = currentYear - year;
+  if (currentMonth < month || (currentMonth === month && currentDay < day)) age--;
+  return age >= 0 && age <= 120 ? age : null;
 }
 
 export function validateProfile(value: unknown): ProfileDetails & { preferences: Preferences } {
@@ -37,6 +55,10 @@ export function validateProfile(value: unknown): ProfileDetails & { preferences:
     details[key] = field.trim();
   }
   if (!details.display_name) throw new Error("Please enter your name.");
+  if (details.birthday && birthdayAge(details.birthday) === null) throw new Error("Please enter a valid birthday no more than 120 years ago.");
+  if (!["", "high-school", "college"].includes(details.school_type)) throw new Error("Invalid school type.");
+  if (details.graduation_year && (!/^\d{4}$/.test(details.graduation_year) || Number(details.graduation_year) < 1900 || Number(details.graduation_year) > new Date().getUTCFullYear() + 30)) throw new Error("Please enter a realistic graduation year.");
+  if (!["", "2", "3", "4", "5", "6"].includes(details.program_length)) throw new Error("Invalid program length.");
   const choices = {
     academic_year: { options: ["", "Freshman", "Sophomore", "Junior", "Senior", "Graduate", "Other"], customPrefix: "Other: " },
     academic_structure: { options: ["", "Quarter", "Semester", "Trimester", "Other"], customPrefix: "Other: " },
