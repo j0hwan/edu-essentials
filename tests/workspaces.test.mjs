@@ -27,7 +27,7 @@ test("all widget types round-trip with all five stable size indices", () => {
     size,
     ...(type === "notes" ? { note: `Text for ${size}` } : {}),
   })));
-  const data = { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" };
+  const data = { assignments: [], manualEvents: [], dashboardView: "cards" };
   const compact = encode([{ id: "all", name: "All sizes", widgets }], "all", "Standalone notes", data);
   const loaded = decode(compact);
 
@@ -38,6 +38,22 @@ test("all widget types round-trip with all five stable size indices", () => {
   assert.deepEqual(loaded.data, data);
   assert.equal(new Set(loaded.workspaces[0].widgets.map((widget) => widget.instanceId)).size, 18 * 5);
   assert.deepEqual(loaded.workspaces[0].widgets.map((widget) => widgetSizes.indexOf(widget.size)), widgets.map((widget) => widgetSizes.indexOf(widget.size)));
+});
+
+test("calendar view is omitted from current workspace data and stripped from legacy data", () => {
+  const workspaces = [{ id: "day", name: "Day", widgets: [] }];
+  const currentData = { assignments: [], manualEvents: [], dashboardView: "cards" };
+  const current = encode(workspaces, "day", "", currentData);
+  assert.deepEqual(decode(current).data, currentData);
+  assert.equal(Object.hasOwn(current.d, "calendarView"), false);
+
+  const historical = structuredClone(current);
+  historical.d.calendarView = "month";
+  const migrated = decode(historical);
+  assert.deepEqual(migrated.data, currentData, "legacy calendarView is tolerated and omitted from normalized data");
+  assert.equal(Object.hasOwn(migrated.data, "calendarView"), false);
+  const saved = encode(migrated.workspaces, migrated.activeWorkspaceId, migrated.notes, migrated.data);
+  assert.equal(Object.hasOwn(saved.d, "calendarView"), false, "resaving normalized legacy data drops the old field");
 });
 
 test("widget size options expose the five labeled block footprints", () => {

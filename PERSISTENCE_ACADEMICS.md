@@ -18,7 +18,7 @@ published during Step 5.
 | Assignment → Mark complete / incomplete | Completion timestamp, 100% completed progress, and previous progress restored on reopening; urgency derives from the actual due date |
 | Assignment editor / detail → Delete | Confirmed deletion, including notes/checklist; attached file metadata is detached by the database transaction |
 | Calendar → Add event; event → editor | Title, class or Personal, date, optional time (blank means all day), type, description; create, edit, and confirmed deletion |
-| Calendar → Month / Week / Day / Class filter | Saved view and class/personal filter; each view displays the same assignments, events, and recurring meetings |
+| Calendar → Month / Week / Day / Class filter | The view is browser-local; the class/personal filter remains saved, and each view displays the same assignments, events, and recurring meetings |
 | Calendar → Today / previous / next / Go to date | Actual dates and month/year navigation; browsing position remains transient; saved week start and time zone apply |
 | Home → Today; mini calendar; topbar date | Current dates and actual due/overdue tasks and today's schedule; mini calendar shows the current week |
 | Dashboard → Import syllabus / Resume; Add class → Import syllabus | Account-saved review draft, complete pasted/read source text, source filename, editable course fields and review rows |
@@ -38,7 +38,10 @@ records and preferences live in `dashboard_state.payload.d`:
 - `courseDetails` maps owned course IDs to office hours, schedules, and approved
   syllabus source text/name.
 - `syllabusDrafts` retains source text/name, editable course fields, and review rows.
-- `calendarFilter`, `calendarView`, and `dashboardView` retain chosen views/filters.
+- `calendarFilter` and `dashboardView` retain chosen filters/views. The active
+  calendar view is stored in browser localStorage under `edu-calendar-view`.
+  Older snapshots may contain `calendarView`; the decoder ignores it, and the
+  next actual save removes the obsolete field.
 
 Every save submits the complete course list plus dashboard document and the loaded
 revision to `save_account_workspace`. The existing function checks both identity

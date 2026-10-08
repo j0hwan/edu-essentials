@@ -62,7 +62,7 @@ export type SavedAssignment = {
 export type SavedEvent = { id: string; title: string; courseId: string; dateKey: string; time: string; type: string; description?: string; durationMinutes?: number };
 export type WorkspaceData = {
   assignments: SavedAssignment[]; manualEvents: SavedEvent[];
-  dashboardView: "cards" | "list"; calendarView: "month" | "week" | "day";
+  dashboardView: "cards" | "list";
   calendarFilter?: string; courseDetails?: Record<string, CourseDetails>; syllabusDrafts?: SyllabusDraft[];
   study?: StudyData;
   filePreferences?: { filter: string; view: "list" | "grid" };
@@ -217,7 +217,7 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
 
 function validateWorkspaceData(value: unknown): WorkspaceData {
   if (!isRecord(value) || !Array.isArray(value.assignments) || value.assignments.length > 2000 || !Array.isArray(value.manualEvents) || value.manualEvents.length > 2000) throw new Error("Invalid workspace data.");
-  if (!["cards", "list"].includes(value.dashboardView as string) || !["month", "week", "day"].includes(value.calendarView as string)) throw new Error("Invalid workspace view.");
+  if (!["cards", "list"].includes(value.dashboardView as string)) throw new Error("Invalid workspace view.");
   const bounded = (record: Record<string, unknown>, key: string, max = 500) => {
     if (typeof record[key] !== "string" || (record[key] as string).length > max) throw new Error(`Invalid ${key}.`);
   };
@@ -236,6 +236,10 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
     if (item.durationMinutes !== undefined && (!Number.isInteger(item.durationMinutes) || Number(item.durationMinutes) < 1 || Number(item.durationMinutes) > 1440)) throw new Error("Invalid event duration.");
   }
   if (JSON.stringify(value).length > 500000) throw new Error("Workspace data is too large.");
+  const normalized = { ...value };
+  // Older snapshots stored the calendar view here. Ignore it while decoding so
+  // the next real save naturally removes the obsolete account preference.
+  delete normalized.calendarView;
   for (const items of [value.assignments, value.manualEvents]) {
     if (new Set(items.map((item) => item.id)).size !== items.length) throw new Error("Duplicate record ID.");
   }
@@ -244,7 +248,7 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
   if (value.filePreferences !== undefined && (!isRecord(value.filePreferences) || typeof value.filePreferences.filter !== "string" || value.filePreferences.filter.length > 120 || !["list", "grid"].includes(String(value.filePreferences.view)))) throw new Error("Invalid file preferences.");
   if (value.courseDetails !== undefined) { if (!isRecord(value.courseDetails) || Object.keys(value.courseDetails).length > 100) throw new Error("Invalid class details."); Object.values(value.courseDetails).forEach(validateCourseDetails); }
   if (value.syllabusDrafts !== undefined) { if (!Array.isArray(value.syllabusDrafts) || value.syllabusDrafts.length > 10) throw new Error("Keep at most 10 syllabus reviews."); value.syllabusDrafts.forEach(validateDraft); if (new Set(value.syllabusDrafts.map((d) => d.id)).size !== value.syllabusDrafts.length) throw new Error("Duplicate syllabus review ID."); }
-  return { ...value, ...(value.widgetAppearance !== undefined ? { widgetAppearance: validateWidgetAppearanceState(value.widgetAppearance) } : {}) } as WorkspaceData;
+  return { ...normalized, ...(value.widgetAppearance !== undefined ? { widgetAppearance: validateWidgetAppearanceState(value.widgetAppearance) } : {}) } as WorkspaceData;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

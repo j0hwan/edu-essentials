@@ -338,7 +338,6 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [now, setNow] = useState(() => new Date());
   const today = dayKey(now, profile.timezone);
   const assignments = storedAssignments.map((item) => ({ ...item, status: assignmentStatus(item, today), due: dateLabel(item.dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
-  const [calendarView, setCalendarView] = useState<"month" | "week" | "day">("month");
   const [calendarFilter, setCalendarFilter] = useState("all");
   const [manualEvents, setManualEvents] = useState<SavedEvent[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -437,7 +436,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         if (!data.initialized) {
           const response = await accountFetch("/api/workspace", {
             method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
-            body: JSON.stringify({ action: "initialize", courses: [], dashboard: encodeWorkspaceState(defaultWorkspaces, "my-day", "", { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" }) }),
+            body: JSON.stringify({ action: "initialize", courses: [], dashboard: encodeWorkspaceState(defaultWorkspaces, "my-day", "", { assignments: [], manualEvents: [], dashboardView: "cards" }) }),
           });
           if (!response.ok) throw new Error("Unable to initialize your workspace. Please retry.");
           data = await read();
@@ -445,14 +444,14 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         if (controller.signal.aborted) return;
         if (!data.dashboard || !data.profile || data.profile.id !== initialProfile.id) throw new Error("Your saved workspace is incomplete or belongs to another account. Please retry loading.");
         const decoded = decodeWorkspaceState(data.dashboard);
-        const loadedDetails = decoded.data ?? { assignments: [], manualEvents: [], dashboardView: "cards" as const, calendarView: "month" as const };
+        const loadedDetails = decoded.data ?? { assignments: [], manualEvents: [], dashboardView: "cards" as const };
         const courseIds = new Set((data.courses ?? []).map((c) => c.id));
         const details = { ...loadedDetails, assignments: loadedDetails.assignments.map((a) => ({ ...a, courseId: courseIds.has(a.courseId) ? a.courseId : "" })), manualEvents: loadedDetails.manualEvents.map((e) => ({ ...e, time: legacyEventTime(e.time), courseId: courseIds.has(e.courseId) ? e.courseId : "" })), calendarFilter: (loadedDetails.calendarFilter === "all" || loadedDetails.calendarFilter === "personal") || courseIds.has(loadedDetails.calendarFilter ?? "") ? loadedDetails.calendarFilter! : "all", courseDetails: loadedDetails.courseDetails ?? {}, syllabusDrafts: loadedDetails.syllabusDrafts ?? [], study: loadedDetails.study ?? emptyStudy(), filePreferences: loadedDetails.filePreferences ?? { filter: "all", view: "list" as const } };
         setProfile(data.profile); setProfileDraft(data.profile); setProfilePending(false);
         setCourses(data.courses ?? []); setWorkspaces(decoded.workspaces);
         setActiveWorkspaceId(decoded.activeWorkspaceId); setNotes(decoded.notes);
         setAssignments(details.assignments); setManualEvents(details.manualEvents);
-        setDashboardView(details.dashboardView); setCalendarView(details.calendarView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: details.syllabusDrafts, study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences, widgetAppearance: details.widgetAppearance }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setAppearanceOpen(false); setEditor(null); setSyllabusId(null);
+        setDashboardView(details.dashboardView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: details.syllabusDrafts, study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences, widgetAppearance: details.widgetAppearance }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setAppearanceOpen(false); setEditor(null); setSyllabusId(null);
         setSelectedClass(null); setSelectedAssignment(null);
         setExperimentalMode(null); setExperimentalMenuOpen(false); setExperimentalRestoring(false);
         autosave.hydrate(canonicalJson({ courses: [...(data.courses ?? [])].sort((a, b) => a.id.localeCompare(b.id)), dashboard: encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, details) }), data.revision ?? null);
@@ -464,11 +463,11 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
   useEffect(() => {
     if (experimentalMode) return;
-    try { autosave.change(canonicalJson(academicSnapshot(courses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData })))); }
+    try { autosave.change(canonicalJson(academicSnapshot(courses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData })))); }
     catch (error) { autosave.invalidate(error instanceof Error ? error.message : "Invalid workspace data."); }
-  }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, extraData, courses, autosave, experimentalMode]);
+  }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarFilter, extraData, courses, autosave, experimentalMode]);
 
-  const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarView, calendarFilter, ...extraData });
+  const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarFilter, ...extraData });
   const reloadWorkspace = () => {
     if (persistenceStatus === "saving" || profileSaving) return;
     if ((saveState.dirty || profilePending) && !window.confirm("Replace unsaved workspace and settings edits with saved data? Download your unsaved work first to keep a copy.")) return;
@@ -518,7 +517,6 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       assignments: demo.assignments,
       manualEvents: demo.manualEvents,
       dashboardView: "cards" as const,
-      calendarView: "month" as const,
       calendarFilter: "all",
       courseDetails: demo.courseDetails,
       syllabusDrafts: [],
@@ -540,7 +538,6 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     setActiveWorkspaceId(demo.activeWorkspaceId);
     setNotes(demo.notes);
     setDashboardView("cards");
-    setCalendarView("month");
     setCalendarFilter("all");
     setExtraData({ courseDetails: demo.courseDetails, syllabusDrafts: [], study: demo.study, filePreferences: extraData.filePreferences, widgetAppearance: extraData.widgetAppearance });
     setExperimentalMenuOpen(false);
@@ -566,7 +563,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const commitWorkspaces = (next: Workspace[], active = activeWorkspaceId, recoveredNotes = notes, appearance = extraData.widgetAppearance) => {
     const ids = new Set(next.flatMap((workspace) => workspace.widgets.map((widget) => widget.instanceId)));
     const cleanedAppearance = appearance && { ...appearance, overrides: Object.fromEntries(Object.entries(appearance.overrides).filter(([id]) => ids.has(id))) };
-    try { academicSnapshot(courses, encodeWorkspaceState(next, active, recoveredNotes, { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData, widgetAppearance: cleanedAppearance })); }
+    try { academicSnapshot(courses, encodeWorkspaceState(next, active, recoveredNotes, { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData, widgetAppearance: cleanedAppearance })); }
     catch (error) { flash(error instanceof Error ? error.message : "This layout cannot be saved."); return false; }
     setWorkspaces(next); setActiveWorkspaceId(active); setNotes(recoveredNotes);
     if (appearance) setExtraData((current) => ({ ...current, widgetAppearance: cleanedAppearance }));
@@ -653,8 +650,8 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   };
 
   const commitAcademic = (nextCourses: Course[], patch: Partial<WorkspaceData>) => {
-    const data = { assignments: storedAssignments, manualEvents, dashboardView, calendarView, calendarFilter, ...extraData, ...patch };
-    try { validateAcademicEdit(nextCourses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, data), { assignments: storedAssignments, manualEvents, dashboardView, calendarView }); }
+    const data = { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData, ...patch };
+    try { validateAcademicEdit(nextCourses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, data), { assignments: storedAssignments, manualEvents, dashboardView }); }
     catch (error) { flash(error instanceof Error ? error.message : "Review the academic data."); return false; }
     setCourses(nextCourses); setAssignments(data.assignments); setManualEvents(data.manualEvents); setCalendarFilter(data.calendarFilter);
     setExtraData({ courseDetails: data.courseDetails, syllabusDrafts: data.syllabusDrafts, study: data.study, filePreferences: data.filePreferences, widgetAppearance: data.widgetAppearance }); return true;
@@ -1155,7 +1152,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   }
 
   function renderCalendar() {
-    return <AcademicCalendar courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} monday={profile.week_starts_on === "Monday"} timezone={profile.timezone} filter={calendarFilter} onView={setCalendarView} onFilter={setCalendarFilter} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onAdd={newEvent} />;
+    return <AcademicCalendar courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} monday={profile.week_starts_on === "Monday"} timezone={profile.timezone} filter={calendarFilter} onFilter={setCalendarFilter} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onAdd={newEvent} />;
   }
 
   function renderSearch() {

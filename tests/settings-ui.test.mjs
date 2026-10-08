@@ -725,7 +725,8 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.equal(field("Description").value, "Bring notes"); await edit("Event name", "Revised appointment"); await click("Save event");
     await edit("Class filter", "history"); assert.ok(!rootNode.querySelector(".academic-calendar").textContent.includes("Revised appointment"));
     await edit("Class filter", "personal"); await saveAndReload(); await click("Calendar");
-    assert.equal(field("Class filter").value, "personal"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 7);
+    assert.equal(field("Class filter").value, "personal"); assert.equal(rootNode.querySelectorAll(".academic-day").length, 1);
+    assert.equal(rootNode.querySelector('.planner-view-toggle [aria-pressed="true"]').textContent, "Day", "a remounted calendar restores the browser's selected Day view");
     await edit("Go to date", "2026-10-15"); await act(async () => rootNode.querySelector(".calendar-chip").click()); await click("Delete event"); await saveAndReload(); assert.equal(server.dashboard.d.manualEvents.length, 0);
   });
 

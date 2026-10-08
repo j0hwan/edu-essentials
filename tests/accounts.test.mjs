@@ -46,7 +46,7 @@ test("profile validation rejects malformed fields and excludes ownership fields"
   assert.equal(result.onboarding_completed_at, undefined);
 });
 test("widgets, notes, assignment edits and calendar events round trip", () => {
-  const data = { assignments: [{ id: "a", title: "Essay", courseId: "c", due: "Tomorrow", dateKey: "2026-09-05", status: "done", progress: 100, description: "Write", weight: "10%", notes: "Submitted", checklist: [true, true, true] }], manualEvents: [{ id: "e", title: "Study", courseId: "c", dateKey: "2026-09-05", time: "18:00", type: "Study block" }], dashboardView: "list", calendarView: "week" };
+  const data = { assignments: [{ id: "a", title: "Essay", courseId: "c", due: "Tomorrow", dateKey: "2026-09-05", status: "done", progress: 100, description: "Write", weight: "10%", notes: "Submitted", checklist: [true, true, true] }], manualEvents: [{ id: "e", title: "Study", courseId: "c", dateKey: "2026-09-05", time: "18:00", type: "Study block" }], dashboardView: "list" };
   const decoded = decodeWorkspaceState({ ...layout, d: data });
   assert.deepEqual(decoded.data, data);
   assert.equal(decoded.workspaces[0].widgets[0].note, "My notes");

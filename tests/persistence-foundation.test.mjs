@@ -16,7 +16,7 @@ const requestUrl = await compile("lib/persistence-request.ts");
 const { readPersistenceJson, requireSaveRevision, nextSaveRevision } = await import(requestUrl);
 const codecUrl = await clientModule("lib/workspace-codec.ts");
 const { decodeWorkspaceState, encodeWorkspaceState } = await import(codecUrl);
-const layout = encodeWorkspaceState([{ id: "day", name: "My day", widgets: [{ instanceId: "note", type: "notes", size: "large" }] }], "day", "Existing shared notes", { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" });
+const layout = encodeWorkspaceState([{ id: "day", name: "My day", widgets: [{ instanceId: "note", type: "notes", size: "large" }] }], "day", "Existing shared notes", { assignments: [], manualEvents: [], dashboardView: "cards" });
 
 test("request limits count actual streamed UTF-8 bytes and reject invalid content", async () => {
   const make = (body, headers = {}) => new Request("https://edu.example/api/workspace", { method: "PUT", headers: { "content-type": "application/json", ...headers }, body });
@@ -276,7 +276,7 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       assert.equal((await workspace.PUT(request({ courses: [], dashboard: pending, baseRevision: (await getWorkspace()).revision }))).status, 200);
       assert.deepEqual((await getWorkspace()).dashboard.d.syllabusDrafts, [draft]);
       const dashboard = { ...layout, d: { ...layout.d,
-        calendarView: "week", calendarFilter: course.id, syllabusDrafts: [],
+        calendarFilter: course.id, syllabusDrafts: [],
         assignments: [{ id: "syllabus-row", title: "Reviewed final", courseId: course.id, dateKey: "2026-12-15", dueTime: "18:00", due: "Dec 15", type: "Exam", description: "Chapters 1–5", weight: "30%", notes: "Outline", checklist: [true, false, true], status: "done", progress: 100, progressBeforeCompletion: 40, completedAt: "2026-12-15T23:00:00.000Z" }],
         manualEvents: [{ id: "event", title: "Consultation", courseId: course.id, dateKey: "2026-12-14", time: "13:30", type: "Office hours", description: "Bring outline" }],
         courseDetails: { [course.id]: { officeHours: "Monday", syllabusText: draft.sourceText, syllabusName: draft.sourceName, meetings: [{ id: "meeting", days: [1, 3], start: "09:00", end: "10:30", from: "2026-09-01", until: "2026-12-15", location: "Hall 2" }] } },

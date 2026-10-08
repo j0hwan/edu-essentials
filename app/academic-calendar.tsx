@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, ArrowRight, CircleAlert } from "lucide-react";
 import { addDays, dateLabel, isDate, type Course, type CourseDetails } from "../lib/academics";
 import { calendarDays, calendarTime, placeCalendarItems, timeMinutes, type CalendarView } from "../lib/calendar-layout";
@@ -15,15 +15,24 @@ type Item = {
 type Props = {
   courses: Course[]; assignments: SavedAssignment[]; events: SavedEvent[]; details: Record<string, CourseDetails>;
   today: string; monday: boolean; timezone: string; filter: string;
-  onView: (view: CalendarView) => void; onFilter: (filter: string) => void;
+  onFilter: (filter: string) => void;
   onAssignment: (a: SavedAssignment) => void; onEvent: (e: SavedEvent) => void; onCourse: (c: Course) => void; onAdd: (date: string) => void;
 };
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const itemStyle = (item: Item) => ({ "--event-color": item.color } as CSSProperties);
 
-export default function AcademicCalendar({ courses, assignments, events, details, today, monday, timezone, filter, onView, onFilter, onAssignment, onEvent, onCourse, onAdd }: Props) {
-  // Every visit opens in Week; changing tabs never changes the underlying account data.
+export default function AcademicCalendar({ courses, assignments, events, details, today, monday, timezone, filter, onFilter, onAssignment, onEvent, onCourse, onAdd }: Props) {
+  // Keep the server and first client render on Week, then restore the browser-local preference.
   const [view, setView] = useState<CalendarView>("week");
+  useEffect(() => {
+    try {
+      const storedView = window.localStorage.getItem("edu-calendar-view");
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Restore the browser preference after the hydration-safe Week render.
+      if (storedView === "month" || storedView === "week" || storedView === "day") setView(storedView);
+    } catch {
+      /* Week remains available when browser storage is unavailable. */
+    }
+  }, []);
   const [anchor, setAnchor] = useState(today);
   const [selected, setSelected] = useState(today);
   const [sidebar, setSidebar] = useState(true);
@@ -102,6 +111,12 @@ export default function AcademicCalendar({ courses, assignments, events, details
   };
   const selectDate = (date: string) => { if (isDate(date)) { setSelected(date); setAllUpcoming(false); } };
   const chooseDate = (date: string) => { if (isDate(date)) { setAnchor(date); selectDate(date); } };
+  const chooseView = (next: CalendarView) => {
+    setView(next);
+    try { window.localStorage.setItem("edu-calendar-view", next); }
+    catch { /* Keep the selected view for this visit when browser storage is unavailable. */ }
+    setAnchor(selected);
+  };
   const dayHitArea = (date: string) => <button className="planner-day-hit-area" disabled={!isDate(date)} aria-label={`Select ${dateLabel(date)}`} aria-pressed={date === selected} onClick={() => selectDate(date)} />;
   const move = (offset: number) => {
     if (view !== "month") { chooseDate(addDays(anchor, offset * (view === "week" ? 7 : 1))); return; }
@@ -138,7 +153,7 @@ export default function AcademicCalendar({ courses, assignments, events, details
         <span className="planner-zone" title={`All meeting and due times use ${timezone || "your device time zone"}. Change your time zone in Settings.`}><Clock3 />{timezoneLabel}</span>
       </div>
       <div className="planner-actions">
-        <div className="planner-view-toggle" role="group" aria-label="Calendar view">{(["month", "week", "day"] as const).map((v) => <button key={v} aria-pressed={view === v} onClick={() => { setView(v); onView(v); setAnchor(selected); }}>{v[0].toUpperCase() + v.slice(1)}</button>)}</div>
+        <div className="planner-view-toggle" role="group" aria-label="Calendar view">{(["month", "week", "day"] as const).map((v) => <button key={v} aria-pressed={view === v} onClick={() => chooseView(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}</div>
         <label className="planner-course-filter"><span className="planner-sr-only">Class filter</span><select value={filter} onChange={(e) => onFilter(e.target.value)}><option value="all">All courses</option><option value="personal">Personal</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select></label>
         <div className="planner-filter-wrap"><button ref={filterButtonRef} className="planner-control planner-icon" aria-label="Filter calendar items" aria-expanded={filtersOpen} aria-controls="calendar-item-filters" onClick={() => setFiltersOpen(!filtersOpen)}><SlidersHorizontal /></button></div>
         <button className="planner-control planner-icon" aria-label={sidebar ? "Hide day details" : "Show day details"} title={sidebar ? "Hide day details" : "Show day details"} aria-expanded={sidebar} aria-controls="calendar-day-details" onClick={() => setSidebar(!sidebar)}>{sidebar ? <PanelRightClose /> : <PanelRightOpen />}</button>

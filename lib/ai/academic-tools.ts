@@ -80,7 +80,7 @@ export type Change = { kind: string; before: SavedAssignment | SavedEvent | null
 export function buildProposal(context: AcademicContext, operations: Operation[], makeId = () => crypto.randomUUID()) {
   if (!context.profile.timezone) throw new Error("Save your timezone in Settings before preparing changes.");
   const decoded = decodeWorkspaceState(structuredClone(context.dashboard));
-  const data = decoded.data ?? { assignments: [], manualEvents: [], dashboardView: "cards" as const, calendarView: "month" as const };
+  const data = decoded.data ?? { assignments: [], manualEvents: [], dashboardView: "cards" as const };
   const changes: Change[] = [], warnings = new Set<string>();
   const today = dayKey(context.now, context.profile.timezone);
   for (const raw of operations) {
