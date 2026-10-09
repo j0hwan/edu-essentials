@@ -3,45 +3,56 @@ import { createServer } from "node:http";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { build } from "vite";
+import react from "@vitejs/plugin-react";
 import { clientModule } from "../tests/helpers/client-modules.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDir = resolve(repoRoot, ".vinext/verify-home-skeleton");
-const playwright = process.env.PLAYWRIGHT_MODULE
-  ? await import(pathToFileURL(resolve(process.env.PLAYWRIGHT_MODULE)).href)
+const playwrightModule = process.env.PLAYWRIGHT_MODULE;
+const playwright = playwrightModule
+  ? await import(pathToFileURL(resolve(playwrightModule)).href)
   : await import("playwright");
-const esbuild = process.env.ESBUILD_MODULE
-  ? await import(pathToFileURL(resolve(process.env.ESBUILD_MODULE)).href)
-  : await import("esbuild");
-const [globalCss, referenceCss, authCss, homeSkeletonCss, appearanceCss, blockLayoutCss, reorderCss] = await Promise.all([
+const cssFiles = [
   "app/globals.css",
   "app/reference-ui.css",
   "app/auth.css",
-  "app/home-skeleton.css",
   "app/widget-appearance.css",
   "app/widget-block-layout.css",
   "app/widget-reorder.css",
-].map((file) => readFile(resolve(repoRoot, file), "utf8")));
-const bundle = await esbuild.build({
-  entryPoints: [resolve(repoRoot, "tests/fixtures/home-skeleton-browser.tsx")],
-  bundle: true,
-  write: false,
-  platform: "browser",
-  format: "iife",
-  target: "chrome120",
-  jsx: "automatic",
-  loader: { ".css": "empty" },
-  alias: {
-    "next/link": resolve(repoRoot, "tests/helpers/next-link.mjs"),
-    "next/navigation": resolve(repoRoot, "tests/helpers/next-navigation.mjs"),
-  },
-  define: { "process.env.NODE_ENV": '"production"' },
-  logLevel: "warning",
-});
-const js = bundle.outputFiles[0].text;
-const css = [globalCss, referenceCss, authCss, appearanceCss, blockLayoutCss, reorderCss, homeSkeletonCss]
+  "app/home-skeleton.css",
+];
+const css = (await Promise.all(cssFiles.map((file) => readFile(resolve(repoRoot, file), "utf8"))))
   .map((source) => source.replace(/^@import[^;]+;\s*/gm, ""))
   .join("\n");
+const ignoreCss = {
+  name: "home-skeleton-verify-ignore-css",
+  enforce: "pre",
+  resolveId(id) { return id.endsWith(".css") ? `\0home-skeleton-css:${id}` : null; },
+  load(id) { return id.startsWith("\0home-skeleton-css:") ? "" : null; },
+};
+const built = await build({
+  configFile: false,
+  root: repoRoot,
+  plugins: [ignoreCss, react()],
+  resolve: {
+    alias: [
+      { find: "next/link", replacement: resolve(repoRoot, "tests/helpers/next-link.mjs") },
+      { find: "next/navigation", replacement: resolve(repoRoot, "tests/helpers/next-navigation.mjs") },
+    ],
+  },
+  define: { "process.env.NODE_ENV": '"production"' },
+  build: {
+    write: false,
+    cssCodeSplit: false,
+    target: "chrome120",
+    lib: { entry: resolve(repoRoot, "tests/fixtures/home-skeleton-browser.tsx"), name: "HomeSkeletonFixture", formats: ["iife"] },
+  },
+  logLevel: "warn",
+});
+const outputFiles = Array.isArray(built) ? built.flatMap((bundle) => bundle.output) : built.output;
+const js = outputFiles.find((file) => file.type === "chunk")?.code;
+assert.ok(js, "Vite creates a browser fixture bundle");
 const html = `<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root { --font-geist-sans: Arial, sans-serif; }${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`;
 const server = createServer((request, response) => {
   if (request.url?.startsWith("/fixture.js")) {
@@ -59,22 +70,35 @@ assert.ok(address && typeof address === "object");
 const baseUrl = `http://127.0.0.1:${address.port}`;
 await mkdir(screenshotDir, { recursive: true });
 
-const { HOME_SKELETON_PRESETS, chooseHomeSkeletonPreset, getHomeSkeletonPlacements } = await import(await clientModule("lib/home-skeleton.ts"));
-const ids = HOME_SKELETON_PRESETS.map(({ id }) => id);
+const { DEFAULT_HOME_SKELETON_LAYOUT } = await import(await clientModule("lib/home-skeleton.ts"));
 const launchOptions = { headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] };
 if (process.env.CHROME_EXECUTABLE) launchOptions.executablePath = process.env.CHROME_EXECUTABLE;
 else launchOptions.channel = "chrome";
 let browser;
 const browserErrors = [];
+const geometryFailures = [];
 
-function presetUrl(path, preset, options = {}) {
+function fixtureUrl(path, { account = "home-skeleton-browser-profile", scenario = "matching", hold = true, failFirst = false, accountReduced = false } = {}) {
   const url = new URL(path, baseUrl);
-  url.searchParams.set("preset", preset);
-  if (options.hold) url.searchParams.set("hold", "true");
-  if (options.failFirst) url.searchParams.set("failFirst", "true");
-  if (options.accountReduced) url.searchParams.set("accountReduced", "true");
-  if (options.scenario) url.searchParams.set("scenario", options.scenario);
+  url.searchParams.set("account", account);
+  url.searchParams.set("scenario", scenario);
+  if (hold) url.searchParams.set("hold", "true");
+  if (failFirst) url.searchParams.set("failFirst", "true");
+  if (accountReduced) url.searchParams.set("accountReduced", "true");
   return url.href;
+}
+
+function cacheKey(accountId) {
+  return `edu-essentials:home-skeleton:v1:${encodeURIComponent(accountId)}`;
+}
+
+async function seedCache(page, accountId, layout) {
+  await page.addInitScript(({ key, value }) => {
+    const marker = `home-skeleton-seeded:${key}`;
+    if (sessionStorage.getItem(marker)) return;
+    localStorage.setItem(key, JSON.stringify(value));
+    sessionStorage.setItem(marker, "true");
+  }, { key: cacheKey(accountId), value: layout });
 }
 
 async function waitForFixtureRead(page, expectedCall = 1) {
@@ -92,7 +116,7 @@ async function holdWebAnimations(page) {
     Element.prototype.animate = function (...args) {
       const animation = nativeAnimate.apply(this, args);
       animation.pause();
-      window.__homeSkeletonAnimations.push(animation);
+      window.__homeSkeletonAnimations.push({ animation, target: this });
       return animation;
     };
   });
@@ -100,8 +124,8 @@ async function holdWebAnimations(page) {
 
 async function finishAnimationWave(page) {
   await page.evaluate(() => {
-    for (const animation of window.__homeSkeletonAnimations ?? []) {
-      try { animation.finish(); } catch { /* A canceled animation is already complete. */ }
+    for (const entry of window.__homeSkeletonAnimations ?? []) {
+      try { entry.animation.finish(); } catch { /* Canceled animations are already settled. */ }
     }
     window.__homeSkeletonAnimations = [];
   });
@@ -116,561 +140,421 @@ async function finishWebAnimations(page) {
   await waitForTransitionPhase(page, "done");
 }
 
-async function inspectPreset(page, preset, width) {
-  const columns = width <= 600 ? 2 : 4;
-  const expected = getHomeSkeletonPlacements(preset)[columns === 2 ? "phone" : "desktop"];
-  const metrics = await page.evaluate(({ expectedPlacements, columnCount }) => {
+async function readCachedLayout(page, accountId) {
+  return await page.evaluate((key) => {
+    const value = localStorage.getItem(key);
+    return value === null ? null : JSON.parse(value);
+  }, cacheKey(accountId));
+}
+
+async function readSkeleton(page) {
+  return await page.evaluate(() => {
     const root = document.querySelector(".home-skeleton");
     const grid = root?.querySelector(".home-skeleton__grid");
-    const today = root?.querySelector(".home-skeleton__today");
-    const toolbar = root?.querySelector(".home-skeleton__toolbar");
-    if (!root || !grid || !today || !toolbar) return null;
-    const rootRect = root.getBoundingClientRect();
-    const todayRect = today.getBoundingClientRect();
-    const toolbarRect = toolbar.getBoundingClientRect();
-    const actionPlaceholders = Array.from(root.querySelectorAll(".home-skeleton__actions > *"));
-    const gridRect = grid.getBoundingClientRect();
-    const gridStyle = getComputedStyle(grid);
-    const paddingLeft = Number.parseFloat(gridStyle.paddingLeft) || 0;
-    const paddingRight = Number.parseFloat(gridStyle.paddingRight) || 0;
-    const paddingTop = Number.parseFloat(gridStyle.paddingTop) || 0;
-    const columnGap = Number.parseFloat(gridStyle.columnGap) || 0;
-    const rowGap = Number.parseFloat(gridStyle.rowGap) || 0;
-    const rowUnit = Number.parseFloat(gridStyle.gridAutoRows) || 0;
-    const trackWidth = (gridRect.width - paddingLeft - paddingRight - columnGap * (columnCount - 1)) / columnCount;
-    const mode = columnCount === 2 ? "phone" : "desktop";
-    const cards = Array.from(grid.querySelectorAll(".home-skeleton__card"));
-    const cardData = cards.map((card, index) => {
-      const style = getComputedStyle(card);
-      const rect = card.getBoundingClientRect();
-      const item = expectedPlacements[index];
-      const actualVariables = {
-        column: Number.parseInt(style.getPropertyValue(`--${mode}-column`), 10),
-        columnSpan: Number.parseInt(style.getPropertyValue(`--${mode}-column-span`), 10),
-        row: Number.parseInt(style.getPropertyValue(`--${mode}-row`), 10),
-        rowSpan: Number.parseInt(style.getPropertyValue(`--${mode}-row-span`), 10),
-      };
-      return {
-        childCount: card.childElementCount,
-        size: card.getAttribute("data-size"),
-        presetPlacement: item,
-        actualVariables,
-        gridColumnStart: style.gridColumnStart,
-        gridColumnEnd: style.gridColumnEnd,
-        gridRowStart: style.gridRowStart,
-        gridRowEnd: style.gridRowEnd,
-        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom },
-        expectedRect: {
-          x: gridRect.x + paddingLeft + (item.column - 1) * (trackWidth + columnGap),
-          y: gridRect.y + paddingTop + (item.row - 1) * (rowUnit + rowGap),
-          width: trackWidth * item.columnSpan + columnGap * (item.columnSpan - 1),
-          height: rowUnit * item.rowSpan + rowGap * (item.rowSpan - 1),
-        },
-      };
-    });
-    return {
-      preset: root.getAttribute("data-preset"),
-      grid: { x: gridRect.x, y: gridRect.y, width: gridRect.width, height: gridRect.height, columns: gridStyle.gridTemplateColumns },
-      root: { x: rootRect.x, y: rootRect.y, width: rootRect.width, height: rootRect.height },
-      today: {
-        x: todayRect.x, y: todayRect.y, width: todayRect.width, height: todayRect.height,
-        right: todayRect.right, bottom: todayRect.bottom,
-        childCount: today.childElementCount, text: today.textContent.trim(),
-        ariaHidden: Boolean(today.closest('[aria-hidden="true"]')), inert: Boolean(today.closest("[inert]")),
-        controls: today.querySelectorAll("button, a, input, select, textarea").length,
-        precedesToolbar: Boolean(today.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING),
-        uiUnit: getComputedStyle(root).getPropertyValue("--ui-unit").trim(),
-      },
-      toolbar: { x: toolbarRect.x, y: toolbarRect.y, width: toolbarRect.width, height: toolbarRect.height },
-      actions: actionPlaceholders.map((action) => {
-        const rect = action.getBoundingClientRect();
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, text: action.textContent.trim(), childCount: action.childElementCount };
-      }),
-      cards: cardData,
-      documentWidth: document.documentElement.scrollWidth,
-      viewportWidth: window.innerWidth,
-      widgetIds: root.querySelectorAll("[data-widget-id]").length,
-      controls: root.querySelectorAll("button, a, input, select, textarea").length,
-      accessibleStatusCount: document.querySelectorAll('.home-skeleton[role="status"][aria-label="Loading Home workspace"][aria-busy="true"]').length,
-      forbiddenSkeletonDetails: root.querySelectorAll(".home-skeleton__card-header, .home-skeleton__card-icon, .home-skeleton__card-title, .home-skeleton__card-menu, .home-skeleton__body, .home-skeleton__bar, .home-skeleton__list-mark, .home-skeleton__note-pin, .home-skeleton__calendar-day").length,
+    if (!root || !grid) return null;
+    const rect = (node) => {
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      return { x: box.x + window.scrollX, y: box.y + window.scrollY, width: box.width, height: box.height, right: box.right + window.scrollX, bottom: box.bottom + window.scrollY };
     };
-  }, { expectedPlacements: expected, columnCount: columns });
+    const style = (node) => {
+      if (!node) return null;
+      const computed = getComputedStyle(node);
+      return {
+        minHeight: computed.minHeight,
+        height: computed.height,
+        paddingTop: computed.paddingTop,
+        paddingBottom: computed.paddingBottom,
+        boxSizing: computed.boxSizing,
+        gap: computed.gap,
+        flexDirection: computed.flexDirection,
+      };
+    };
+    return {
+      phase: document.querySelector(".home-load-transition")?.getAttribute("data-phase"),
+      restored: document.querySelector(".home-load-transition")?.getAttribute("data-layout-restored"),
+      match: document.querySelector(".home-load-transition")?.getAttribute("data-layout-match"),
+      todayHidden: root.getAttribute("data-today-hidden"),
+      todaySections: Number(root.getAttribute("data-today-sections") ?? "3"),
+      todayCount: root.querySelectorAll(".home-skeleton__today").length,
+      today: rect(root.querySelector(".home-skeleton__today")),
+      intro: rect(root.querySelector(".home-skeleton__intro")),
+      introStyle: style(root.querySelector(".home-skeleton__intro")),
+      toolbar: rect(root.querySelector(".home-skeleton__toolbar")),
+      toolbarStyle: style(root.querySelector(".home-skeleton__toolbar")),
+      tabs: rect(root.querySelector(".home-skeleton__tabs")),
+      actions: [...root.querySelectorAll(".home-skeleton__actions > *")].map((node) => ({ rect: rect(node), style: style(node), control: node.getAttribute("data-control") })),
+      gridRect: rect(grid),
+      gap: getComputedStyle(grid).columnGap,
+      cards: [...grid.querySelectorAll(".home-skeleton__card")].map((card) => ({
+        size: card.getAttribute("data-size"),
+        miniStart: card.getAttribute("data-mini-start") === "true",
+        rect: rect(card),
+      })),
+    };
+  });
+}
 
-  assert.ok(metrics, `skeleton grid renders at ${width}px`);
-  assert.equal(metrics.preset, preset.id, `the server-selected preset ID renders unchanged at ${width}px`);
-  assert.equal(metrics.cards.length, preset.widgets.length, `all ${preset.widgets.length} curated cards render at ${width}px`);
-  assert.equal(metrics.accessibleStatusCount, 1, "one accessible loading status is exposed");
-  assert.equal(metrics.forbiddenSkeletonDetails, 0, "empty skeleton boxes do not contain card decoration");
-  assert.equal(metrics.widgetIds, 0, "skeleton cards never impersonate saved widgets");
-  assert.equal(metrics.controls, 0, "the skeleton contains no fake interactive controls");
-  assert.equal(metrics.today.ariaHidden, true, "the pending Today placeholder is decorative");
-  assert.equal(metrics.today.inert, true, "the pending Today placeholder is inert");
-  assert.equal(metrics.today.childCount, 0, "the pending Today placeholder is an empty outline");
-  assert.equal(metrics.today.text, "", "the pending Today placeholder contains no text");
-  assert.equal(metrics.today.controls, 0, "the pending Today placeholder has no fake controls");
-  assert.ok(metrics.today.precedesToolbar, "the Today placeholder appears before the toolbar");
-  assert.notEqual(metrics.today.uiUnit, "", "the Today placeholder inherits the workspace UI unit");
-  assert.ok(metrics.today.height > 40 && metrics.today.height < width * 1.5, `Today placeholder has a responsive, non-square footprint at ${width}px`);
-  assert.ok(metrics.today.x >= metrics.root.x - 1 && metrics.today.right <= metrics.root.x + metrics.root.width + 1, `Today placeholder fits within the Home skeleton at ${width}px`);
-  assert.ok(metrics.today.bottom <= metrics.toolbar.y + 1, `Today placeholder reserves space before the toolbar at ${width}px`);
-  assert.equal(metrics.actions.length, 3, "the toolbar reserves its three real actions");
-  for (const [index, action] of metrics.actions.entries()) {
-    assert.equal(action.childCount, 0, `toolbar action ${index} is an empty outline`);
-    assert.equal(action.text, "", `toolbar action ${index} has no fake text`);
-    assert.ok(action.width > action.height && action.width >= 60, `toolbar action ${index} is a wide button placeholder at ${width}px`);
-    assert.ok(action.x >= metrics.root.x - 1 && action.right <= metrics.root.x + metrics.root.width + 1, `toolbar action ${index} fits within the Home skeleton at ${width}px`);
-  }
-  assert.ok(metrics.documentWidth <= width + 1, `page does not overflow horizontally at ${width}px (${metrics.documentWidth}px)`);
+async function readHandoffGeometry(page) {
+  return await page.evaluate(() => {
+    const transition = document.querySelector(".home-load-transition");
+    const skeleton = transition?.querySelector(".home-load-transition__skeleton");
+    const sourceGrid = skeleton?.querySelector(".home-skeleton__grid");
+    const content = transition?.querySelector(".home-load-transition__content");
+    const liveGrid = content?.querySelector(".widget-grid");
+    const sourceToday = skeleton?.querySelector(".home-skeleton__today");
+    const liveToday = content?.querySelector(".home-today-panel");
+    const sourceToolbar = skeleton?.querySelector(".home-skeleton__toolbar");
+    const liveToolbar = content?.querySelector(".workspace-bar");
+    const rect = (node) => {
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      return { x: box.x + window.scrollX, y: box.y + window.scrollY, width: box.width, height: box.height, right: box.right + window.scrollX, bottom: box.bottom + window.scrollY };
+    };
+    const style = (node) => {
+      if (!node) return null;
+      const computed = getComputedStyle(node);
+      return {
+        minHeight: computed.minHeight,
+        height: computed.height,
+        paddingTop: computed.paddingTop,
+        paddingBottom: computed.paddingBottom,
+        boxSizing: computed.boxSizing,
+        gap: computed.gap,
+        flexDirection: computed.flexDirection,
+      };
+    };
+    const cards = (parent, selector) => [...(parent?.querySelectorAll(selector) ?? [])].map((card) => ({
+      size: card.getAttribute("data-size"),
+      miniStart: card.getAttribute("data-mini-start") === "true",
+      rect: rect(card),
+    }));
+    return {
+      phase: transition?.getAttribute("data-phase"),
+      restored: transition?.getAttribute("data-layout-restored"),
+      match: transition?.getAttribute("data-layout-match"),
+      skeletonGap: sourceGrid ? getComputedStyle(sourceGrid).columnGap : null,
+      liveGap: liveGrid ? getComputedStyle(liveGrid).columnGap : null,
+      todaySkeleton: skeleton?.querySelectorAll(".home-skeleton__today").length ?? 0,
+      todayLive: content?.querySelectorAll(".home-today-panel").length ?? 0,
+      todaySections: Number(skeleton?.querySelector(".home-skeleton")?.getAttribute("data-today-sections") ?? "3"),
+      todayLiveSections: liveToday?.querySelectorAll(".today-panel-grid > *").length ?? 0,
+      todaySkeletonRect: rect(sourceToday),
+      todayLiveRect: rect(liveToday),
+      introRect: rect(skeleton?.querySelector(".home-skeleton__intro")),
+      introStyle: style(skeleton?.querySelector(".home-skeleton__intro")),
+      greetingRect: rect(content?.querySelector(".home-greeting")),
+      greetingStyle: style(content?.querySelector(".home-greeting")),
+      toolbarRect: rect(sourceToolbar),
+      toolbarStyle: style(sourceToolbar),
+      tabsRect: rect(skeleton?.querySelector(".home-skeleton__tabs")),
+      liveToolbarRect: rect(liveToolbar),
+      liveToolbarStyle: style(liveToolbar),
+      liveTabsRect: rect(content?.querySelector(".workspace-tabs")),
+      skeletonActions: [...(skeleton?.querySelectorAll(".home-skeleton__actions > *") ?? [])].map((node) => ({ rect: rect(node), style: style(node), control: node.getAttribute("data-control") })),
+      liveActions: [...(content?.querySelectorAll(".workspace-actions > *") ?? [])].map((node) => ({ rect: rect(node), style: style(node), className: node.className })),
+      gridRect: rect(sourceGrid),
+      liveGridRect: rect(liveGrid),
+      contentHidden: content?.getAttribute("aria-hidden") === "true" && content?.hasAttribute("inert"),
+      skeletonCards: cards(sourceGrid, ".home-skeleton__card"),
+      liveCards: cards(liveGrid, ".widget-card[data-widget-id]"),
+      morphOverlayCount: transition?.querySelectorAll(".home-load-transition__surface, .home-load-transition__today-outline").length ?? 0,
+    };
+  });
+}
 
-  for (const [index, card] of metrics.cards.entries()) {
-    const expectedPlacement = card.presetPlacement;
-    assert.equal(card.childCount, 0, `${preset.id} card ${index} is an empty footprint at ${width}px`);
-    assert.deepEqual(card.actualVariables, expectedPlacement, `${preset.id} card ${index} uses the curated ${columns}-column footprint`);
-    assert.equal(card.gridColumnStart, String(expectedPlacement.column));
-    assert.equal(card.gridColumnEnd, `span ${expectedPlacement.columnSpan}`);
-    assert.equal(card.gridRowStart, String(expectedPlacement.row));
-    assert.equal(card.gridRowEnd, `span ${expectedPlacement.rowSpan}`);
-    for (const dimension of ["x", "y", "width", "height"]) {
-      assert.ok(Math.abs(card.rect[dimension] - card.expectedRect[dimension]) <= 3,
-        `${preset.id} card ${index} ${dimension} follows its grid footprint at ${width}px (${card.rect[dimension]} vs ${card.expectedRect[dimension]})`);
-    }
-    assert.ok(card.rect.x >= metrics.grid.x - 1 && card.rect.right <= metrics.grid.x + metrics.grid.width + 1, `${preset.id} card ${index} stays within the grid at ${width}px`);
-    assert.ok(card.rect.y >= metrics.grid.y - 1 && card.rect.bottom <= metrics.grid.y + metrics.grid.height + 1, `${preset.id} card ${index} stays within the grid height at ${width}px`);
-  }
-  for (let first = 0; first < metrics.cards.length; first++) {
-    for (let second = first + 1; second < metrics.cards.length; second++) {
-      const a = metrics.cards[first].rect;
-      const b = metrics.cards[second].rect;
-      assert.ok(a.right <= b.x + 1 || b.right <= a.x + 1 || a.bottom <= b.y + 1 || b.bottom <= a.y + 1,
-        `${preset.id} cards ${first} and ${second} do not overlap at ${width}px`);
-    }
-  }
+function recordClose(actual, expected, label, tolerance = 3) {
+  if (Math.abs(actual - expected) > tolerance) geometryFailures.push(`${label}: ${actual.toFixed(2)}px vs ${expected.toFixed(2)}px (tolerance ${tolerance}px)`);
 }
 
 try {
   browser = await playwright.chromium.launch(launchOptions);
-  const geometryWidths = [320, 390, 1280, 1915];
-  const presetIndex = new Map(HOME_SKELETON_PRESETS.map((preset, index) => [preset.id, index]));
-  for (const preset of HOME_SKELETON_PRESETS) {
-    for (const width of geometryWidths) {
-      const context = await browser.newContext({ viewport: { width, height: 1040 }, reducedMotion: "no-preference" });
-      const page = await context.newPage();
-      page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
-      page.on("console", (message) => { if (message.type() === "error") browserErrors.push(`console: ${message.text()}`); });
-      await page.goto(presetUrl("/home", preset.id, { hold: true }));
-      await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
-      await waitForFixtureRead(page);
-      await waitForTransitionPhase(page, "pending");
-      assert.equal(await page.locator(".home-skeleton__today").count(), 1, "pending loading always reserves space for Today");
-      assert.equal(await page.locator(".home-load-transition__today-outline").count(), 0, "pending loading has no saved-visibility transition overlay yet");
-      assert.equal(await page.locator(".home-today-panel").count(), 0, "pending loading has not rendered Today from default client state");
-      assert.equal(await page.evaluate(() => window.__homeSkeletonFixture.writes), 0, "the held Home read causes no snapshot write");
-      await page.waitForTimeout(650);
-      await inspectPreset(page, preset, width);
-      if (presetIndex.get(preset.id) === 0 && width === 320) await page.locator(".home-skeleton").screenshot({ path: resolve(screenshotDir, `phone-${preset.id}.png`) });
-      if (presetIndex.get(preset.id) === 0 && width === 1280) await page.locator(".home-skeleton").screenshot({ path: resolve(screenshotDir, `desktop-${preset.id}.png`) });
-      await context.close();
-    }
-  }
 
-  for (const motionCase of [
-    { name: "standard", system: "no-preference", accountReduced: false, reduced: false },
-    { name: "system reduced", system: "reduce", accountReduced: false, reduced: true },
-    { name: "account reduced", system: "no-preference", accountReduced: true, reduced: true },
-  ]) {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: motionCase.system });
+  // Check both Today states and the phone width where action rows can wrap.
+  const geometryWidgets = [
+    { size: "small", startsNewMiniBlock: false },
+    { size: "mini", startsNewMiniBlock: false },
+    { size: "mini", startsNewMiniBlock: true },
+    { size: "medium", startsNewMiniBlock: false },
+  ];
+  const geometryCases = [
+    { width: 1280, todayHidden: true, sections: 3 },
+    { width: 450, todayHidden: true, sections: 3 },
+    { width: 390, todayHidden: true, sections: 3 },
+    { width: 1280, todayHidden: false, sections: 3 },
+    { width: 450, todayHidden: false, sections: 3 },
+    { width: 390, todayHidden: false, sections: 3 },
+    { width: 390, todayHidden: false, sections: 1 },
+  ];
+  for (const { width, todayHidden, sections } of geometryCases) {
+    const account = `geometry-${width}-${todayHidden ? "hidden" : "visible"}-${sections}`;
+    const geometryLayout = { version: 1, widgets: geometryWidgets, todayHidden, gap: 28 };
+    const scenario = todayHidden ? "geometry" : sections === 1 ? "geometry-one-section" : "geometry-visible";
+    const context = await browser.newContext({ viewport: { width, height: 980 }, reducedMotion: "no-preference" });
     const page = await context.newPage();
-    page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
-    await page.goto(presetUrl("/home", HOME_SKELETON_PRESETS[0].id, { hold: true, accountReduced: motionCase.accountReduced }));
-    await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
-    await page.waitForFunction((motion) => document.documentElement.dataset.motion === motion, motionCase.accountReduced ? "reduced" : "full");
-    const motion = await page.evaluate(() => {
-      const card = document.querySelector(".home-skeleton__card");
-      return {
-        rootClass: document.querySelector(".home-skeleton")?.className,
-        cardSweep: getComputedStyle(card, "::after").animationName,
-      };
-    });
-    if (motionCase.reduced) {
-      assert.match(motion.rootClass, /home-skeleton--reduced|home-skeleton/, `${motionCase.name} remains a presentational loading view`);
-      assert.equal(motion.cardSweep, "none", `${motionCase.name} disables shimmer sweep`);
-    } else {
-      assert.notEqual(motion.cardSweep, "none", "standard motion preserves the gentle card shimmer");
-    }
-    if (motionCase.accountReduced) assert.match(motion.rootClass, /home-skeleton--reduced/, "account motion preference reaches the skeleton component");
-    await context.close();
-  }
-
-  {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "no-preference" });
-    const page = await context.newPage();
-    page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
+    page.on("pageerror", (error) => browserErrors.push(`geometry ${width}: ${error.message}`));
+    page.on("console", (message) => { if (message.type() === "error") browserErrors.push(`geometry ${width}: ${message.text()}`); });
     await holdWebAnimations(page);
-    await page.goto(presetUrl("/home", HOME_SKELETON_PRESETS[0].id, { hold: true }));
-    await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
-    await waitForFixtureRead(page);
-    const freshPreset = chooseHomeSkeletonPreset(() => 0.91).id;
-    await page.evaluate((id) => window.__homeSkeletonFixture.setPresetForReload(id), freshPreset);
-    await page.reload();
-    await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
-    assert.equal(await page.locator(".home-skeleton").getAttribute("data-preset"), freshPreset, "reload renders the freshly selected server preset ID");
-    assert.ok(ids.includes(await page.locator(".home-skeleton").getAttribute("data-preset")), "reload selection remains inside the finite curated library");
-    await context.close();
-  }
-
-  {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "no-preference" });
-    const page = await context.newPage();
-    page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
-    await holdWebAnimations(page);
-    await page.goto(presetUrl("/home", HOME_SKELETON_PRESETS[0].id, { hold: true }));
-    await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
-    await waitForFixtureRead(page);
-    const pendingTodayRect = await page.locator(".home-skeleton__today").evaluate((node) => {
-      const rect = node.getBoundingClientRect();
-      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-    });
-    assert.equal(await page.locator("[data-widget-id]").count(), 0);
-    assert.equal(await page.evaluate(() => window.__homeSkeletonFixture.writes), 0);
-    await page.evaluate(() => {
-      window.__homeSkeletonFixture.setHoldReads(false);
-      window.__homeSkeletonFixture.releaseNextSuccess();
-    });
-    await waitForTransitionPhase(page, "animating");
-    const duringTransition = await page.evaluate(() => {
-      const transition = document.querySelector('.home-load-transition[data-phase="animating"]');
-      const host = transition?.querySelector(".home-load-transition__host");
-      const content = transition?.querySelector(".home-load-transition__content");
-      const skeleton = transition?.querySelector(".home-load-transition__skeleton");
-      const notes = host?.querySelector('[data-widget-id="saved-notes"]');
-      const today = transition?.querySelector(".home-load-transition__today-outline");
-      const todayAnimation = window.__homeSkeletonAnimations?.find((animation) => animation.effect?.target === today);
-      const todayFrames = todayAnimation?.effect?.getKeyframes().map((frame) => ({
-        opacity: frame.opacity === undefined ? null : Number(frame.opacity),
-        transform: frame.transform ?? null,
-      })) ?? [];
-      const todayRect = today?.getBoundingClientRect();
-      const targetSurfaces = Array.from(transition?.querySelectorAll(".home-load-transition__surface[data-transition-target-id]") ?? []);
-      return {
-        contentHidden: content?.getAttribute("aria-hidden") === "true" && content?.hasAttribute("inert"),
-        contentNotRevealed: !!content && (getComputedStyle(content).visibility === "hidden" || Number(getComputedStyle(content).opacity) < 0.05),
-        sourceHidden: !!skeleton && (getComputedStyle(skeleton).visibility === "hidden" || getComputedStyle(skeleton).display === "none"),
-        notesMeasured: !!notes && notes.getBoundingClientRect().width > 0 && notes.getBoundingClientRect().height > 0,
-        todayOutline: !!today,
-        todayIsDecoration: today?.getAttribute("aria-hidden") === "true" && today?.hasAttribute("inert"),
-        todayRect: todayRect ? { x: todayRect.x, y: todayRect.y, width: todayRect.width, height: todayRect.height } : null,
-        todayFrames,
-        targetSurfaces: targetSurfaces.map((surface) => ({ id: surface.getAttribute("data-transition-target-id"), size: surface.getAttribute("data-size") })),
-        notesSize: notes?.getAttribute("data-size"),
-      };
-    });
-    assert.equal(duringTransition.contentHidden, true, "real saved Home children are inert and hidden from assistive technology while their layout is measured");
-    assert.equal(duringTransition.contentNotRevealed, true, "real widget content remains visually hidden until its outlines move");
-    assert.equal(duringTransition.sourceHidden, true, "the original skeleton footprints are hidden once their moving outlines launch");
-    assert.equal(duringTransition.notesMeasured, true, "the real saved widget has measurable geometry before reveal");
-    assert.equal(duringTransition.todayOutline, true, "a saved visible Today section receives a transition outline");
-    assert.equal(duringTransition.todayIsDecoration, true, "the Today transition outline is decorative and inert");
-    assert.ok(duringTransition.todayRect, "the Today outline begins as a measurable transition surface");
-    for (const dimension of ["x", "y", "width", "height"]) {
-      assert.ok(Math.abs(duringTransition.todayRect[dimension] - pendingTodayRect[dimension]) <= 2, `Today begins at its pending placeholder ${dimension}`);
-    }
-    assert.ok(duringTransition.todayFrames.length >= 2, "Today has a direct source-to-target animation");
-    assert.ok(duringTransition.todayFrames.every((frame) => frame.opacity === null || frame.opacity >= 0.99), "Today stays fully visible through its morph without an opacity popup");
-    assert.ok(!String(duringTransition.todayFrames[0].transform ?? "").includes("scale(.96)"), "Today does not pop in from an independent scale effect");
-    assert.ok(duringTransition.targetSurfaces.some((surface) => surface.id === "saved-notes" && surface.size === duringTransition.notesSize), "a moving outline targets the saved widget identity and footprint");
-    await page.locator(".home-load-transition").screenshot({ path: resolve(screenshotDir, "desktop-morph.png") });
-    await finishAnimationWave(page);
-    await waitForTransitionPhase(page, "revealing");
-    const aligned = await page.evaluate(() => {
-      const transition = document.querySelector('.home-load-transition[data-phase="revealing"]');
-      const host = transition?.querySelector(".home-load-transition__host");
-      const content = transition?.querySelector(".home-load-transition__content");
-      const rect = (node) => {
-        if (!node) return null;
-        const value = node.getBoundingClientRect();
-        return { x: value.x, y: value.y, width: value.width, height: value.height };
-      };
-      const appearance = (node) => {
-        if (!node) return null;
-        const style = getComputedStyle(node);
-        return { background: style.background, border: style.border, borderRadius: style.borderRadius, boxShadow: style.boxShadow };
-      };
-      const widgets = new Map(Array.from(host?.querySelectorAll("[data-widget-id]") ?? []).map((node) => [node.getAttribute("data-widget-id"), node]));
-      const surfaces = Array.from(transition?.querySelectorAll(".home-load-transition__surface[data-transition-target-id]") ?? []);
-      const today = transition?.querySelector(".home-load-transition__today-outline");
-      const panel = host?.querySelector(".home-today-panel");
-      return {
-        contentHidden: content?.getAttribute("aria-hidden") === "true" && content?.hasAttribute("inert"),
-        contentOpacity: content ? Number(getComputedStyle(content).opacity) : null,
-        widgetPairs: surfaces.map((surface) => ({ id: surface.getAttribute("data-transition-target-id"), surface: rect(surface), target: rect(widgets.get(surface.getAttribute("data-transition-target-id"))), appearance: appearance(surface), targetAppearance: appearance(widgets.get(surface.getAttribute("data-transition-target-id"))) })),
-        today: today ? rect(today) : null,
-        todayTarget: panel ? rect(panel) : null,
-      };
-    });
-    assert.equal(aligned.contentHidden, true, "content remains inert until the outline movement is complete");
-    assert.ok(aligned.contentOpacity === null || aligned.contentOpacity <= 0.05, "contents stay visually hidden until their fade-in begins after movement");
-    assert.ok(aligned.widgetPairs.some(({ id }) => id === "saved-notes"), "the movement phase retains the saved widget target");
-    for (const pair of aligned.widgetPairs) {
-      assert.ok(pair.target, `the ${pair.id} transition surface resolves to saved content`);
-      for (const dimension of ["x", "y", "width", "height"]) {
-      assert.ok(Math.abs(pair.surface[dimension] - pair.target[dimension]) <= 2, `the ${pair.id} outline lands on the saved ${dimension}`);
-      }
-      assert.deepEqual(pair.appearance, pair.targetAppearance, `the ${pair.id} outline adopts saved widget appearance`);
-    }
-    assert.ok(aligned.today && aligned.todayTarget, "visible Today has both transition and saved rectangles");
-    for (const dimension of ["x", "y", "width", "height"]) {
-      assert.ok(Math.abs(aligned.today[dimension] - aligned.todayTarget[dimension]) <= 2, `Today outline lands on the saved ${dimension}`);
-    }
-    await page.locator(".home-load-transition").screenshot({ path: resolve(screenshotDir, "desktop-morph-targets.png") });
+    await page.goto(fixtureUrl("/home", { account, scenario, hold: false }));
+    await page.locator('[data-widget-id="geo-small"]').waitFor({ state: "visible" });
     await finishWebAnimations(page);
-    await waitForTransitionPhase(page, "done");
-    await page.locator('[data-widget-id="saved-notes"] textarea').waitFor({ state: "visible" });
-    await page.locator(".home-skeleton").waitFor({ state: "detached" });
-    assert.equal(await page.locator(".home-load-transition__today-outline").count(), 0, "the decorative Today outline is removed when real content is revealed");
-    assert.equal(await page.locator('[data-widget-id="saved-notes"]').evaluate((node) => node.closest(".home-load-transition__content")?.getAttribute("aria-hidden")), null, "saved widget content becomes accessible after the transition");
-    const homeRectBeforeQuietPeriod = await page.locator(".home-page").evaluate((node) => {
-      const rect = node.getBoundingClientRect();
-      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, animation: getComputedStyle(node).animationName };
-    });
-    assert.equal(homeRectBeforeQuietPeriod.animation, "none", "Home's generic page entrance animation stays disabled after reveal");
-    await page.waitForTimeout(300);
-    const homeRectAfterQuietPeriod = await page.locator(".home-page").evaluate((node) => {
-      const rect = node.getBoundingClientRect();
-      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-    });
-    for (const dimension of ["x", "y", "width", "height"]) {
-      assert.ok(Math.abs(homeRectBeforeQuietPeriod[dimension] - homeRectAfterQuietPeriod[dimension]) <= 0.5, `Home does not jiggle after completion (${dimension})`);
-    }
-    await page.waitForTimeout(760);
-    assert.equal(await page.evaluate(() => window.__homeSkeletonFixture.writes), 0, "the successful unchanged snapshot exits loading without an autosave");
-    await page.getByRole("link", { name: "Tasks" }).click();
-    await page.waitForFunction(() => window.location.pathname === "/tasks");
-    assert.equal(await page.locator(".home-load-transition").count(), 0, "leaving Home unmounts its completed transition boundary");
-    await page.getByRole("link", { name: "Home" }).click();
-    await page.waitForFunction(() => window.location.pathname === "/home");
-    await page.locator(".home-page").waitFor({ state: "visible" });
-    await waitForTransitionPhase(page, "done");
-    assert.equal(await page.locator(".home-skeleton, .home-load-transition__surface").count(), 0, "navigating back when data is already ready bypasses the loading morph");
-    await context.close();
-  }
-
-  for (const scenario of ["today-hidden", "empty", "empty-hidden", "count-mismatch", "appearance", "mini-blocks"]) {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, reducedMotion: "no-preference" });
-    const page = await context.newPage();
-    page.on("pageerror", (error) => browserErrors.push(`pageerror (${scenario}): ${error.message}`));
-    page.on("console", (message) => { if (message.type() === "error") browserErrors.push(`console (${scenario}): ${message.text()}`); });
-    await holdWebAnimations(page);
-    await page.goto(presetUrl("/home", HOME_SKELETON_PRESETS[1].id, { hold: true, scenario }));
+    await page.waitForFunction(({ key, expected, width }) => {
+      const value = JSON.parse(localStorage.getItem(key) ?? "null");
+      return value?.widgets?.length === expected.widgets.length
+        && value?.todayHidden === expected.todayHidden
+        && value?.gap === expected.gap
+        && (value?.todaySectionCount ?? 3) === expected.sections
+        && value?.geometry?.viewportWidth === width
+        && value?.geometry?.contentWidth > 0;
+    }, { key: cacheKey(account), expected: { ...geometryLayout, sections }, width });
+    const writtenLayout = await readCachedLayout(page, account);
+    assert.deepEqual(
+      { widgets: writtenLayout.widgets, todayHidden: writtenLayout.todayHidden, gap: writtenLayout.gap },
+      { widgets: geometryLayout.widgets, todayHidden: geometryLayout.todayHidden, gap: geometryLayout.gap },
+      `${width}px: completed visit records the current server silhouette`,
+    );
+    assert.equal(writtenLayout.todaySectionCount ?? 3, sections, `${width}px: completed visit records the Today section count`);
+    assert.ok(writtenLayout.geometry, `${width}px: completed visit records exact viewport geometry`);
+    assert.equal(writtenLayout.geometry.viewportWidth, width, `${width}px: cache geometry is scoped to the viewport width`);
+    assert.ok(writtenLayout.geometry.contentWidth > 0 && writtenLayout.geometry.toolbarHeight > 0, `${width}px: cache records usable content and toolbar measurements`);
+    await page.goto(fixtureUrl("/home", { account, scenario, hold: true }));
     await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
     await waitForFixtureRead(page);
-    await waitForTransitionPhase(page, "pending");
-    assert.equal(await page.locator(".home-skeleton__today").count(), 1, `${scenario}: pending state always contains the empty Today placeholder`);
-    assert.equal(await page.locator(".home-load-transition__today-outline").count(), 0, `${scenario}: pending state does not guess Today visibility`);
-    const pendingTodayRect = await page.locator(".home-skeleton__today").evaluate((node) => {
-      const rect = node.getBoundingClientRect();
-      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-    });
-    await page.evaluate(() => {
-      window.__homeSkeletonFixture.setHoldReads(false);
-      window.__homeSkeletonFixture.releaseNextSuccess();
-    });
-    await waitForTransitionPhase(page, "animating");
-    const during = await page.evaluate(() => {
-      const transition = document.querySelector('.home-load-transition[data-phase="animating"]');
-      const host = transition?.querySelector(".home-load-transition__host");
-      const content = transition?.querySelector(".home-load-transition__content");
-      const widgets = Array.from(host?.querySelectorAll("[data-widget-id]") ?? []);
-      const today = transition?.querySelector(".home-load-transition__today-outline");
-      const todayAnimation = window.__homeSkeletonAnimations?.find((animation) => animation.effect?.target === today);
-      const todayFrames = todayAnimation?.effect?.getKeyframes().map((frame) => ({
-        opacity: frame.opacity === undefined ? null : Number(frame.opacity),
-        transform: frame.transform ?? null,
-      })) ?? [];
-      const todayRect = today?.getBoundingClientRect();
-      return {
-        contentHidden: content?.getAttribute("aria-hidden") === "true" && content?.hasAttribute("inert"),
-        widgetIds: widgets.map((widget) => widget.getAttribute("data-widget-id")),
-        today: !!today,
-        todayRect: todayRect ? { x: todayRect.x, y: todayRect.y, width: todayRect.width, height: todayRect.height } : null,
-        todayFrames,
-        hiddenToday: today?.getAttribute("data-hidden-today") === "true",
-        actualToday: !!host?.querySelector(".home-today-panel"),
-      };
-    });
-    assert.equal(during.contentHidden, true, `${scenario}: saved children stay inert until reveal`);
-    assert.equal(during.today, true, `${scenario}: the pending Today placeholder morphs or fades during handoff`);
-    assert.ok(during.todayRect, `${scenario}: Today transition surface is measurable`);
-    for (const dimension of ["x", "y", "width", "height"]) {
-      assert.ok(Math.abs(during.todayRect[dimension] - pendingTodayRect[dimension]) <= 2, `${scenario}: Today transition starts from its placeholder ${dimension}`);
-    }
-    assert.ok(during.todayFrames.length >= 2, `${scenario}: Today has an explicit handoff animation`);
-    if (scenario === "today-hidden" || scenario === "empty-hidden") {
-      assert.equal(during.hiddenToday, true, `${scenario}: saved hidden Today uses its source fade`);
-      assert.equal(during.todayFrames[0].opacity, 1, `${scenario}: hidden Today starts fully visible`);
-      assert.equal(during.todayFrames.at(-1).opacity, 0, `${scenario}: hidden Today fades out`);
-    } else {
-      assert.equal(during.hiddenToday, false, `${scenario}: visible Today morphs to its saved panel`);
-      assert.ok(during.todayFrames.every((frame) => frame.opacity === null || frame.opacity >= 0.99), `${scenario}: visible Today stays opaque through its morph`);
-    }
-    const hasToday = scenario !== "today-hidden" && scenario !== "empty-hidden";
-    assert.equal(during.actualToday, hasToday, `${scenario}: Today rendering follows saved visibility`);
+    const before = await readSkeleton(page);
+    assert.equal(before.restored, "true", `${width}px: cached layout is restored before the skeleton is shown`);
+    assert.equal(before.phase, "pending");
+    assert.equal(before.match, "false", "the pending read does not claim a server match");
+    assert.equal(before.gap, "28px", `${width}px: cached custom gap is rendered`);
+    assert.equal(before.todayHidden, String(todayHidden));
+    assert.equal(before.todaySections, sections, `${width}px: cached section count is restored before the skeleton is shown`);
+    assert.equal(before.todayCount, todayHidden ? 0 : 1, `${width}px: cached Today visibility is reflected in the skeleton`);
+    assert.deepEqual(before.cards.map(({ size, miniStart }) => ({ size, startsNewMiniBlock: miniStart })), geometryLayout.widgets, `${width}px: cached widget order and mini split render`);
+    if (width === 1280 && todayHidden) await page.locator(".home-skeleton").screenshot({ path: resolve(screenshotDir, "desktop-cached-home-hidden-today.png") });
+    if (width === 450 && !todayHidden && sections === 3) await page.locator(".home-skeleton").screenshot({ path: resolve(screenshotDir, "phone-cached-home-visible-today.png") });
 
-    const expectedWidgetIds = scenario === "empty" || scenario === "empty-hidden" ? [] : scenario === "count-mismatch"
-      ? ["saved-notes", "saved-upcoming", "saved-mini"] : scenario === "mini-blocks"
-        ? ["saved-mini-a", "saved-mini-b", "saved-mini-c", "saved-notes"]
-        : ["saved-notes", "saved-upcoming", "saved-mini-a", "saved-mini-b"];
-    assert.deepEqual(during.widgetIds, expectedWidgetIds, `${scenario}: the transition measures the actual saved widget count and identity`);
-    await finishAnimationWave(page);
-    await waitForTransitionPhase(page, "revealing");
-    const landing = await page.evaluate(() => {
-      const transition = document.querySelector('.home-load-transition[data-phase="revealing"]');
-      const host = transition?.querySelector(".home-load-transition__host");
-      const content = transition?.querySelector(".home-load-transition__content");
-      const rect = (node) => {
-        if (!node) return null;
-        const box = node.getBoundingClientRect();
-        return { x: box.x, y: box.y, width: box.width, height: box.height };
-      };
-      const appearance = (node) => {
-        if (!node) return null;
-        const style = getComputedStyle(node);
-        return { background: style.background, border: style.border, borderRadius: style.borderRadius, boxShadow: style.boxShadow };
-      };
-      const widgets = new Map(Array.from(host?.querySelectorAll("[data-widget-id]") ?? []).map((node) => [node.getAttribute("data-widget-id"), node]));
-      const surfaces = Array.from(transition?.querySelectorAll(".home-load-transition__surface[data-transition-target-id]") ?? []);
-      const today = transition?.querySelector(".home-load-transition__today-outline");
-      const panel = host?.querySelector(".home-today-panel");
-      const grid = host?.querySelector(".widget-grid");
-      const savedNotes = host?.querySelector('[data-widget-id="saved-notes"]');
-      const savedUpcoming = host?.querySelector('[data-widget-id="saved-upcoming"]');
-      const miniStart = host?.querySelector('[data-widget-id="saved-mini-b"]');
-      return {
-        contentHidden: content?.getAttribute("aria-hidden") === "true" && content?.hasAttribute("inert"),
-        contentOpacity: content ? Number(getComputedStyle(content).opacity) : null,
-        widgetPairs: surfaces.map((surface) => ({ id: surface.getAttribute("data-transition-target-id"), size: surface.getAttribute("data-size"), surface: rect(surface), target: rect(widgets.get(surface.getAttribute("data-transition-target-id"))), appearance: appearance(surface), targetAppearance: appearance(widgets.get(surface.getAttribute("data-transition-target-id"))) })),
-        today: rect(today), todayTarget: rect(panel), todayAppearance: appearance(today), todayTargetAppearance: appearance(panel),
-        gap: grid ? getComputedStyle(grid).gap : null,
-        notesPadding: savedNotes ? getComputedStyle(savedNotes).padding : null,
-        upcomingPadding: savedUpcoming ? getComputedStyle(savedUpcoming).padding : null,
-        miniStartsNewBlock: miniStart?.getAttribute("data-mini-start"),
-      };
-    });
-    assert.equal(landing.contentHidden, true, `${scenario}: real content stays inaccessible during its reveal animation`);
-    assert.ok(landing.contentOpacity === null || landing.contentOpacity <= 0.05, `${scenario}: content does not fade in until outlines reach their targets`);
-    assert.equal(landing.widgetPairs.length, expectedWidgetIds.length, `${scenario}: a matching outline is produced for every saved widget, including zero/short counts`);
-    for (const pair of landing.widgetPairs) {
-      assert.ok(pair.target, `${scenario}: outline ${pair.id} resolves to a saved widget`);
-      assert.equal(pair.size, await page.locator(`[data-widget-id="${pair.id}"]`).getAttribute("data-size"), `${scenario}: the outline preserves ${pair.id}'s saved size`);
+    await page.evaluate(() => window.__homeSkeletonFixture.releaseNextSuccess());
+    await waitForTransitionPhase(page, "fading-out");
+    const during = await readHandoffGeometry(page);
+    const deltaY = (source, target) => source && target ? Number((target.y - source.y).toFixed(2)) : null;
+    const deltaHeight = (source, target) => source && target ? Number((target.height - source.height).toFixed(2)) : null;
+    console.log(`Home geometry ${width}px Today=${todayHidden ? "hidden" : `visible-${sections}`}: ${JSON.stringify({
+      greeting: { y: deltaY(before.intro, during.greetingRect), height: deltaHeight(before.intro, during.greetingRect) },
+      tabs: { skeletonHeight: before.tabs?.height, liveHeight: during.liveTabsRect?.height },
+      toolbar: { y: deltaY(before.toolbar, during.liveToolbarRect), height: deltaHeight(before.toolbar, during.liveToolbarRect) },
+      today: { y: deltaY(during.todaySkeletonRect, during.todayLiveRect), height: deltaHeight(during.todaySkeletonRect, during.todayLiveRect) },
+      grid: { y: deltaY(before.gridRect, during.liveGridRect), height: deltaHeight(before.gridRect, during.liveGridRect) },
+      firstCard: { y: deltaY(before.cards[0]?.rect, during.liveCards[0]?.rect), height: deltaHeight(before.cards[0]?.rect, during.liveCards[0]?.rect) },
+    })}`);
+    assert.equal(during.match, "true", `${width}px: same server shape is recognized`);
+    assert.equal(during.contentHidden, true, `${width}px: content stays inert until the fade-in phase`);
+    assert.equal(during.skeletonGap, "28px");
+    assert.equal(during.liveGap, "28px", `${width}px: custom gap reaches the live grid`);
+    assert.equal(during.todaySkeleton, todayHidden ? 0 : 1, `${width}px: Today visibility stays consistent in the cached skeleton`);
+    assert.equal(during.todayLive, todayHidden ? 0 : 1, `${width}px: Today visibility stays consistent in server content`);
+    assert.equal(during.todaySections, sections, `${width}px: cached Today section count stays consistent`);
+    if (!todayHidden) assert.equal(during.todayLiveSections, sections, `${width}px: live Today section count stays consistent`);
+    assert.equal(during.skeletonCards.length, geometryLayout.widgets.length);
+    assert.equal(during.liveCards.length, geometryLayout.widgets.length);
+    assert.deepEqual(during.skeletonCards.map(({ size, miniStart }) => ({ size, startsNewMiniBlock: miniStart })), during.liveCards.map(({ size, miniStart }) => ({ size, startsNewMiniBlock: miniStart })));
+    for (const [index, source] of during.skeletonCards.entries()) {
+      const target = during.liveCards[index];
       for (const dimension of ["x", "y", "width", "height"]) {
-        assert.ok(Math.abs(pair.surface[dimension] - pair.target[dimension]) <= 2, `${scenario}: ${pair.id} outline lands on saved ${dimension}`);
-      }
-      assert.deepEqual(pair.appearance, pair.targetAppearance, `${scenario}: ${pair.id} outline matches saved surface styling`);
-    }
-    if (scenario === "today-hidden" || scenario === "empty-hidden") {
-      assert.ok(landing.today, `${scenario}: the fading Today source remains until the handoff reveal`);
-      assert.equal(landing.todayTarget, null, "saved hidden Today is absent from the real host");
-    } else {
-      assert.ok(landing.today && landing.todayTarget, `${scenario}: visible Today has matching transition and saved rectangles`);
-      for (const dimension of ["x", "y", "width", "height"]) {
-        assert.ok(Math.abs(landing.today[dimension] - landing.todayTarget[dimension]) <= 2, `${scenario}: Today outline lands on saved ${dimension}`);
+        recordClose(source.rect[dimension], target.rect[dimension], `${width}px Today ${todayHidden ? "hidden" : `visible-${sections}`} widget ${index} ${dimension}`);
+        recordClose(before.cards[index].rect[dimension], source.rect[dimension], `${width}px widget ${index} cached stability ${dimension}`, 1);
       }
     }
-    if (scenario === "appearance") {
-      assert.equal(landing.gap, "28px", "the transition measures saved widget spacing from custom appearance");
-      assert.equal(landing.notesPadding, "24px", "the transition measures the saved default card dimensions");
-      assert.equal(landing.upcomingPadding, "20px", "the transition measures per-widget appearance overrides");
+    for (const [source, target, label] of [
+      [before.intro, during.greetingRect, `${width}px greeting`],
+      [before.toolbar, during.liveToolbarRect, `${width}px workspace toolbar`],
+      [before.gridRect, during.liveGridRect, `${width}px widget grid`],
+    ]) {
+      if (!source || !target) {
+        geometryFailures.push(`${label}: missing skeleton or live rectangle`);
+        continue;
+      }
+      for (const dimension of ["x", "y", "width", "height"]) recordClose(source[dimension], target[dimension], `${label} ${dimension}`, 5);
     }
-    if (scenario === "mini-blocks") assert.equal(landing.miniStartsNewBlock, "true", "saved mini-block starts survive the transition");
-
+    if (!todayHidden) {
+      if (!during.todaySkeletonRect || !during.todayLiveRect) geometryFailures.push(`${width}px Today visible-${sections}: missing source or target rectangle`);
+      else for (const dimension of ["x", "y", "width", "height"]) recordClose(during.todaySkeletonRect[dimension], during.todayLiveRect[dimension], `${width}px Today visible-${sections} ${dimension}`, 5);
+    }
     await finishWebAnimations(page);
-    await waitForTransitionPhase(page, "done");
-    assert.deepEqual(await page.locator("[data-widget-id]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-widget-id"))), expectedWidgetIds, `${scenario}: only actual saved widget nodes remain after completion`);
-    assert.equal(await page.locator(".home-load-transition__surface").count(), 0, `${scenario}: transition surfaces are removed at completion`);
-    assert.equal(await page.evaluate(() => window.__homeSkeletonFixture.writes), 0, `${scenario}: loading and reveal never write the saved snapshot`);
-    if (scenario === "empty" || scenario === "empty-hidden") await page.locator(".empty-workspace").waitFor({ state: "visible" });
+    await page.locator('[data-widget-id="geo-small"]').waitFor({ state: "visible" });
+    assert.equal((await readCachedLayout(page, account)).gap, 28, `${width}px: successful hydration preserves the matching cache`);
     await context.close();
   }
 
-  {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "no-preference" });
+  // A cache measured at desktop width must use the responsive Today fallback
+  // after a resize into the tablet band, where one/two sections share one row.
+  for (const sections of [1, 2]) {
+    const account = `tablet-fallback-${sections}`;
+    const context = await browser.newContext({ viewport: { width: 1000, height: 980 }, reducedMotion: "no-preference" });
     const page = await context.newPage();
-    page.on("pageerror", (error) => browserErrors.push(`pageerror (resize): ${error.message}`));
+    page.on("pageerror", (error) => browserErrors.push(`tablet fallback ${sections}: ${error.message}`));
     await holdWebAnimations(page);
-    await page.goto(presetUrl("/home", HOME_SKELETON_PRESETS[2].id, { hold: true }));
+    const cachedLayout = {
+      version: 1, widgets: geometryWidgets, todayHidden: false, gap: 28, todaySectionCount: sections,
+      geometry: { viewportWidth: 1280, contentWidth: 975, todayHeight: 600, toolbarHeight: 300 },
+    };
+    await seedCache(page, account, cachedLayout);
+    await page.goto(fixtureUrl("/home", { account, scenario: sections === 1 ? "geometry-one-section" : "geometry-two-sections", hold: true }));
     await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
     await waitForFixtureRead(page);
-    await page.evaluate(() => {
-      window.__homeSkeletonFixture.setHoldReads(false);
-      window.__homeSkeletonFixture.releaseNextSuccess();
-    });
-    await waitForTransitionPhase(page, "animating");
-    await page.setViewportSize({ width: 390, height: 900 });
-    await waitForTransitionPhase(page, "done");
-    await page.locator('[data-widget-id="saved-notes"] textarea').waitFor({ state: "visible" });
-    assert.equal(await page.locator(".home-load-transition__surface, .home-load-transition__today-outline").count(), 0, "resizing cancels measured overlays and reveals the real Home directly");
-    assert.equal(await page.locator(".home-load-transition__content").getAttribute("aria-hidden"), null, "resize cleanup restores access to content");
+    assert.equal(await page.locator(".home-skeleton").evaluate((node) => node.style.getPropertyValue("--home-skeleton-measured-today-height")), "", "a different viewport discards the old Today measurement");
+    await page.evaluate(() => window.__homeSkeletonFixture.releaseNextSuccess());
+    await waitForTransitionPhase(page, "fading-out");
+    const during = await readHandoffGeometry(page);
+    assert.equal(during.todaySections, sections);
+    assert.equal(during.todayLiveSections, sections);
+    assert.ok(during.todaySkeletonRect && during.todayLiveRect);
+    recordClose(during.todaySkeletonRect.height, during.todayLiveRect.height, `tablet ${sections}-section Today fallback height`, 2);
+    assert.ok(during.todaySkeletonRect.height < 220, "one/two tablet sections retain a single-row footprint");
+    await finishWebAnimations(page);
     await context.close();
   }
 
+  // A stale cache fades out and the actual server content fades in using opacity only.
   {
+    const account = "browser-mismatch";
+    const stale = { version: 1, widgets: [{ size: "medium", startsNewMiniBlock: false }], todayHidden: true, gap: 16 };
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "no-preference" });
     const page = await context.newPage();
-    page.on("pageerror", (error) => browserErrors.push(`pageerror (route cleanup): ${error.message}`));
+    page.on("pageerror", (error) => browserErrors.push(`mismatch: ${error.message}`));
     await holdWebAnimations(page);
-    await page.goto(presetUrl("/home", HOME_SKELETON_PRESETS[3].id, { hold: true }));
+    await seedCache(page, account, stale);
+    await page.goto(fixtureUrl("/home", { account, scenario: "mismatch", hold: true }));
     await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
     await waitForFixtureRead(page);
-    await page.evaluate(() => {
-      window.__homeSkeletonFixture.setHoldReads(false);
-      window.__homeSkeletonFixture.releaseNextSuccess();
-    });
-    await waitForTransitionPhase(page, "animating");
-    await page.getByRole("link", { name: "Tasks" }).click();
-    await page.waitForFunction(() => window.location.pathname === "/tasks");
-    assert.equal(await page.locator(".home-load-transition").count(), 0, "routing away during the morph unmounts its transition boundary");
-    assert.equal(await page.locator(".home-load-transition__surface, .home-load-transition__today-outline").count(), 0, "route cleanup removes all measured overlays");
+    const pending = await readSkeleton(page);
+    assert.deepEqual(pending.cards.map(({ size }) => size), ["medium"], "stale cache remains the pending skeleton");
+    assert.deepEqual(await readCachedLayout(page, account), stale, "held read leaves stale storage unchanged");
+    assert.equal(await page.evaluate(() => window.__homeSkeletonFixture.writes + window.__homeSkeletonFixture.posts), 0, "loading does not write workspace state");
+
+    await page.evaluate(() => window.__homeSkeletonFixture.releaseNextSuccess());
+    await waitForTransitionPhase(page, "fading-out");
+    assert.equal(await page.locator(".home-load-transition").getAttribute("data-layout-match"), "false");
+    assert.equal(await page.locator(".home-load-transition__surface, .home-load-transition__today-outline").count(), 0, "mismatch transition has no measured geometry overlays");
+    const opacityOnly = await page.evaluate(() => (window.__homeSkeletonAnimations ?? [])
+      .filter(({ target }) => target.classList.contains("home-load-transition__skeleton"))
+      .map(({ animation }) => animation.effect.getKeyframes().flatMap((frame) => Object.keys(frame).filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)))));
+    assert.deepEqual(opacityOnly, [["opacity", "opacity"]], "the mismatch skeleton animation changes opacity only");
+    const refreshedCache = await readCachedLayout(page, account);
+    assert.deepEqual({
+      version: refreshedCache.version,
+      widgets: refreshedCache.widgets,
+      todayHidden: refreshedCache.todayHidden,
+      gap: refreshedCache.gap,
+    }, {
+      version: 1,
+      widgets: [{ size: "large", startsNewMiniBlock: false }, { size: "small", startsNewMiniBlock: false }],
+      todayHidden: false,
+      gap: 24,
+    }, "successful server data replaces the stale cache");
+    assert.ok(refreshedCache.geometry?.contentWidth > 0, "the refreshed cache also records the server layout's measurements");
+    await finishWebAnimations(page);
+    await page.locator('[data-widget-id="server-large"]').waitFor({ state: "visible" });
+    assert.equal(await page.locator(".home-skeleton").count(), 0);
     await context.close();
   }
 
+  // Missing local storage uses the mixed first-account layout; a later account never reads it.
   {
-    const context = await browser.newContext({ viewport: { width: 390, height: 900 }, reducedMotion: "reduce" });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
     const page = await context.newPage();
-    page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
-    await page.goto(presetUrl("/home", HOME_SKELETON_PRESETS[0].id, { hold: true, failFirst: true }));
+    page.on("pageerror", (error) => browserErrors.push(`first account: ${error.message}`));
+    await holdWebAnimations(page);
+    await page.goto(fixtureUrl("/home", { account: "new-account", scenario: "matching", hold: true }));
+    await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
+    await waitForFixtureRead(page);
+    const firstAccount = await readSkeleton(page);
+    assert.deepEqual(firstAccount.cards.map(({ size }) => size), DEFAULT_HOME_SKELETON_LAYOUT.widgets.map(({ size }) => size));
+    assert.equal(firstAccount.todayHidden, "false");
+    await page.evaluate(() => window.__homeSkeletonFixture.releaseNextSuccess());
+    await waitForTransitionPhase(page, "done");
+    assert.equal(await page.evaluate(() => window.__homeSkeletonAnimations.length), 0, "reduced motion skips WAAPI transitions");
+    await page.locator('[data-widget-id="geo-small"]').waitFor({ state: "visible" });
+    await context.close();
+  }
+
+  // A malformed cache is kept through a failed read and repaired only after a successful retry.
+  {
+    const account = "browser-retry";
+    const context = await browser.newContext({ viewport: { width: 390, height: 900 }, reducedMotion: "no-preference" });
+    const page = await context.newPage();
+    page.on("pageerror", (error) => browserErrors.push(`retry: ${error.message}`));
+    await holdWebAnimations(page);
+    await page.addInitScript(({ key }) => {
+      const marker = `malformed-seeded:${key}`;
+      if (!sessionStorage.getItem(marker)) {
+        localStorage.setItem(key, "{malformed");
+        sessionStorage.setItem(marker, "true");
+      }
+    }, { key: cacheKey(account) });
+    await page.goto(fixtureUrl("/home", { account, scenario: "matching", hold: true, failFirst: true }));
     await page.locator(".workspace-loading h1").waitFor({ state: "visible" });
-    assert.equal(await page.locator(".home-skeleton").count(), 0, "errors retain the existing retry view");
+    assert.equal(await page.locator(".home-skeleton").count(), 0, "errors keep the retry view visible");
+    assert.equal(await page.evaluate((key) => localStorage.getItem(key), cacheKey(account)), "{malformed", "failed read leaves malformed JSON untouched");
     await page.getByRole("button", { name: "Retry loading" }).click();
     await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
     await waitForFixtureRead(page, 2);
-    assert.equal(await page.evaluate(() => window.__homeSkeletonFixture.writes), 0);
-    await page.evaluate(() => {
-      window.__homeSkeletonFixture.setHoldReads(false);
-      window.__homeSkeletonFixture.releaseNextSuccess();
-    });
-    await waitForTransitionPhase(page, "done");
-    assert.equal(await page.locator('.home-load-transition[data-phase="animating"], .home-load-transition[data-phase="revealing"]').count(), 0, "reduced motion bypasses both transition stages");
-    await page.locator('[data-widget-id="saved-notes"] textarea').waitFor({ state: "visible" });
-    assert.equal(await page.evaluate(() => window.__homeSkeletonFixture.writes), 0, "a successful retry only hydrates saved content");
+    assert.deepEqual((await readSkeleton(page)).cards.map(({ size }) => size), DEFAULT_HOME_SKELETON_LAYOUT.widgets.map(({ size }) => size), "retry uses the default fallback while the read is held");
+    assert.equal(await page.evaluate((key) => localStorage.getItem(key), cacheKey(account)), "{malformed", "held retry does not overwrite malformed JSON");
+    await page.evaluate(() => window.__homeSkeletonFixture.releaseNextSuccess());
+    await waitForTransitionPhase(page, "fading-out");
+    assert.deepEqual((await readCachedLayout(page, account)).widgets.map(({ size }) => size), ["small", "mini", "mini", "medium"], "successful retry heals storage from the server snapshot");
+    await finishWebAnimations(page);
     await context.close();
   }
 
+  // Active workspace changes, size edits, and Today visibility update the cached silhouette.
   {
-    const context = await browser.newContext({ viewport: { width: 390, height: 900 }, reducedMotion: "no-preference" });
+    const account = "browser-workspace-switch";
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
     const page = await context.newPage();
-    page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
-    await page.goto(presetUrl("/calendar", HOME_SKELETON_PRESETS[0].id, { hold: true }));
-    await page.locator(".workspace-loading.is-pending").waitFor({ state: "visible" });
-    assert.equal(await page.locator(".home-skeleton").count(), 0, "other routes keep the original pending loader");
-    await page.evaluate(() => {
-      window.__homeSkeletonFixture.setHoldReads(false);
-      window.__homeSkeletonFixture.releaseNextSuccess();
-    });
-    await page.locator(".workspace-loading.is-pending").waitFor({ state: "detached" });
+    page.on("pageerror", (error) => browserErrors.push(`workspace switch: ${error.message}`));
+    await page.goto(fixtureUrl("/home", { account, scenario: "workspace-switch", hold: false }));
+    await page.locator('[data-widget-id="geo-small"]').waitFor({ state: "visible" });
+    const secondaryTab = page.getByRole("tab", { name: "Secondary" });
+    await secondaryTab.click();
+    await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.widgets?.[0]?.size === "large", cacheKey(account));
+    assert.equal((await readCachedLayout(page, account)).todayHidden, true, "workspace switch refreshes hidden Today");
+
+    await page.locator('[data-widget-id="secondary-note"] button[aria-label$="options"]').click();
+    await page.getByRole("button", { name: "Medium horizontal widget" }).click();
+    await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.widgets?.[0]?.size === "medium", cacheKey(account));
+    const customizeButton = page.getByRole("button", { name: "Customize", exact: true });
+    if (await customizeButton.count()) await customizeButton.click();
+    await page.getByRole("button", { name: "Restore Today section" }).click();
+    await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.todayHidden === false, cacheKey(account));
+
+    await page.getByRole("tab", { name: "Saved Home" }).click();
+    await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.widgets?.[0]?.size === "small", cacheKey(account));
+    assert.equal((await readCachedLayout(page, account)).todayHidden, false, "switching back restores the first workspace silhouette to storage");
     await context.close();
   }
 
-  assert.deepEqual(browserErrors, [], "the fixture runs without browser runtime errors");
-  console.log(`Verified ${HOME_SKELETON_PRESETS.length} Home skeleton presets at ${geometryWidths.join(", ")}px plus hydration, morph landing/reveal, saved Today visibility, empty/count-mismatch/appearance/mini-block layouts, reduced motion, reload/retry, resize/route cleanup, and non-Home cases.`);
+  // A different signed-in profile in the same browser does not see account A's shape.
+  {
+    const accountA = "cache-account-a";
+    const accountB = "cache-account-b";
+    const accountALayout = { version: 1, widgets: [{ size: "large", startsNewMiniBlock: false }], todayHidden: true, gap: 20 };
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    await seedCache(page, accountA, accountALayout);
+    await page.goto(fixtureUrl("/home", { account: accountA, scenario: "matching", hold: true }));
+    await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
+    assert.deepEqual((await readSkeleton(page)).cards.map(({ size }) => size), ["large"]);
+
+    await page.goto(fixtureUrl("/home", { account: accountB, scenario: "matching", hold: true }));
+    await page.getByRole("status", { name: "Loading Home workspace" }).waitFor({ state: "visible" });
+    assert.deepEqual((await readSkeleton(page)).cards.map(({ size }) => size), DEFAULT_HOME_SKELETON_LAYOUT.widgets.map(({ size }) => size), "account B gets its own fallback rather than account A's cached layout");
+    assert.deepEqual(await readCachedLayout(page, accountA), accountALayout, "account B restoration leaves account A's key intact");
+    await context.close();
+  }
+
+  assert.deepEqual(browserErrors, [], "browser fixture completed without runtime or console errors");
+  assert.deepEqual(geometryFailures, [], `cached skeleton geometry matches the live Home layout within tolerance: ${geometryFailures.join("; ")}`);
+  console.log("Home skeleton browser QA passed: cached desktop/phone geometry, custom gap, hidden Today, mismatch opacity-only handoff, new-account fallback, reduced motion, malformed-cache retry recovery, workspace edits/switching, and account isolation.");
   console.log(`Visual review screenshots: ${screenshotDir}`);
 } finally {
   await browser?.close();

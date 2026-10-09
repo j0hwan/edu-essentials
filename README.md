@@ -193,13 +193,18 @@ alongside existing account data. Older clients cannot erase saved appearance.
 Experimental workspaces let you try styles with sample data without saving them
 to the account. System and account reduced-motion preferences remain respected.
 
-Home displays one of five curated skeleton layouts while workspace data loads.
-Each page refresh selects a preset of empty widget outlines with mixed footprints.
-The Today outline is present from the start; it fades away if the saved workspace
-has that section hidden. Preset cards move into the actual widget positions before
-content fades in. Toolbar placeholders match the three workspace actions.
-The transition uses the live layout dimensions, respects reduced-motion preferences,
-and does not change saved data.
+Home caches an account-specific layout hint in localStorage: the active workspace's
+ordered widget sizes, mini-widget grouping, spacing, and Today visibility. It also
+remembers the top section and toolbar heights for the same viewport and content
+width, with a responsive fallback when the window size changes. Loading outlines
+use that hint and the live grid placement rules. With no valid cache, Home
+uses a fixed mix of small, mini, and horizontal medium outlines. The first visible
+skeleton waits for the browser to restore the hint, keeping hydration consistent.
+When saved data arrives, the skeleton fades out and the server layout fades in,
+including when a different browser changed the layout. No outlines move or resize.
+Successful loading and subsequent layout edits refresh the hint; failed reads and
+experimental data do not. The cache never supplies live workspace content or writes
+to the server, and reduced-motion preferences bypass the transition.
 
 ## Validation
 
@@ -215,8 +220,8 @@ and does not change saved data.
   Uses synthetic workspace data and the same Playwright/Chrome environment
   variables as the layout checks. Research and interaction design are recorded
   in [docs/widget-reordering.md](docs/widget-reordering.md).
-- node scripts/verify-home-skeleton.mjs: optional Chrome checks of all five Home
-  loading presets and their handoff to saved layouts on desktop and phones,
+- node scripts/verify-home-skeleton.mjs: optional Chrome checks of cached and default
+  loading layouts and their fade to saved layouts on desktop and phones,
   hydration, reduced motion, successful loading, retry, and other routes. Uses synthetic workspace data; set
   PLAYWRIGHT_MODULE and ESBUILD_MODULE when using external tooling bundles.
 - npm test: build, account/API tests with a fake Supabase adapter, and HTTP route

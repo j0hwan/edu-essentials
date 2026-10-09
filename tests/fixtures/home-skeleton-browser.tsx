@@ -1,18 +1,14 @@
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import Workspace from "../../app/workspace-client";
-import { encodeWorkspaceState, type CompactWorkspaceState } from "../../lib/workspace-codec";
+import { encodeWorkspaceState, type CompactWorkspaceState, type Workspace as HomeWorkspace } from "../../lib/workspace-codec";
 import { defaultPreferences, validateProfile } from "../../lib/profile";
 import { defaultWidgetAppearance } from "../../lib/widget-appearance";
 import type { Course } from "../../lib/academics";
-import type { HomeSkeletonPresetId } from "../../lib/home-skeleton";
 
 const query = new URLSearchParams(window.location.search);
-const nextPresetKey = "home-skeleton-next-preset";
-const reloadedPreset = sessionStorage.getItem(nextPresetKey);
-if (reloadedPreset) sessionStorage.removeItem(nextPresetKey);
-const preset = (reloadedPreset ?? query.get("preset") ?? "study-overview") as HomeSkeletonPresetId;
-const scenario = query.get("scenario") ?? "default";
+const scenario = query.get("scenario") ?? "matching";
+const accountId = query.get("account") ?? "home-skeleton-browser-profile";
 const revision = "2026-10-08T12:00:00.000Z";
 const reducedMotion = query.get("accountReduced") === "true";
 const profile = {
@@ -21,44 +17,71 @@ const profile = {
     major: "History",
     preferences: { ...defaultPreferences, theme: "dark", reducedMotion },
   }),
-  id: "home-skeleton-browser-profile",
-  auth_user_id: "home-skeleton-browser-user",
+  id: accountId,
+  auth_user_id: `auth-${accountId}`,
   email: "fixture@example.invalid",
   avatar_url: null,
   initialized: true,
   updated_at: revision,
   onboarding_completed_at: "2026-10-07T00:00:00.000Z",
 };
-const widgets = scenario === "empty" || scenario === "empty-hidden" ? [] : scenario === "count-mismatch" ? [
-  { instanceId: "saved-notes", type: "notes" as const, size: "large" as const, note: "Saved browser note" },
-  { instanceId: "saved-upcoming", type: "upcoming" as const, size: "medium" as const },
-  { instanceId: "saved-mini", type: "daily-goal" as const, size: "mini" as const, startsNewMiniBlock: true },
-] : scenario === "mini-blocks" ? [
-  { instanceId: "saved-mini-a", type: "daily-goal" as const, size: "mini" as const },
-  { instanceId: "saved-mini-b", type: "upcoming" as const, size: "mini" as const, startsNewMiniBlock: true },
-  { instanceId: "saved-mini-c", type: "weekly-goal" as const, size: "mini" as const },
-  { instanceId: "saved-notes", type: "notes" as const, size: "medium" as const, note: "Saved browser note" },
-] : [
-  { instanceId: "saved-notes", type: "notes" as const, size: "large" as const, note: "Saved browser note" },
-  { instanceId: "saved-upcoming", type: "upcoming" as const, size: "medium" as const },
-  { instanceId: "saved-mini-a", type: "daily-goal" as const, size: "mini" as const },
-  { instanceId: "saved-mini-b", type: "weekly-goal" as const, size: "mini" as const, startsNewMiniBlock: true },
+
+const geometryWidgets = [
+  { instanceId: "geo-small", type: "notes" as const, size: "small" as const, note: "Saved browser note" },
+  { instanceId: "geo-mini-a", type: "daily-goal" as const, size: "mini" as const },
+  { instanceId: "geo-mini-b", type: "upcoming" as const, size: "mini" as const, startsNewMiniBlock: true },
+  { instanceId: "geo-medium", type: "task-completion" as const, size: "medium" as const },
 ];
-const dashboard = encodeWorkspaceState([
-  {
-    id: "saved-home",
-    name: "Saved Home",
-    widgets,
-    ...(scenario === "today-hidden" || scenario === "empty-hidden" ? { todayHidden: true } : {}),
+const mismatchWidgets = [
+  { instanceId: "server-large", type: "notes" as const, size: "large" as const, note: "Server browser note" },
+  { instanceId: "server-small", type: "pomodoro" as const, size: "small" as const },
+];
+const workspaceSets: Record<string, { workspaces: HomeWorkspace[]; activeWorkspaceId: string; gap: number }> = {
+  matching: {
+    workspaces: [{ id: "saved-home", name: "Saved Home", widgets: geometryWidgets, todayHidden: true }],
+    activeWorkspaceId: "saved-home",
+    gap: 28,
   },
-], "saved-home", "", {
-  assignments: [], manualEvents: [], dashboardView: "cards",
-  ...(scenario === "appearance" ? {
-    widgetAppearance: {
-      defaults: { ...defaultWidgetAppearance, gap: 28, minHeight: 300, padding: 24, borderWidth: 2 },
-      overrides: { "saved-upcoming": { minHeight: 240, padding: 20 } },
-    },
-  } : {}),
+  geometry: {
+    workspaces: [{ id: "saved-home", name: "Saved Home", widgets: geometryWidgets, todayHidden: true }],
+    activeWorkspaceId: "saved-home",
+    gap: 28,
+  },
+  "geometry-visible": {
+    workspaces: [{ id: "saved-home", name: "Saved Home", widgets: geometryWidgets, todayHidden: false }],
+    activeWorkspaceId: "saved-home",
+    gap: 28,
+  },
+  "geometry-one-section": {
+    workspaces: [{ id: "saved-home", name: "Saved Home", widgets: geometryWidgets, todayHidden: false, todaySections: ["next-class"] }],
+    activeWorkspaceId: "saved-home",
+    gap: 28,
+  },
+  "geometry-two-sections": {
+    workspaces: [{ id: "saved-home", name: "Saved Home", widgets: geometryWidgets, todayHidden: false, todaySections: ["next-class", "due-today"] }],
+    activeWorkspaceId: "saved-home",
+    gap: 28,
+  },
+  mismatch: {
+    workspaces: [{ id: "saved-home", name: "Saved Home", widgets: mismatchWidgets, todayHidden: false }],
+    activeWorkspaceId: "saved-home",
+    gap: 24,
+  },
+  "workspace-switch": {
+    workspaces: [
+      { id: "saved-home", name: "Saved Home", widgets: geometryWidgets, todayHidden: false },
+      { id: "secondary-home", name: "Secondary", widgets: [{ instanceId: "secondary-note", type: "notes", size: "large", note: "Secondary note" }], todayHidden: true },
+    ],
+    activeWorkspaceId: "saved-home",
+    gap: 28,
+  },
+};
+const selected = workspaceSets[scenario] ?? workspaceSets.matching;
+const dashboard = encodeWorkspaceState(selected.workspaces, selected.activeWorkspaceId, "", {
+  assignments: [],
+  manualEvents: [],
+  dashboardView: "cards",
+  widgetAppearance: { defaults: { ...defaultWidgetAppearance, gap: selected.gap }, overrides: {} },
 });
 
 type SavedResponse = {
@@ -72,16 +95,17 @@ const savedResponse = (): SavedResponse => ({ initialized: true, courses: [], da
 const pendingReads: ((response: Response) => void)[] = [];
 let getCalls = 0;
 let writes = 0;
+let posts = 0;
 let heldReads = query.get("hold") === "true";
 let failuresRemaining = query.get("failFirst") === "true" ? 1 : 0;
 
 const fixture = {
   get getCalls() { return getCalls; },
   get writes() { return writes; },
+  get posts() { return posts; },
   get pendingReads() { return pendingReads.length; },
-  get preset() { return preset; },
+  get accountId() { return accountId; },
   get scenario() { return scenario; },
-  setPresetForReload(value: HomeSkeletonPresetId) { sessionStorage.setItem(nextPresetKey, value); },
   setHoldReads(value: boolean) { heldReads = value; },
   failNextRead() { failuresRemaining++; },
   releaseNextSuccess() {
@@ -104,7 +128,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     writes++;
     return Response.json({ ok: true, revision: new Date(Date.parse(revision) + writes * 1000).toISOString() });
   }
-  if (init?.method === "POST") return Response.json({ initialized: true, revision });
+  if (init?.method === "POST") {
+    posts++;
+    return Response.json({ initialized: true, revision });
+  }
 
   getCalls++;
   if (failuresRemaining > 0) {
@@ -122,4 +149,4 @@ window.matchMedia = window.matchMedia ?? (() => ({ matches: false, addEventListe
 
 const rootNode = document.getElementById("root");
 if (!rootNode) throw new Error("Missing browser fixture root");
-createRoot(rootNode).render(createElement(Workspace, { initialProfile: profile, initialHomeSkeletonPreset: preset }));
+createRoot(rootNode).render(createElement(Workspace, { initialProfile: profile }));

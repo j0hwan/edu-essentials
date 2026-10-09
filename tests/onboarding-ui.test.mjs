@@ -427,6 +427,9 @@ test("workspace menu opens and exits onboarding preview without account writes o
   try {
     await mount(Workspace, { initialProfile });
     await waitUntil(() => rootNode.querySelector(".experimental-trigger") && !rootNode.querySelector(".experimental-trigger").disabled, "workspace menu availability");
+    // Successful workspace hydration refreshes its visual layout cache. Measure
+    // preview writes only after the real workspace has finished loading.
+    storageWrites.length = 0;
     await click("Experimental mode");
     await click("Onboard test");
     assert.match(rootNode.textContent, /Step 1 of 5/);

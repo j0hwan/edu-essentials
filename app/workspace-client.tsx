@@ -50,7 +50,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
 import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
@@ -65,7 +65,17 @@ import StudyWidget, { studyWidgetTypes } from "./study-widgets";
 import ReorderableWidgetGrid from "./reorderable-widget-grid";
 import WidgetCustomization from "./widget-customization";
 import HomeLoadTransition from "./home-load-transition";
-import type { HomeSkeletonPresetId } from "../lib/home-skeleton";
+import { HomeGreeting, type HomeSkeletonGreeting } from "./home-skeleton";
+import {
+  cacheLayoutsMatch,
+  createHomeSkeletonLayout,
+  DEFAULT_HOME_SKELETON_LAYOUT,
+  layoutsMatch,
+  readHomeSkeletonLayout,
+  writeHomeSkeletonLayout,
+  type HomeSkeletonGeometry,
+  type HomeSkeletonLayout,
+} from "../lib/home-skeleton";
 import TodaySection from "./today-section";
 import { defaultTodaySections, type TodaySectionId } from "../lib/today-sections";
 import { resolveWidgetAppearance, widgetAppearanceStyle, type WidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
@@ -243,11 +253,35 @@ function CourseStamp({ course, small = false }: { course: Course; small?: boolea
   );
 }
 
-export default function EduEssentialsApp({ initialProfile, children, initialHomeSkeletonPreset }: { initialProfile: Profile; children?: React.ReactNode; initialHomeSkeletonPreset?: HomeSkeletonPresetId }) {
+export default function EduEssentialsApp({ initialProfile, children }: { initialProfile: Profile; children?: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const page = pageFromPathname(pathname);
   const [profile, setProfile] = useState(initialProfile);
+  const [homeSkeletonCache, setHomeSkeletonCache] = useState<{
+    accountId: string | null;
+    layout: HomeSkeletonLayout;
+    readable: boolean;
+    cached: boolean;
+  }>({ accountId: null, layout: DEFAULT_HOME_SKELETON_LAYOUT, readable: false, cached: false });
+  const [homeSkeletonMeasurement, setHomeSkeletonMeasurement] = useState<{
+    accountId: string;
+    workspaceId: string;
+    layout: HomeSkeletonLayout;
+    geometry: HomeSkeletonGeometry;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const cached = readHomeSkeletonLayout(initialProfile.id);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Restore the visual-only cache before the first client paint.
+    setHomeSkeletonCache({
+      accountId: initialProfile.id,
+      layout: cached.layout ?? DEFAULT_HOME_SKELETON_LAYOUT,
+      readable: cached.readable,
+      cached: cached.layout !== null,
+    });
+  }, [initialProfile.id]);
+  const homeSkeletonRestored = homeSkeletonCache.accountId === initialProfile.id;
+  const homeSkeletonLayout = homeSkeletonRestored ? homeSkeletonCache.layout : DEFAULT_HOME_SKELETON_LAYOUT;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [storedSidebarCollapsed, setStoredSidebarCollapsed] = useState<boolean | null>(null);
   const sidebarCollapsed = storedSidebarCollapsed ?? false;
@@ -432,6 +466,13 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
   const activeGpaSystem = experimentalMode ? "4.0 scale" : profile.gpa_system;
   const activeTerm = experimentalMode ? "Current term" : profile.current_term;
   const timezone = profile.timezone, monday = profile.week_starts_on === "Monday";
+  const localTime = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+  const currentHour = Number(localTime.slice(0, 2));
+  const homeGreeting: HomeSkeletonGreeting = {
+    greeting: currentHour < 12 ? "Good morning" : currentHour < 18 ? "Good afternoon" : "Good evening",
+    studentName,
+    dateLabel: dateLabel(today, { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
+  };
   const stats = useStudyStats(study.sessions, today, timezone, monday);
   const dailyPercent = goalPercent(stats.dailySeconds, study.dailyMinutes), weeklyPercent = goalPercent(stats.weeklySeconds, study.weeklyMinutes);
   const weeklyCompleted = completedInWeek(assignments, today, profile.timezone, profile.week_starts_on === "Monday");
@@ -538,6 +579,117 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
   };
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
+  const homeSkeletonBaseLayout = useMemo(
+    () => createHomeSkeletonLayout(activeWorkspace, resolveWidgetAppearance(extraData.widgetAppearance).gap),
+    [activeWorkspace, extraData.widgetAppearance],
+  );
+  const homeSkeletonServerLayout = useMemo(() => {
+    if (homeSkeletonMeasurement?.accountId !== initialProfile.id
+      || homeSkeletonMeasurement.workspaceId !== activeWorkspace.id
+      || !layoutsMatch(homeSkeletonMeasurement.layout, homeSkeletonBaseLayout)) return homeSkeletonBaseLayout;
+    return { ...homeSkeletonBaseLayout, geometry: homeSkeletonMeasurement.geometry };
+  }, [activeWorkspace.id, homeSkeletonBaseLayout, homeSkeletonMeasurement, initialProfile.id]);
+  useEffect(() => {
+    if (page !== "home"
+      || profile.id !== initialProfile.id
+      || !saveState.ready
+      || customizing
+      || experimentalMode
+      || onboardingTest
+      || experimentalRestoring) return;
+
+    const measureHomeGeometry = () => {
+      const home = document.querySelector<HTMLElement>(".home-load-transition__content .home-page");
+      const toolbar = home?.querySelector<HTMLElement>(".workspace-bar");
+      if (!home || !toolbar) return;
+      const homeRect = home.getBoundingClientRect();
+      if (!homeRect.width || !toolbar.getBoundingClientRect().height) return;
+      const today = home.querySelector<HTMLElement>(".home-today-panel:not(.today-section-hidden)");
+      const todayHeight = today?.getBoundingClientRect().height ?? 0;
+      const round = (value: number) => Math.round(value * 100) / 100;
+      const geometry: HomeSkeletonGeometry = {
+        viewportWidth: round(window.innerWidth),
+        contentWidth: round(homeRect.width),
+        todayHeight: round(todayHeight),
+        toolbarHeight: round(toolbar.getBoundingClientRect().height),
+      };
+      setHomeSkeletonMeasurement((current) => {
+        if (current?.accountId === initialProfile.id
+          && current.workspaceId === activeWorkspace.id
+          && layoutsMatch(current.layout, homeSkeletonBaseLayout)
+          && Math.abs(current.geometry.viewportWidth - geometry.viewportWidth) < 0.1
+          && Math.abs(current.geometry.contentWidth - geometry.contentWidth) < 0.1
+          && Math.abs(current.geometry.todayHeight - geometry.todayHeight) < 0.1
+          && Math.abs(current.geometry.toolbarHeight - geometry.toolbarHeight) < 0.1) return current;
+        return {
+          accountId: initialProfile.id,
+          workspaceId: activeWorkspace.id,
+          layout: homeSkeletonBaseLayout,
+          geometry,
+        };
+      });
+    };
+
+    measureHomeGeometry();
+    window.addEventListener("resize", measureHomeGeometry);
+    const home = document.querySelector<HTMLElement>(".home-load-transition__content .home-page");
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measureHomeGeometry);
+    if (home) observer?.observe(home);
+    const toolbar = home?.querySelector<HTMLElement>(".workspace-bar");
+    if (toolbar) observer?.observe(toolbar);
+    const today = home?.querySelector<HTMLElement>(".home-today-panel:not(.today-section-hidden)");
+    if (today) observer?.observe(today);
+    return () => {
+      window.removeEventListener("resize", measureHomeGeometry);
+      observer?.disconnect();
+    };
+  }, [
+    activeWorkspace.id,
+    customizing,
+    experimentalMode,
+    experimentalRestoring,
+    initialProfile.id,
+    onboardingTest,
+    page,
+    homeSkeletonBaseLayout,
+    profile.id,
+    saveState.ready,
+  ]);
+  useEffect(() => {
+    if (profile.id !== initialProfile.id
+      || !homeSkeletonRestored
+      || !homeSkeletonCache.readable
+      || !saveState.ready
+      || experimentalMode
+      || onboardingTest
+      || experimentalRestoring) return;
+    const preserveGeometry = homeSkeletonCache.cached
+      && layoutsMatch(homeSkeletonCache.layout, homeSkeletonBaseLayout)
+      ? homeSkeletonCache.layout.geometry
+      : undefined;
+    const layoutToWrite = homeSkeletonServerLayout.geometry
+      ? homeSkeletonServerLayout
+      : preserveGeometry
+        ? { ...homeSkeletonBaseLayout, geometry: preserveGeometry }
+        : homeSkeletonBaseLayout;
+    if (homeSkeletonCache.cached && cacheLayoutsMatch(homeSkeletonCache.layout, layoutToWrite)) return;
+    if (!writeHomeSkeletonLayout(initialProfile.id, layoutToWrite)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Keep same-tab reloads aligned with the snapshot just persisted to local storage.
+    setHomeSkeletonCache((current) => current.accountId === initialProfile.id && current.readable
+      ? { ...current, layout: layoutToWrite, cached: true }
+      : current);
+  }, [
+    experimentalMode,
+    experimentalRestoring,
+    homeSkeletonCache,
+    homeSkeletonBaseLayout,
+    homeSkeletonRestored,
+    homeSkeletonServerLayout,
+    initialProfile.id,
+    onboardingTest,
+    profile.id,
+    saveState.ready,
+  ]);
   const todayAssignments = assignments.filter((assignment) => assignment.status === "today");
   const overdueAssignments = assignments.filter((assignment) => assignment.status === "overdue");
 
@@ -875,7 +1027,15 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
           <button type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit"}</button>
         </div>}
         {page === "home" && (saveState.ready || persistenceStatus === "loading") && (
-          <HomeLoadTransition key={`home-load-${reloadAttempt}`} ready={saveState.ready} preset={initialHomeSkeletonPreset} reducedMotion={profile.preferences.reducedMotion}>
+          <HomeLoadTransition
+            key={`home-load-${reloadAttempt}-${initialProfile.id}-${homeSkeletonRestored}`}
+            ready={saveState.ready}
+            layout={homeSkeletonLayout}
+            greeting={homeGreeting}
+            serverLayout={saveState.ready ? homeSkeletonServerLayout : undefined}
+            layoutRestored={homeSkeletonRestored}
+            reducedMotion={profile.preferences.reducedMotion}
+          >
             {saveState.ready ? renderHome() : null}
           </HomeLoadTransition>
         )}
@@ -961,9 +1121,6 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
 
   function renderHome() {
     const featuredAssignments = assignments.filter((a) => a.dateKey === today && a.status !== "done");
-    const localTime = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
-    const currentHour = Number(localTime.slice(0, 2));
-    const greeting = currentHour < 12 ? "Good morning" : currentHour < 18 ? "Good afternoon" : "Good evening";
     const nextClass = courses.flatMap((course) => (extraData.courseDetails[course.id]?.meetings ?? []).filter((meeting) => today >= meeting.from && today <= meeting.until && meeting.days.includes(new Date(today + "T12:00:00Z").getUTCDay()) && meeting.end > localTime).map((meeting) => ({ course, meeting }))).sort((a, b) => a.meeting.start.localeCompare(b.meeting.start))[0];
     const timeLabel = (time: string) => /^\d{2}:\d{2}$/.test(time) ? `${Number(time.slice(0, 2)) % 12 || 12}:${time.slice(3)} ${Number(time.slice(0, 2)) >= 12 ? "PM" : "AM"}` : time;
     const schedule = manualEvents.filter((event) => event.dateKey === today).sort((a, b) => a.time.localeCompare(b.time)).map((event) => {
@@ -1076,7 +1233,7 @@ export default function EduEssentialsApp({ initialProfile, children, initialHome
 
     return (
       <div className="page home-page">
-        <header className="home-greeting"><h1>{greeting}, {studentName}.</h1><p>{dateLabel(today, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></header>
+        <HomeGreeting {...homeGreeting} />
         <TodaySection
           key={activeWorkspace.id}
           hidden={Boolean(activeWorkspace.todayHidden)}
