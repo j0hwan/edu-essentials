@@ -307,7 +307,7 @@ part of the unchecked release gate below.
 **Release gate**
 
 - [ ] Test authenticated isolation with two accounts and real private storage in the deployment environment.
-- [ ] Apply additive migrations before deploying dependent APIs.
+- [x] Apply additive migrations before deploying dependent APIs. The October 10 schema repair below records the missing migrations applied to the connected prototype project; no deployment was performed.
 - [ ] Deploy compatible APIs before enabling the new interface.
 - [x] Complete an independent review of data preservation, authorization, concurrency, and accessibility. All four material local findings are resolved; hosted contention remains an acceptance gate.
 - [x] Update [PERSISTENCE_FILES.md](PERSISTENCE_FILES.md) with the new behavior and recovery procedures, including [the rollout runbook](docs/files-release.md).
@@ -694,7 +694,7 @@ avoid older SQL/DOM timing assertions failing under parallel CPU contention.
   private-storage isolation and concurrent PostgreSQL sessions, and complete
   supported-browser/deployed large-ZIP acceptance before production enablement.
 
-Hosted read-only evidence: existing Supabase schema/bucket metadata is reachable,
+Hosted read-only evidence — October 9, 2026: existing Supabase schema/bucket metadata is reachable,
 but redesigned folder/native fields and dependent RPCs are absent. Existing file
 anonymous reads return 401, absent redesign tables return 404, anonymous OpenAPI
 returns 401, and the private bucket retains its 26,214,400-byte limit. The new
@@ -712,7 +712,101 @@ retained persistence to bypass these gates.
 
 All required agents completed, all four material findings were integrated and
 independently re-reviewed, and final local verification passed. Remaining work
-requires an accessible staging/deployment target, configured database migration
-access and two real Google-backed test sessions. Then apply missing migrations,
-deploy compatible APIs with production disabled, complete hosted acceptance and
-enable the interface only after the recorded gates pass.
+requires an accessible staging/deployment target and two real Google-backed test
+sessions. Deploy compatible APIs with production disabled, complete hosted
+acceptance and enable the interface only after the recorded gates pass.
+
+### Hosted schema repair — October 10, 2026
+
+- [x] Confirm the authenticated dashboard's `EduEssentials Project`, project ref
+  `vvejyvjsogrwungkivhu`, matches the local app's configured Supabase project.
+  Inspect migration history and existing schema before applying changes. The
+  dashboard history was empty, although the first seven historical migrations'
+  foundation/AI schema markers were already present; those scripts were skipped.
+  The SQL Editor executions below do not create migration-ledger records.
+- [x] Apply the 13 missing repository migrations unchanged, in filename order,
+  through the authenticated Supabase SQL Editor. Each completed successfully:
+
+  - `20261008000000_onboarding_details.sql`
+  - `20261008010000_file_organization.sql`
+  - `20261008020000_file_content_api.sql`
+  - `20261008030000_file_content_ai.sql`
+  - `20261008040000_managed_course_folders.sql`
+  - `20261008050000_syllabus_replacement.sql`
+  - `20261008060000_document_save_requests.sql`
+  - `20261008070000_folder_moves.sql`
+  - `20261008080000_recursive_trash.sql`
+  - `20261008090000_archive_integrity.sql`
+  - `20261009100000_selected_file_download.sql`
+  - `20261009110000_file_release_integrity.sql`
+  - `20261009120000_ai_file_result_fence.sql`
+- [x] Verify the existing read-only release probe exits 0 (`metadata-passed`),
+  with every required file/folder/native-document column and RPC present,
+  AI installed, and anonymous zero-row reads denied (401). Dashboard inspection
+  confirms the required final RPC signatures and RLS enabled on `user_files`
+  and all seven new Files tables. The migrations request PostgREST cache reloads;
+  no separate manual cache refresh was needed.
+- [x] Verify the private bucket remains private with its 26,214,400-byte limit.
+- [x] Execute unchanged, parameter-free catalog queries from the existing SQL
+  tests. The file-browser and selected-download RPCs allow `service_role` and
+  deny `anon`/`authenticated`; folder/document RPCs allow the service role while
+  legacy entry points and the private syllabus trigger helper deny service
+  execution. AI finalization allows the service role and denies authenticated
+  execution. Both document-save receipt foreign keys retain cascading deletes.
+
+The user explicitly waived the recoverable-backup requirement for this prototype;
+no backup was established. No database reset, historical migration replay,
+application-code/SQL generation, bucket-public change or deployment was performed.
+At schema-repair time, the existing authenticated local `/files` page listed its
+private file after a full reload without error 42703 or a missing `folder_id`
+error. That smoke check ran with `FILES_BROWSER_ENABLED=false` and the legacy
+Files interface. Private-byte preview/download and two-account isolation were
+not tested during the repair; subsequent local checks are recorded below.
+
+These checks establish the repaired schema and the specific catalog properties
+above, not a comprehensive independent audit of every constraint and role grant.
+The dashboard still has no recorded migration versions; the filenames above are
+the observed SQL Editor application record, and migration-ledger/version
+verification remains incomplete. Full catalog auditing, real hosted
+two-account/private-storage acceptance, concurrent PostgreSQL sessions, deployed
+browser/accessibility and large-ZIP checks remain outstanding. The structural
+probe still reports `releaseReady=false`; Batch 11 and the combined hosted release
+gate remain unchecked, and the production Files browser remains disabled.
+
+### Local Files rollout for team review — October 10, 2026
+
+The user authorized enabling the local Files browser and pushing the change for
+team review. This scope does not include application deployment/publication.
+
+- [x] Enable the existing Files browser by default only during development.
+  Explicit Cloudflare bindings and environment overrides retain precedence;
+  `FILES_BROWSER_ENABLED=false` keeps the legacy interface available. Production,
+  test and unknown runtimes default to disabled. Update the example environment
+  and local setup instructions so teammates can review it after pulling. Restart
+  the authenticated local preview without a flag override and confirm the new
+  browser loads by default.
+- [x] Verify the authenticated local new Files browser against the repaired
+  Supabase database: root/folder navigation, creating a dedicated verification
+  folder and native text file, editing/saving, full reload, reopening with the
+  saved name/body, and downloading the saved native text all succeed. Existing
+  private upload preview and authenticated download also succeed without the
+  missing-column error. The synthetic verification folder/document are retained;
+  no existing content or academic records were edited or removed.
+- [x] Re-run lint, TypeScript and the production build. Exclude the already
+  ignored generated `.vinext` artifacts from ESLint. Re-run the native document
+  and accessibility Chrome fixtures at 1440/390 px; both pass, with minimum
+  contrast 7.00:1 desktop and 7.07:1 mobile.
+- [x] Validate all 525 current automated cases on Node 22.15.0. The full
+  `npm test` run passes 518 cases; seven rendered-HTML cases fail in setup because
+  their fixture tries to start a second Vinext dev server. Re-running exactly
+  those seven with `TEST_BASE_URL=http://127.0.0.1:3000` against the existing
+  preview passes 7/7. All cases pass across the two runs; the initial full command
+  itself exits 1. No application assertion failure remains.
+- [x] Independently review the local enablement and documentation. The built
+  production layout defaults the absent flag to false; no credentials are in the
+  tracked diff. Hosted acceptance remains unchecked.
+
+These one-account checks use the locally running compatible APIs and hosted
+private data, not a hosted application deployment. They do not establish the
+remaining two-account, concurrent-session, deployed browser/screen-reader or
+large-ZIP acceptance gates.

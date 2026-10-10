@@ -3,14 +3,21 @@
 Completed September 7, 2026. Steps 1–6 were reviewed and regression-tested.
 Publication and authenticated hosted acceptance checks remain Step 8.
 
+The batch sections below describe their implementation-time behavior. The
+October 10 hosted schema repair applied all missing redesign migrations; earlier
+local-only validation notes do not require historical migration replay. The new
+Files browser is now enabled by default during local development, with an explicit
+`FILES_BROWSER_ENABLED=false` override available. Production defaults to disabled
+until hosted acceptance passes.
+
 ## Files redesign — batch 1 foundation
 
 The additive migration `20261008010000_file_organization.sql` introduces owned
 `file_folders`, PostgreSQL `native_file_documents`, and independent file/folder
 activity records. Existing uploads retain their IDs, object paths, hashes,
 academic associations, pending/deleting states, and permanent `deleted_at`
-tombstones. This migration has been verified locally, but has not been applied
-to the hosted database.
+tombstones. This migration was applied to the connected hosted prototype on
+October 10, 2026; see the batch 11 application record below.
 
 Folder location is independent of course/assignment associations. Folder
 archives store their semester label and course name/color snapshots without
@@ -46,7 +53,7 @@ part of the unchecked release gate in `PLAN.md`.
 The additive `20261008020000_file_content_api.sql` and
 `20261008030000_file_content_ai.sql` migrations extend the batch 1 foundation.
 Apply all three migrations in order before deploying the dependent APIs. These
-migrations have not been applied to the hosted database.
+migrations were applied to the connected hosted prototype on October 10, 2026.
 
 Authenticated `/api/file-folders`, `/api/file-documents`, and
 `/api/files/actions` expose owned folder/document mutations and atomic batch
@@ -200,7 +207,8 @@ uploads retain their bytes, IDs, and locations. Saved course and review referenc
 continue to prevent direct or batch Trash until detached or replaced. Retained
 text inherits the existing AI source preference when the optional AI tables exist.
 Raw service-role dashboard mutations are revoked; the workspace/AI RPCs remain
-the supported write boundary. No hosted migration has been applied.
+the supported write boundary. The supporting hosted migration was applied on
+October 10, 2026.
 
 Local batch 5 verification passes lint, TypeScript, the production build, and all
 318 regression tests. Focused checks execute the real replacement/protection SQL
@@ -233,7 +241,8 @@ Exact retries acknowledge a committed attempt without repeating it; reuse with
 different data is rejected. Replays return current content as well as the original
 acknowledged revision, allowing the client to detect later writes. File/account
 deletion cascades remove their receipts. Apply all six redesign migrations in
-order before using the dependent API; this migration remains unapplied hosted.
+order before using the dependent API; the connected hosted prototype received
+this migration on October 10, 2026.
 
 Failed or ambiguous saves retain the full local draft and exact attempt for
 explicit Retry and `.txt` download. Conflicts pause writes and offer a durable
@@ -272,7 +281,7 @@ updates only the name. `PUT /api/files?id=...` accepts the explicit rename actio
 with `baseMetadataRevision`; legacy metadata callers keep their existing contract.
 Document bodies, object bytes, hashes and academic links are untouched. Apply
 all seven redesign migrations in order before using the dependent APIs. The
-new migration remains unapplied to the hosted database.
+connected hosted prototype received this migration on October 10, 2026.
 
 Folder creates freeze the first submitted ID/name/parent for exact retries.
 Rename and move dialogs retain their captured revisions on failure rather than
@@ -376,8 +385,8 @@ and permanent-deletion recovery retain their existing protections.
 
 Apply `20261009100000_selected_file_download.sql` after the batch 1–9 migrations
 before deploying the selected-download API. It adds a service-only, account-locked
-selection snapshot function. This migration has been verified locally and remains
-unapplied to the hosted database; the interface flag remains disabled by default.
+selection snapshot function. This migration was applied to the connected hosted
+prototype on October 10, 2026; the production interface remains disabled by default.
 
 The redesigned Files browser accepts multiple files through New or an external
 drop into the current active folder. Internal browser drags remain moves. Each
@@ -412,8 +421,10 @@ and deployment load checks as part of batch 11 acceptance.
 
 Apply the additive `20261009110000_file_release_integrity.sql` and, when AI is
 installed, `20261009120000_ai_file_result_fence.sql` after the preceding Files
-migrations and before dependent API deployment. They remain unapplied to the
-configured hosted database. The AI fence migration safely skips absent AI tables.
+migrations and before dependent API deployment. Both were applied to the
+configured hosted prototype database on October 10, 2026, with the preceding
+missing migrations; see the application record in [PLAN.md](PLAN.md#hosted-schema-repair--october-10-2026).
+The AI fence migration safely skips absent AI tables.
 
 Folder listings now use a service-only profile-locked JSON snapshot rather than
 PostgREST row-limited table reads. This retains all owned folders and activity,
@@ -439,8 +450,10 @@ checks use synthetic auth/storage. The read-only structural release probe never
 marks a release ready, even when schema metadata passes. See
 [the release and recovery runbook](docs/files-release.md) for deployment order,
 two-account/private-storage acceptance, concurrent-session checks, browser/load
-gates and recovery. Keep `FILES_BROWSER_ENABLED=false` until those hosted gates
-pass. Disabling the interface retains all persisted data and compatible APIs.
+gates and recovery. Keep production `FILES_BROWSER_ENABLED=false` until those
+hosted gates pass. Local development enables the browser by default; an explicit
+false override retains the legacy interface. Disabling the interface retains all
+persisted data and compatible APIs.
 
 ## Connected surfaces
 

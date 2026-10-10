@@ -7,6 +7,12 @@ APIs are installed; it is not a public release. Disabling this server-only flag
 retains saved folders, native documents, archive labels, activity and recoverable Trash. It does not
 revert compatible file APIs or erase the new persistence fields.
 
+Local `npm run dev` enables the Files browser by default for team review against
+the migrated database. An explicit server-only `FILES_BROWSER_ENABLED=false`
+overrides that development default. Production, test and other runtimes remain
+disabled unless explicitly configured with `true`; local enablement does not
+complete the hosted acceptance gates below.
+
 ## Local evidence
 
 The release scenario executes the actual additive SQL and compiled account APIs
@@ -117,7 +123,10 @@ test files serially to avoid SQL/DOM contention affecting timing assertions.
   deliver a partially streamed archive as a successful export. There is no
   account import/restore feature or background orphan-byte garbage collector.
 
-## Outstanding hosted evidence — October 9, 2026
+## Historical hosted evidence — October 9, 2026
+
+The October 10 schema repair below supersedes the missing-schema observations
+in this dated record.
 
 The configured Supabase read-only probe succeeds for the older foundation, but
 the redesigned folder/native schema and dependent RPCs are absent. No linked
@@ -130,3 +139,39 @@ connection lists no accessible Sites. The deployment URL, two real Google
 sessions, real private-storage checks, multi-session contention, Firefox/Safari
 and deployed large-ZIP acceptance remain outstanding. No hosted migrations,
 user-content writes, uploads, publication or interface enablement were performed.
+
+## Hosted schema repair — October 10, 2026
+
+Authenticated dashboard inspection confirmed the configured EduEssentials
+prototype project. All 13 missing repository migrations, from
+`20261008000000_onboarding_details.sql` through
+`20261009120000_ai_file_result_fence.sql`, completed unchanged in filename order
+through the SQL Editor. Historical foundation/AI migrations already represented
+in the schema were skipped. The user waived the pre-change backup requirement;
+no backup was established. [PLAN.md](../PLAN.md#hosted-schema-repair--october-10-2026)
+contains the exact application list and verified catalog checks.
+
+The read-only structural probe now exits 0 (`metadata-passed`), with required
+columns/RPCs present and the private bucket retaining its 26,214,400-byte limit.
+RLS and selected RPC grants/receipt foreign keys were inspected. The authenticated
+local legacy Files page loads without the missing-column error. SQL Editor
+execution did not populate migration-ledger versions; comprehensive independent
+catalog/grant/version verification remains outstanding.
+
+This schema repair does not complete hosted rollout. A confirmed deployment
+target, compatible API deployment, two-account/private-storage acceptance,
+concurrent PostgreSQL sessions, deployed browser/screen-reader checks and large-ZIP
+load/interruption acceptance are still required. `releaseReady` remains false.
+
+## Local team review — October 10, 2026
+
+The user authorized local interface enablement and a team-visible Git push,
+without application deployment/publication. The new browser was verified against
+the repaired hosted database through the local authenticated app: a dedicated
+synthetic folder/native document was created, edited, saved, reloaded and
+downloaded; an existing private upload also previewed and downloaded successfully.
+The verification folder/document remain available for review. Existing content
+and academic records were preserved. Desktop/mobile Chrome fixture checks pass.
+
+This one-account local verification does not replace the hosted acceptance gates.
+Production remains disabled by default, and Batch 11's hosted rollout is open.

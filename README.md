@@ -18,6 +18,12 @@ Requires Node.js 22.13 or later.
 3. Apply the database migrations and Google configuration below.
 4. Run npm run dev and open http://127.0.0.1:3000.
 
+The new Files browser is enabled by default in local development against the
+migrated database. If an existing `.env` sets `FILES_BROWSER_ENABLED=false`,
+remove that override or change it to `true`, then restart the server. Explicit
+Cloudflare bindings take precedence over process environment settings.
+Production remains disabled by default until hosted Batch 11 acceptance passes.
+
 The Worker runtime is required because server modules use cloudflare:workers.
 The generic vinext start Node server cannot load that module. For a built local
 Worker preview use npx wrangler dev --config dist/server/wrangler.json after npm run build.
@@ -274,7 +280,7 @@ and secret key in the hosted Worker environment. Never include .env in a deploym
 archive or place secrets in client components. Deploy only after the migrations
 and Google callback allow list are configured for the final app origin.
 
-The Files redesign remains disabled by default. Follow
+The Files redesign remains disabled by default in production. Follow
 [the Files release and recovery runbook](docs/files-release.md) to apply additive
 migrations, deploy compatible APIs and verify two-account/private-storage,
 concurrency, browser and large-ZIP acceptance before enabling

@@ -13,6 +13,9 @@ export default async function WorkspaceLayout({ children }: Readonly<{ children:
   });
   if (!profile.onboarding_completed_at) redirect("/onboarding");
   const bindings = env as unknown as Record<string, string | undefined>;
-  const filesBrowserEnabled = (bindings.FILES_BROWSER_ENABLED ?? process.env.FILES_BROWSER_ENABLED) === "true";
+  const configuredFilesBrowserFlag = bindings.FILES_BROWSER_ENABLED ?? process.env.FILES_BROWSER_ENABLED;
+  const filesBrowserEnabled = configuredFilesBrowserFlag === undefined
+    ? process.env.NODE_ENV === "development"
+    : configuredFilesBrowserFlag === "true";
   return <EduEssentialsApp initialProfile={profile} filesBrowserEnabled={filesBrowserEnabled}>{children}</EduEssentialsApp>;
 }
