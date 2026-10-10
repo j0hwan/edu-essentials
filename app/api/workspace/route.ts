@@ -76,7 +76,7 @@ function failure(error: unknown) {
   if (error instanceof PersistenceRequestError) return json({ error: error.message }, error.status);
   const databaseError = error as { code?: string; message?: string };
   const code = databaseError?.code;
-  if (code === "40001") return saveConflict();
+  if (code === "PT409" || code === "40001") return saveConflict();
   if (code === "P0001" && databaseError.message?.startsWith("PRESERVE_SYLLABUS_REPLACEMENT:")) {
     return json({ error: "This change could not be saved because the previous syllabus could not be preserved. Restore its course folder if it is in Trash, free file capacity, or shorten the syllabus text, then retry. Your workspace draft has been kept.", code: "syllabus-preservation" }, 409);
   }

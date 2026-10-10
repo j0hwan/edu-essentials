@@ -174,7 +174,7 @@ function aiFailure(error: unknown) {
   if (error instanceof ZodError) return json({ error: "Invalid assistant request. Review the fields and try again." }, 400);
   const databaseError = error as { code?: string; message?: string };
   const code = databaseError?.code;
-  if (code === "40001") return json({ error: "Your workspace or proposal changed. Refresh and request a new preview." }, 409);
+  if (code === "PT409" || code === "40001") return json({ error: "Your workspace or proposal changed. Refresh and request a new preview." }, 409);
   if (code === "P0001" && (databaseError.message?.startsWith("PRESERVE_COURSE_SYLLABUS:") || databaseError.message?.startsWith("PRESERVE_SYLLABUS_REPLACEMENT:"))) {
     return json({ error: "This proposal could not be applied because the course syllabus could not be preserved. Free file capacity, keep the course, or shorten its syllabus text before applying the proposal again. No academic changes were committed." }, 409);
   }

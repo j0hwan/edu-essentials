@@ -49,7 +49,7 @@ export function fileFailure(error: unknown) {
   if (error instanceof AuthError) return apiError(error);
   if (error instanceof PersistenceRequestError) return fileJson({ error: error.message }, error.status);
   const code = (error as { code?: string })?.code;
-  if (code === "40001") return fileJson({ error: "This file changed or was deleted. Reload files before retrying your edit." }, 409);
+  if (code === "PT409" || code === "40001") return fileJson({ error: "This file changed or was deleted. Reload files before retrying your edit." }, 409);
   if (code === "P0002") return fileJson({ error: "File not found." }, 404);
   if (code === "23505") return fileJson({ error: "This ID is already in use. Reload the latest saved data before retrying." }, 409);
   if (code === "42501") return fileJson({ error: "This account is not available for file operations." }, 403);

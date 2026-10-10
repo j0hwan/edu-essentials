@@ -31,6 +31,9 @@ Supply Supabase runtime values to that preview through Wrangler's environment co
 
 ## Required Supabase setup
 
+See [the October 10 CPU incident and live remediation](docs/cpu-usage.md) for the
+required conflict-code and workspace-efficiency migrations.
+
 Apply these SQL files in order using the Supabase SQL editor, or supabase db push
 from a linked project. The second migration depends on the first:
 

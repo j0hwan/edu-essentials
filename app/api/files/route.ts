@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     catch (error) {
       // A competing Trash mutation must retain bytes. Clean up only when a
       // permanent/pending cleanup has actually moved this row out of ready.
-      if (["40001", "P0002"].includes((error as { code: string })?.code)) {
+      if (["PT409", "40001", "P0002"].includes((error as { code: string })?.code)) {
         let current;
         try { current = await ownedFile(profile.id, id, { includeTrashed: true }); }
         catch (readError) {

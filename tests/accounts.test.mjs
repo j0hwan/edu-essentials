@@ -80,7 +80,7 @@ function query(table) {
   };
   return chain;
 }
-state.db = { from: query, rpc: async (name, args) => { state.calls.push({ rpc: name, args }); return { data: revision, error: null }; } };
+state.db = { from: query, rpc: async (name, args) => { state.calls.push({ rpc: name, args }); return { data: revision, error: state.rpcError ?? null }; } };
 const sdk = moduleUrl('export const createServerClient = () => ({ auth: { getUser: async () => ({ data: { user: globalThis.__accountTests.user }, error: globalThis.__accountTests.authError }) } });');
 const cookieStub = moduleUrl('export const cookies = async () => ({getAll: () => [],set: () => {}});');
 const dbStub = moduleUrl('export const getSupabaseAdmin = () => globalThis.__accountTests.db; export const getSupabaseAuthConfig = () => ({url:"https://example.supabase.co",key:"test"});');
@@ -100,7 +100,7 @@ const origin = "https://edu.example";
 function reset() {
   state.user = { id: "user-a", email: "alex@example.com", app_metadata: { provider: "google" } };
   state.profile = { id: "profile-a", auth_user_id: "user-a", initialized: true, onboarding_completed_at: "2026-09-04", preferences: defaultPreferences, updated_at: revision };
-  state.authError = null; state.calls = [];
+  state.authError = null; state.rpcError = null; state.calls = [];
 }
 function request(method, body, path = "/api/workspace") { return new Request(origin + path, { method, headers: { origin, "content-type": "application/json", cookie: "eduessentials_profile=profile-b" }, ...(body ? { body: JSON.stringify({ baseRevision: revision, ...body }) } : {}) }); }
 
@@ -170,6 +170,16 @@ test("writes cannot target a profile supplied by the client", async () => {
 test("initialization uses the atomic RPC for the verified profile", async () => {
   reset(); state.profile.initialized = false; assert.equal((await workspace.POST(request("POST", { action: "initialize", courses: [], dashboard: layout }))).status, 201);
   assert.equal(state.calls.find((call) => call.rpc).args.p_profile_id, "profile-a");
+});
+test("workspace conflicts return 409 after one RPC attempt with either conflict code", async () => {
+  for (const code of ["PT409", "40001"]) {
+    reset(); state.rpcError = { code, message: "Workspace changed in another session" };
+    const response = await workspace.PUT(request("PUT", { courses: [], dashboard: layout }));
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, "save_conflict");
+    assert.equal(state.calls.filter((call) => call.rpc === "save_account_workspace").length, 1);
+  }
+  reset();
 });
 test("cross-origin writes and malformed layouts fail before data changes", async () => {
   reset(); assert.equal((await workspace.PUT(new Request(origin + "/api/workspace", { method: "PUT", headers: { origin: "https://evil.example" } }))).status, 403);
