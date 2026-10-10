@@ -1550,6 +1550,283 @@ test("workspace controls persist configurations and independent notes", async (t
     assert.equal(server.writes, writesBeforeHover + 1, "one valid pointer release schedules one workspace save");
   });
 
+  await t.test("widget corner resizing previews geometry and persists without changing identity", async (t) => {
+    reset();
+    const widgets = [
+      { instanceId: "notes-resize", type: "notes", size: "medium", note: "Resize keeps this note" },
+      { instanceId: "mini-resize", type: "quote", size: "mini", startsNewMiniBlock: true },
+    ];
+    const server = installWorkspaceServer(encodeWorkspaceState([{ id: "day", name: "Day", widgets }], "day", ""));
+    await render(Workspace, { initialProfile: baseProfile });
+    assert.equal(rootNode.querySelectorAll("[data-widget-resize-handle]").length, 0);
+    await click("Customize");
+
+    const frames = installFrameQueue();
+    t.after(() => frames.restore());
+    let geometry = installBoardGeometry(rootNode.querySelector(".widget-grid"));
+    const host = rootNode.querySelector(".reorderable-widget-grid");
+    let captureAttempts = 0;
+    host.setPointerCapture = () => {
+      captureAttempts++;
+      throw new Error("native pointer capture unavailable");
+    };
+    const stopPointerPropagation = (event) => event.stopPropagation();
+    rootNode.addEventListener("pointermove", stopPointerPropagation);
+    rootNode.addEventListener("pointerup", stopPointerPropagation);
+
+    const resize = async ({ widgetId, deltaX = 0, deltaY = 0, size, pointerId, pointerType = "mouse", guardPointerId = false, waitBeforeUp = false }) => {
+      geometry.updateCards();
+      const card = cards().find((item) => item.dataset.widgetId === widgetId);
+      assert.ok(card, `Missing resize card ${widgetId}`);
+      const handle = card.querySelector("[data-widget-resize-handle]");
+      assert.ok(handle, `Missing resize handle for ${widgetId}`);
+      if (widgetId === "notes-resize") assert.equal(handle.getAttribute("aria-label"), "Resize Quick notes");
+      const rect = card.getBoundingClientRect();
+      const startX = rect.right - 4;
+      const startY = rect.bottom - 4;
+      const writesBefore = server.writes;
+      const persistedBefore = decodeWorkspaceState(server.dashboard).workspaces[0].widgets;
+      const pointerValues = { pointerId, pointerType, buttons: 1 };
+      await act(async () => handle.dispatchEvent(pointerEvent("pointerdown", { ...pointerValues, clientX: startX, clientY: startY })));
+
+      if (guardPointerId) {
+        await act(async () => rootNode.dispatchEvent(pointerEvent("pointermove", { ...pointerValues, pointerId: pointerId + 1, clientX: startX + deltaX, clientY: startY + deltaY })));
+        assert.equal(card.dataset.size, persistedBefore.find((item) => item.instanceId === widgetId).size, "another pointer cannot change the preview");
+      }
+
+      const move = pointerEvent("pointermove", { ...pointerValues, clientX: startX + deltaX, clientY: startY + deltaY });
+      await act(async () => rootNode.dispatchEvent(move));
+      assert.equal(move.defaultPrevented, true, "document capture handles pointer movement when native capture fails");
+      let previewCard = cards().find((item) => item.dataset.widgetId === widgetId);
+      assert.equal(previewCard.dataset.size, size);
+      assert.ok(previewCard.classList.contains("widget-resizing"));
+      assert.ok(rootNode.querySelector(".reorderable-widget-grid").classList.contains("is-widget-resizing"));
+      assert.equal(document.querySelector(".widget-reorder-overlay"), null);
+      assert.equal(rootNode.querySelector(".widget-reorder-placeholder"), null);
+      assert.deepEqual(cards().map((item) => item.dataset.widgetId), persistedBefore.map((item) => item.instanceId));
+      assert.equal(server.writes, writesBefore);
+      assert.equal(decodeWorkspaceState(server.dashboard).workspaces[0].widgets.find((item) => item.instanceId === widgetId).size, persistedBefore.find((item) => item.instanceId === widgetId).size);
+
+      if (guardPointerId) {
+        await act(async () => rootNode.dispatchEvent(pointerEvent("pointerup", { ...pointerValues, pointerId: pointerId + 1, buttons: 0, clientX: startX + deltaX, clientY: startY + deltaY })));
+        assert.ok(rootNode.querySelector(".reorderable-widget-grid").classList.contains("is-widget-resizing"), "another pointer cannot finish the resize");
+        assert.equal(server.writes, writesBefore);
+      }
+      if (waitBeforeUp) {
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 760)));
+        assert.equal(server.writes, writesBefore, "previewing for longer than the autosave delay does not write before release");
+        assert.equal(unloadBlocked(), false);
+      }
+
+      await act(async () => rootNode.dispatchEvent(pointerEvent("pointerup", { ...pointerValues, buttons: 0, clientX: startX + deltaX, clientY: startY + deltaY })));
+      assert.equal(rootNode.querySelector(".reorderable-widget-grid").classList.contains("is-widget-resizing"), false);
+      await waitForWorkspaceSave(server, writesBefore);
+      assert.equal(server.writes, writesBefore + 1, "one changed release writes one workspace revision");
+      const savedWidget = decodeWorkspaceState(server.dashboard).workspaces[0].widgets.find((item) => item.instanceId === widgetId);
+      assert.equal(savedWidget.size, size);
+      if (widgetId === "notes-resize") assert.equal(savedWidget.note, "Resize keeps this note");
+      await saveAndReload();
+      assert.deepEqual(cards().map((item) => item.dataset.widgetId), widgets.map((item) => item.instanceId));
+      assert.equal(cards().find((item) => item.dataset.widgetId === widgetId).dataset.size, size);
+      assert.equal(rootNode.querySelector('[data-widget-id="notes-resize"] textarea').value, "Resize keeps this note");
+      await click("Customize");
+      geometry = installBoardGeometry(rootNode.querySelector(".widget-grid"));
+    };
+
+    try {
+      await resize({ widgetId: "notes-resize", deltaX: -116, size: "small", pointerId: 31, pointerType: "touch", guardPointerId: true, waitBeforeUp: true });
+      await resize({ widgetId: "notes-resize", deltaY: 116, size: "medium-vertical", pointerId: 32 });
+      await resize({ widgetId: "notes-resize", deltaX: 116, size: "large", pointerId: 33 });
+      await resize({ widgetId: "notes-resize", deltaY: -116, size: "medium", pointerId: 34 });
+      await resize({ widgetId: "mini-resize", deltaY: 58, size: "small", pointerId: 35 });
+      assert.equal(captureAttempts, 1, "the host capture failure falls back to document listeners");
+      const grownMini = decodeWorkspaceState(server.dashboard).workspaces[0].widgets.find((item) => item.instanceId === "mini-resize");
+      assert.equal(grownMini.size, "small");
+      assert.equal(grownMini.startsNewMiniBlock, undefined, "growing out of mini clears its mini-block marker");
+    } finally {
+      rootNode.removeEventListener("pointermove", stopPointerPropagation);
+      rootNode.removeEventListener("pointerup", stopPointerPropagation);
+    }
+  });
+
+  await t.test("corner resize no-op and interruptions never save", async (t) => {
+    reset();
+    const workspaces = [
+      { id: "day", name: "Day", widgets: [{ instanceId: "notes-day", type: "notes", size: "medium", note: "Day note" }] },
+      { id: "other", name: "Other", widgets: [{ instanceId: "notes-other", type: "notes", size: "medium", note: "Other note" }] },
+    ];
+    const server = installWorkspaceServer(encodeWorkspaceState(workspaces, "day", ""));
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Customize");
+    const frames = installFrameQueue();
+    t.after(() => frames.restore());
+    let geometry = installBoardGeometry(rootNode.querySelector(".widget-grid"));
+    const writesBefore = server.writes;
+    let nextPointerId = 50;
+
+    const beginPreview = async (widgetId = "notes-day") => {
+      geometry.updateCards();
+      const card = cards().find((item) => item.dataset.widgetId === widgetId);
+      const handle = card.querySelector("[data-widget-resize-handle]");
+      const rect = card.getBoundingClientRect();
+      const pointerId = nextPointerId++;
+      const startX = rect.right - 4;
+      const startY = rect.bottom - 4;
+      await act(async () => handle.dispatchEvent(pointerEvent("pointerdown", { pointerId, buttons: 1, clientX: startX, clientY: startY })));
+      await act(async () => document.dispatchEvent(pointerEvent("pointermove", { pointerId, buttons: 1, clientX: startX, clientY: startY + 116 })));
+      assert.equal(cards().find((item) => item.dataset.widgetId === widgetId).dataset.size, "large");
+      assert.ok(rootNode.querySelector(".reorderable-widget-grid").classList.contains("is-widget-resizing"));
+      return pointerId;
+    };
+    const assertCancelled = (widgetId = "notes-day") => {
+      assert.equal(rootNode.querySelector(".reorderable-widget-grid").classList.contains("is-widget-resizing"), false);
+      assert.equal(rootNode.querySelector(".widget-resizing"), null);
+      assert.equal(document.querySelector(".widget-reorder-overlay"), null);
+      const card = cards().find((item) => item.dataset.widgetId === widgetId);
+      if (card) assert.equal(card.dataset.size, "medium");
+      assert.equal(server.writes, writesBefore);
+    };
+
+    const noOpPointer = nextPointerId++;
+    let card = cards().find((item) => item.dataset.widgetId === "notes-day");
+    let rect = card.getBoundingClientRect();
+    await act(async () => card.querySelector("[data-widget-resize-handle]").dispatchEvent(pointerEvent("pointerdown", { pointerId: noOpPointer, buttons: 1, clientX: rect.right - 4, clientY: rect.bottom - 4 })));
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", { pointerId: noOpPointer, buttons: 0, clientX: rect.right - 4, clientY: rect.bottom - 4 })));
+    assertCancelled();
+    assert.ok(rootNode.querySelector(".widget-menu"), "a no-drag handle release opens the existing size choices");
+    const capturedClick = new window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    await act(async () => rootNode.querySelector(".reorderable-widget-grid").dispatchEvent(capturedClick));
+    assert.equal(capturedClick.defaultPrevented, true, "the capture-retargeted native click is suppressed");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 160)));
+    assert.ok(rootNode.querySelector(".widget-menu"), "the native click does not dismiss the size choices");
+
+    const animatedPointer = nextPointerId++;
+    card.getBoundingClientRect = () => ({ left: 40, top: 100, right: 140, bottom: 200, width: 100, height: 100 });
+    await act(async () => card.querySelector("[data-widget-resize-handle]").dispatchEvent(pointerEvent("pointerdown", { pointerId: animatedPointer, buttons: 1, clientX: 136, clientY: 196 })));
+    await act(async () => document.dispatchEvent(pointerEvent("pointermove", { pointerId: animatedPointer, buttons: 1, clientX: 142, clientY: 196 })));
+    assert.equal(card.dataset.size, "medium", "a tiny outward drag during an interrupted FLIP uses the committed footprint");
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", { pointerId: animatedPointer, buttons: 0, clientX: 142, clientY: 196 })));
+    await act(async () => rootNode.querySelector(".reorderable-widget-grid").dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 })));
+    assertCancelled();
+    assert.equal(rootNode.querySelector(".widget-menu"), null, "an activated drag does not open size choices");
+
+    let pointerId = await beginPreview();
+    await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    assertCancelled();
+    const cancelledHandle = cards()[0].querySelector("[data-widget-resize-handle]");
+    await act(async () => cancelledHandle.dispatchEvent(pointerEvent("pointerup", { pointerId, buttons: 0 })));
+    const cancelledClick = new window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    await act(async () => cancelledHandle.dispatchEvent(cancelledClick));
+    assert.equal(cancelledClick.defaultPrevented, true);
+    assert.equal(rootNode.querySelector(".widget-menu"), null, "Escape prevents the cancelled gesture from opening size choices on release");
+
+    pointerId = await beginPreview();
+    await act(async () => rootNode.querySelector(".reorderable-widget-grid").dispatchEvent(pointerEvent("lostpointercapture", { pointerId, buttons: 1 })));
+    assertCancelled();
+    await act(async () => cancelledHandle.dispatchEvent(pointerEvent("pointerup", { pointerId, buttons: 0 })));
+    await act(async () => cancelledHandle.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 })));
+    assert.equal(rootNode.querySelector(".widget-menu"), null, "capture loss suppresses the cancelled release click");
+
+    pointerId = await beginPreview();
+    await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", { pointerId, buttons: 0, clientX: 0, clientY: 0 })));
+    const optionsButton = rootNode.querySelector('[aria-label="Quick notes options"]');
+    await act(async () => optionsButton.dispatchEvent(pointerEvent("pointerdown", { pointerId: pointerId + 100, buttons: 1 })));
+    await act(async () => optionsButton.dispatchEvent(pointerEvent("pointerup", { pointerId: pointerId + 100, buttons: 0 })));
+    const unrelatedClick = new window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    await act(async () => optionsButton.dispatchEvent(unrelatedClick));
+    assert.equal(unrelatedClick.defaultPrevented, false, "a new pointer-down clears suppression for unrelated actions");
+    assert.ok(rootNode.querySelector(".widget-menu"));
+
+    pointerId = await beginPreview();
+    await act(async () => document.dispatchEvent(pointerEvent("pointercancel", { pointerId, buttons: 0 })));
+    assertCancelled();
+
+    await beginPreview();
+    await act(async () => window.dispatchEvent(new window.Event("blur")));
+    assertCancelled();
+
+    await beginPreview();
+    await act(async () => {
+      window.dispatchEvent(new window.Event("resize"));
+      frames.flush();
+    });
+    assertCancelled();
+
+    await beginPreview();
+    await click("Other");
+    assertCancelled("notes-other");
+    await click("Day");
+    geometry = installBoardGeometry(rootNode.querySelector(".widget-grid"));
+
+    await beginPreview();
+    await click("Widget customization");
+    assert.equal(rootNode.querySelectorAll("[data-widget-resize-handle]").length, 0, "opening a dialog removes resize handles and cancels the preview");
+    assertCancelled();
+    await clickAria("Close appearance studio");
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 760)));
+    assert.equal(server.writes, writesBefore);
+    assert.deepEqual(decodeWorkspaceState(server.dashboard).workspaces.map((workspace) => workspace.widgets.map(({ instanceId, size, note }) => ({ instanceId, size, note }))), [
+      [{ instanceId: "notes-day", size: "medium", note: "Day note" }],
+      [{ instanceId: "notes-other", size: "medium", note: "Other note" }],
+    ]);
+  });
+
+  await t.test("resize handles follow Customize eligibility and support keyboard size choices", async () => {
+    reset();
+    const widgets = [{ instanceId: "notes-keyboard", type: "notes", size: "small", note: "Keyboard keeps this note" }];
+    const server = installWorkspaceServer(encodeWorkspaceState([{ id: "day", name: "Day", widgets }], "day", ""));
+    await render(Workspace, { initialProfile: baseProfile });
+    assert.equal(rootNode.querySelectorAll("[data-widget-resize-handle]").length, 0, "resize handles are absent outside Customize");
+    await click("Customize");
+    installBoardGeometry(rootNode.querySelector(".widget-grid"));
+    let handle = rootNode.querySelector('[data-widget-id="notes-keyboard"] [data-widget-resize-handle]');
+    assert.ok(handle);
+    assert.equal(handle.getAttribute("aria-label"), "Resize Quick notes");
+    const writesBefore = server.writes;
+
+    for (const [key, expectedSize] of [
+      ["ArrowRight", "medium"],
+      ["ArrowDown", "large"],
+      ["ArrowLeft", "medium-vertical"],
+      ["ArrowUp", "small"],
+      ["ArrowRight", "medium"],
+    ]) {
+      handle = rootNode.querySelector('[data-widget-id="notes-keyboard"] [data-widget-resize-handle]');
+      const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      await act(async () => handle.dispatchEvent(event));
+      assert.equal(event.defaultPrevented, true);
+      assert.equal(cards()[0].dataset.size, expectedSize, `${key} selects ${expectedSize}`);
+      const description = document.getElementById(handle.getAttribute("aria-describedby"));
+      assert.equal(description.getAttribute("role"), "status");
+      assert.equal(description.textContent.trim(), `Quick notes size: ${{ small: "Small", medium: "Medium horizontal", large: "Large", "medium-vertical": "Medium vertical" }[expectedSize]}`);
+    }
+
+    handle = rootNode.querySelector('[data-widget-id="notes-keyboard"] [data-widget-resize-handle]');
+    await act(async () => {
+      handle.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      handle.click();
+    });
+    assert.equal(cards()[0].dataset.size, "medium", "Enter activation does not change the size");
+    assert.equal(rootNode.querySelectorAll(".widget-menu .size-options button").length, 5, "click opens the existing size menu");
+    assert.equal(rootNode.querySelector('.widget-menu [aria-label="Medium horizontal widget"]').getAttribute("aria-pressed"), "true");
+
+    await click("Widget customization");
+    assert.ok(rootNode.querySelector('[role="dialog"]'));
+    assert.equal(rootNode.querySelectorAll("[data-widget-resize-handle]").length, 0, "resize handles are absent while a dialog is open");
+    await clickAria("Close appearance studio");
+    assert.equal(rootNode.querySelectorAll("[data-widget-resize-handle]").length, 1, "closing the dialog restores handles while Customize remains active");
+    await click("Done customizing");
+    assert.equal(rootNode.querySelectorAll("[data-widget-resize-handle]").length, 0);
+
+    await waitForWorkspaceSave(server, writesBefore);
+    await saveAndReload();
+    assert.equal(cards()[0].dataset.size, "medium");
+    assert.equal(cards()[0].dataset.widgetId, "notes-keyboard");
+    assert.equal(rootNode.querySelector('textarea[aria-label="Quick notes"]').value, "Keyboard keeps this note");
+  });
+
   await t.test("widget headers reorder in Customize while body controls and guarded headers do not", async () => {
     reset();
     const widgets = [

@@ -30,7 +30,7 @@ function setup() {
     return animation;
   };
   const root = createRoot(document.getElementById("root"));
-  const render = async (size, label = "Notes", key = size, reflowKey = undefined) => act(async () => root.render(h(Grid, { layoutKey: key, reflowKey, label: "Test widgets" },
+  const render = async (size, label = "Notes", key = size, reflowKey = undefined, resizeMotion = false) => act(async () => root.render(h(Grid, { layoutKey: key, reflowKey, resizeMotion, label: "Test widgets" },
     h("article", { key: "a", "data-widget-id": "a", "data-size": size }, label),
     h("article", { key: "b", "data-widget-id": "b" }, "Timer"),
   )));
@@ -122,5 +122,26 @@ test("layout changes remain usable when the animation API is unavailable", async
     await render("small"); await render("large");
     assert.equal(calls.length, 0);
     assert.equal(document.querySelector('[data-widget-id="a"]').dataset.size, "large");
+  } finally { await cleanup(); }
+});
+
+test("corner resizing springs the card and neighbors while honoring reduced and zero motion", async () => {
+  const { calls, render, cleanup } = setup();
+  try {
+    await render("small");
+    await render("large", "Notes", "large", undefined, true);
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every(({ options }) => options.duration === 260 && options.easing === "cubic-bezier(0.22, 1.18, 0.36, 1)"));
+    const interrupted = calls.map(({ animation }) => animation);
+    await render("small", "Notes", "cancelled", undefined, false);
+    assert.ok(interrupted.every((animation) => animation.cancelled));
+    assert.equal(calls.at(-1).options.easing, "cubic-bezier(0.22, 1.18, 0.36, 1)", "cancellation settles with the same motion");
+    systemReduced = true;
+    await render("large", "Notes", "reduced", undefined, true);
+    assert.equal(calls.length, 4);
+    systemReduced = false;
+    for (const card of document.querySelectorAll("[data-widget-id]")) card.style.setProperty("--wa-transition-ms", "0ms");
+    await render("small", "Notes", "zero", undefined, true);
+    assert.equal(calls.length, 4);
   } finally { await cleanup(); }
 });

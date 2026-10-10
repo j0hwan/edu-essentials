@@ -6,7 +6,7 @@ import { calculateWidgetPlacements } from "../lib/widget-layout";
 export { calculateWidgetPlacements };
 export type { WidgetPlacement } from "../lib/widget-layout";
 
-type Props = { layoutKey: string; reflowKey?: string; label: string; children: ReactNode; style?: CSSProperties; className?: string; animateLayout?: boolean };
+type Props = { layoutKey: string; reflowKey?: string; label: string; children: ReactNode; style?: CSSProperties; className?: string; animateLayout?: boolean; resizeMotion?: boolean };
 type Snapshot = Map<string, DOMRect> | null;
 
 export type WidgetUnitInput = {
@@ -140,7 +140,9 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
       const old = snapshot.get(card.dataset.widgetId!);
       if (!old || !rect.width || !rect.height || !old.width || !old.height || typeof card.animate !== "function") continue;
       const configuredDuration = Number.parseFloat(window.getComputedStyle(card).getPropertyValue("--wa-transition-ms"));
-      const duration = Number.isFinite(configuredDuration) ? configuredDuration : 280;
+      const resizeMotion = this.props.resizeMotion || previous.resizeMotion;
+      const configuredTiming = Number.isFinite(configuredDuration) ? configuredDuration : 280;
+      const duration = resizeMotion ? Math.min(configuredTiming, 260) : configuredTiming;
       if (duration <= 0) continue;
       const x = old.left - rect.left, y = old.top - rect.top;
       const sx = old.width / rect.width, sy = old.height / rect.height;
@@ -148,7 +150,7 @@ export default class AnimatedWidgetGrid extends Component<Props, Record<string, 
       const animation = card.animate([
         { transform: `translate(${x}px, ${y}px) scale(${sx}, ${sy})`, transformOrigin: "top left" },
         { transform: "none", transformOrigin: "top left" },
-      ], { duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+      ], { duration, easing: resizeMotion ? "cubic-bezier(0.22, 1.18, 0.36, 1)" : "cubic-bezier(0.22, 1, 0.36, 1)" });
       this.animations.add(animation);
       animation.onfinish = animation.oncancel = () => this.animations.delete(animation);
     }

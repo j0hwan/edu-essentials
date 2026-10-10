@@ -7,6 +7,8 @@ import { calculateWidgetUnit } from "./animated-widget-grid";
 import AnimatedWidgetGrid from "./animated-widget-grid";
 import { getWidgetInsertionCandidate, reorderWidgetIds } from "../lib/widget-reorder";
 import { useWidgetShake } from "./use-widget-shake";
+import { useWidgetResize } from "./use-widget-resize";
+import type { WidgetSize } from "../lib/widget-layout";
 
 type Props = {
   items: readonly WidgetInstance[];
@@ -17,10 +19,11 @@ type Props = {
   enabled: boolean;
   style?: CSSProperties;
   addTile: ReactNode;
-  renderWidget: (widget: WidgetInstance, index: number, isDragged: boolean) => ReactNode;
+  renderWidget: (widget: WidgetInstance, index: number, isDragged: boolean, isResizing: boolean) => ReactNode;
   onReorder: (ids: string[], miniBlockChange?: { widgetId: string; startsNewMiniBlock: boolean }) => boolean;
   onReorderStart?: () => void;
   onCustomize?: () => void;
+  onResize?: (widgetId: string, size: WidgetSize) => boolean;
 };
 
 type DragPhase = "pending" | "active" | "settling";
@@ -121,6 +124,7 @@ export default function ReorderableWidgetGrid({
   onReorder,
   onReorderStart,
   onCustomize,
+  onResize,
 }: Props) {
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null);
   const [previewMiniStart, setPreviewMiniStart] = useState<boolean | null>(null);
@@ -138,11 +142,6 @@ export default function ReorderableWidgetGrid({
   const itemData = itemDataKey(items);
   const currentOrder = previewOrder && sameIdSet(previewOrder, ids) ? previewOrder : ids;
   const itemsById = new Map(items.map((item) => [item.instanceId, item]));
-  const orderedItems = currentOrder.map((id) => itemsById.get(id)).filter((item): item is WidgetInstance => Boolean(item)).map((item) =>
-    item.instanceId === draggedId && item.size === "mini" && previewMiniStart !== null
-      ? { ...item, startsNewMiniBlock: previewMiniStart || undefined } : item,
-  );
-  const gridLayoutKey = `${layoutKey}:${orderedItems.map((item) => `${item.instanceId}:${item.size}:${Boolean(item.startsNewMiniBlock)}`).join(",")}`;
 
   useLayoutEffect(() => {
     latestProps.current = { workspaceId, layoutKey, enabled, items, onReorder, onReorderStart };
@@ -219,6 +218,29 @@ export default function ReorderableWidgetGrid({
 
     removeOverlay(session);
   }, [removeOverlay, removePointerListeners, restoreBoardScroll]);
+
+  const { preview: resizePreview, beginResize, cancelResize } = useWidgetResize({
+    host,
+    items,
+    enabled,
+    contextKey: `${workspaceId}:${layoutKey}`,
+    onResize,
+    onResizeStart: () => {
+      const session = sessionRef.current;
+      if (session) cancelSession(session, false);
+      onReorderStart?.();
+    },
+  });
+  const orderedItems = currentOrder.map((id) => itemsById.get(id)).filter((item): item is WidgetInstance => Boolean(item)).map((item) => {
+    if (item.instanceId === resizePreview?.widgetId) {
+      const next = { ...item, size: resizePreview.size };
+      if (next.size !== "mini") delete next.startsNewMiniBlock;
+      return next;
+    }
+    return item.instanceId === draggedId && item.size === "mini" && previewMiniStart !== null
+      ? { ...item, startsNewMiniBlock: previewMiniStart || undefined } : item;
+  });
+  const gridLayoutKey = `${layoutKey}:${orderedItems.map((item) => `${item.instanceId}:${item.size}:${Boolean(item.startsNewMiniBlock)}`).join(",")}`;
 
   const positionOverlay = useCallback((session: DragSession) => {
     if (!session.overlay) return;
@@ -443,6 +465,7 @@ export default function ReorderableWidgetGrid({
     const source = (handle ?? header)?.closest<HTMLElement>("[data-widget-id]");
     if (!source || !host.current?.contains(source)) return;
     if (!handle && target?.closest("button, a, input, textarea, select, [role='button'], [contenteditable]:not([contenteditable='false'])")) return;
+    cancelResize();
 
     const previousSession = sessionRef.current;
     if (previousSession) cancelSession(previousSession, false);
@@ -583,7 +606,7 @@ export default function ReorderableWidgetGrid({
       activateSession(session);
       if (session.phase === "active") schedulePointer(session);
     }
-  }, [activateSession, cancelSession, itemData, items, layoutKey, processPointer, removePointerListeners, restoreBoardScroll, schedulePointer, workspaceId]);
+  }, [activateSession, cancelResize, cancelSession, itemData, items, layoutKey, processPointer, removePointerListeners, restoreBoardScroll, schedulePointer, workspaceId]);
 
   const beginShake = useWidgetShake(`${workspaceId}:${layoutKey}:${itemData}`, !enabled && onCustomize ? (start, current) => {
     flushSync(() => onCustomize());
@@ -622,8 +645,9 @@ export default function ReorderableWidgetGrid({
   return (
     <div
       ref={host}
-      className={`reorderable-widget-grid${enabled ? " is-reorder-enabled" : ""}${invalidDrop ? " is-reorder-invalid" : ""}`}
+      className={`reorderable-widget-grid${enabled ? " is-reorder-enabled" : ""}${invalidDrop ? " is-reorder-invalid" : ""}${resizePreview ? " is-widget-resizing" : ""}`}
       onPointerDownCapture={(event) => {
+        if (beginResize(event)) return;
         beginShake(event);
         beginSession(event);
       }}
@@ -634,8 +658,9 @@ export default function ReorderableWidgetGrid({
         style={style}
         layoutKey={gridLayoutKey}
         reflowKey={reflowKey}
+        resizeMotion={Boolean(resizePreview)}
       >
-        {orderedItems.map((widget, index) => renderWidget(widget, index, draggedId === widget.instanceId))}
+        {orderedItems.map((widget, index) => renderWidget(widget, index, draggedId === widget.instanceId, resizePreview?.widgetId === widget.instanceId))}
         {addTile}
       </AnimatedWidgetGrid>
     </div>

@@ -107,6 +107,7 @@ import "./widget-appearance.css";
 import "./widget-block-layout.css";
 import "./widget-reorder.css";
 import { widgetSizeOptions } from "../lib/widget-layout";
+import { getWidgetKeyboardResizeSize } from "../lib/widget-resize";
 import {
   decodeWorkspaceState,
   encodeWorkspaceState,
@@ -868,13 +869,14 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   };
 
   const resizeWidget = (instanceId: string, size: WidgetSize) => {
-    updateWorkspaceWidgets((widgets) => widgets.map((widget) => {
+    const accepted = updateWorkspaceWidgets((widgets) => widgets.map((widget) => {
       if (widget.instanceId !== instanceId) return widget;
       const next = { ...widget, size };
       if (size !== "mini") delete next.startsNewMiniBlock;
       return next;
     }));
     closeWidgetMenu();
+    return accepted;
   };
 
   const createWorkspace = () => {
@@ -1011,6 +1013,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         : profilePending ? "Your settings changes have not been saved yet."
           : undefined;
   const workspaceToastLoading = workspacePending || (profileSaving && persistenceStatus === "saved");
+  const widgetEditingEnabled = customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog;
 
   if (onboardingTest) return <OnboardingFlow initialProfile={profile} preview onExit={() => {
     setOnboardingTest(false);
@@ -1414,7 +1417,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
               style={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
               layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}`}
               reflowKey={String(sidebarCollapsed)}
-              enabled={customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog}
+              enabled={widgetEditingEnabled}
+              onResize={resizeWidget}
               onReorderStart={closeWidgetMenu}
               onCustomize={!customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog ? () => {
                 closeWidgetMenu();
@@ -1435,7 +1439,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
                   return next;
                 }));
               }}
-              renderWidget={(widget, index, isDragged) => renderWidget(widget, index, isDragged)}
+              renderWidget={(widget, index, isDragged, isResizing) => renderWidget(widget, index, isDragged, isResizing)}
               addTile={<button className="add-widget-tile" onClick={() => setWidgetPickerOpen(true)}><Plus size={22} /><span>Add widget</span></button>}
             />
           )}
@@ -1444,14 +1448,14 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     );
   }
 
-  function renderWidget(widget: WidgetInstance, index: number, isDragged = false) {
+  function renderWidget(widget: WidgetInstance, index: number, isDragged = false, isResizing = false) {
     const template = widgetTemplates.find((item) => item.type === widget.type)!;
     const appearance = resolveWidgetAppearance(extraData.widgetAppearance, widget.instanceId);
     const TemplateIcon = widget.type === "today" ? BarChart3 : widget.type === "red-alerts" ? Bell : widget.type === "notes" ? FileText : template.icon;
     return (
       <article
         key={widget.instanceId}
-        className={`widget-card widget-${widget.type} ${isDragged ? "widget-reorder-placeholder" : ""}`}
+        className={`widget-card widget-${widget.type} ${isDragged ? "widget-reorder-placeholder" : ""}${isResizing ? " widget-resizing" : ""}`}
         data-size={widget.size}
         data-mini-start={widget.size === "mini" && widget.startsNewMiniBlock ? "true" : undefined}
         data-widget-id={widget.instanceId}
@@ -1474,6 +1478,26 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         </div>
         <div className="widget-body">{renderWidgetBody(widget)}</div>
         </div>
+        {widgetEditingEnabled && !isDragged && <button
+          type="button"
+          className="widget-resize-handle"
+          data-widget-resize-handle
+          aria-label={`Resize ${template.title}`}
+          aria-describedby={`widget-resize-size-${widget.instanceId}`}
+          aria-haspopup="true"
+          title="Drag to resize. Arrow keys change width or height; Enter opens size choices."
+          draggable={false}
+          onClick={() => { setClosingWidgetMenu(false); setOpenWidgetMenu(widget.instanceId); }}
+          onKeyDown={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+            event.preventDefault();
+            const nextSize = getWidgetKeyboardResizeSize(widget.size, event.key);
+            if (nextSize !== widget.size) resizeWidget(widget.instanceId, nextSize);
+          }}
+        ><span aria-hidden="true" /></button>}
+        {widgetEditingEnabled && !isDragged && <span id={`widget-resize-size-${widget.instanceId}`} className="widget-resize-status" role="status" aria-live="polite">
+          {`${template.title} size: ${widgetSizeOptions.find((option) => option.value === widget.size)?.label}`}
+        </span>}
             {openWidgetMenu === widget.instanceId && (
               <div className={`popover widget-menu${closingWidgetMenu ? " is-closing" : ""}`} ref={widgetMenuRef} inert={closingWidgetMenu} aria-hidden={closingWidgetMenu || undefined} onAnimationEnd={(event) => {
                 if (closingWidgetMenu && event.target === event.currentTarget && event.animationName === "widget-menu-dismiss") closeWidgetMenu();

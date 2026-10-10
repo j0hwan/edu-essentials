@@ -10,6 +10,64 @@
   -webkit-user-select: none;
 }
 
+.reference-ui .widget-card .widget-resize-handle {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--wa-accent, #7181ff);
+  cursor: nwse-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.reference-ui .widget-resize-handle > span {
+  width: 13px;
+  height: 13px;
+  border-right: 3px solid currentColor;
+  border-bottom: 3px solid currentColor;
+  border-bottom-right-radius: 5px;
+  filter: drop-shadow(0 1px 2px #0008);
+}
+
+.reference-ui .widget-resize-handle:hover,
+.reference-ui .widget-resize-handle:focus-visible {
+  background: color-mix(in srgb, var(--wa-accent, #7181ff) 18%, transparent);
+}
+
+.reference-ui .widget-resize-handle:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.reference-ui .widget-resizing {
+  outline: 2px solid var(--wa-accent, #7181ff) !important;
+  outline-offset: 2px;
+}
+
+.reorderable-widget-grid.is-widget-resizing .widget-resizing .widget-resize-handle {
+  background: color-mix(in srgb, var(--wa-accent, #7181ff) 24%, transparent);
+}
+
+.widget-resize-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .reorderable-widget-grid .widget-card.widget-reorder-placeholder {
   border-style: dashed !important;
   border-color: color-mix(in srgb, var(--wa-accent, #7181ff) 68%, white) !important;
