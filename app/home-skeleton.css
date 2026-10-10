@@ -1,5 +1,5 @@
 .home-skeleton {
-  --home-skeleton-gap: var(--wa-gap, 16px);
+  --home-skeleton-gap: var(--wa-gap, calc(16 * var(--desktop-density-unit, 1px)));
   --home-skeleton-unit: calc((100cqw - var(--home-skeleton-gap) - var(--home-skeleton-gap) - var(--home-skeleton-gap)) / 4);
   width: 100%;
   min-width: 0;
@@ -67,7 +67,7 @@
 .home-skeleton__actions {
   gap: calc(16 * var(--ui-unit, 1px));
   flex-wrap: wrap;
-  row-gap: 10px;
+  row-gap: calc(10 * var(--desktop-density-unit, 1px));
 }
 
 .home-skeleton__tab {
@@ -117,9 +117,9 @@
   height: 100%;
   overflow: hidden;
   border: 1px solid #233c5d;
-  border-radius: 11px;
+  border-radius: calc(11 * var(--desktop-density-unit, 1px));
   background: linear-gradient(145deg, #10213a, #0d1b30 58%, #09182b);
-  box-shadow: 0 7px 21px #01091442, inset 0 1px 0 #b5cbec0b;
+  box-shadow: 0 calc(7 * var(--desktop-density-unit, 1px)) calc(21 * var(--desktop-density-unit, 1px)) #01091442, inset 0 calc(1 * var(--desktop-density-unit, 1px)) 0 #b5cbec0b;
   grid-column: var(--desktop-column) / span var(--desktop-column-span);
   grid-row: var(--desktop-row) / span var(--desktop-row-span);
 }

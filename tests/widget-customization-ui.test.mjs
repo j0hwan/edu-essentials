@@ -243,7 +243,7 @@ test("appearance drafts preview without writing, cancel discards, and Apply save
   assert.equal(server.writes, 0);
 
   await edit("Corner radius", "24", appearanceDialog());
-  assert.equal(appearanceDialog().querySelector(".wa-preview-card").style.getPropertyValue("--wa-radius"), "24px");
+  assert.equal(appearanceDialog().querySelector(".wa-preview-card").style.getPropertyValue("--wa-radius"), "calc(24 * var(--desktop-density-unit, 1px))");
   await click("Apply appearance", appearanceDialog());
   assert.equal(appearanceDialog(), null, "Apply closes the dialog after accepting the draft");
   assert.equal(server.writes, 0, "Apply enters the ordinary workspace autosave flow");
@@ -255,7 +255,7 @@ test("appearance drafts preview without writing, cancel discards, and Apply save
 
   assert.equal(server.writes, 1);
   assert.equal(dashboardData().widgetAppearance.defaults.radius, 24);
-  assert.equal(rootNode.querySelector('[data-widget-id="notes"]').style.getPropertyValue("--wa-radius"), "24px");
+  assert.equal(rootNode.querySelector('[data-widget-id="notes"]').style.getPropertyValue("--wa-radius"), "calc(24 * var(--desktop-density-unit, 1px))");
   assert.equal(server.profile.major, initial.profile.major);
   assert.equal(server.profile.study_goal, initial.profile.study_goal);
   assert.deepEqual(server.courses, [course]);

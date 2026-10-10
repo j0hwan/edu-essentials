@@ -4,8 +4,8 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
 
 :is(.reference-ui .widget-grid, .wa-preview-cards) {
   --widget-columns: 4;
-  --widget-gap: var(--wa-gap, 16px);
-  --widget-unit: 220px;
+  --widget-gap: var(--wa-gap, calc(16 * var(--desktop-density-unit, 1px)));
+  --widget-unit: calc(220 * var(--desktop-density-unit, 1px));
   display: grid;
   grid-auto-rows: calc((var(--widget-live-unit, var(--widget-unit)) - var(--widget-gap)) / 2);
   align-items: stretch;
@@ -69,12 +69,12 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
 }
 .reference-ui .widget-card {
   position: relative;
-  padding: min(var(--wa-padding, 16px), 10%);
+  padding: min(var(--wa-padding, calc(16 * var(--desktop-density-unit, 1px))), 10%);
 }
 
 /* Small cards keep their options trigger reachable outside the clipped frame. */
 @container widget (max-width: 120px) {
-  .reference-ui .widget-card .widget-header { padding-inline-end: 24px; }
+  .reference-ui .widget-card .widget-header { padding-inline-end: calc(24 * var(--desktop-density-unit, 1px)); }
   .reference-ui .widget-card .widget-header > .widget-icon { display: none; }
   .reference-ui .widget-card .widget-header .menu-wrap {
     position: absolute;
@@ -86,12 +86,12 @@ html:has(.reference-ui) { scrollbar-gutter: stable; }
   .reference-ui .widget-card .widget-header .drag-handle:focus-visible,
   .reference-ui.is-customizing .widget-card .widget-header .drag-handle {
     position: absolute;
-    inset-block-start: 24px;
+    inset-block-start: calc(24 * var(--desktop-density-unit, 1px));
     inset-inline-end: 0;
     z-index: 2;
     clip-path: none;
-    width: 24px;
-    height: 24px;
+    width: calc(24 * var(--desktop-density-unit, 1px));
+    height: calc(24 * var(--desktop-density-unit, 1px));
     margin: 0;
   }
 }

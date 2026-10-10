@@ -9,12 +9,15 @@ const screenshotDir = resolve(repoRoot, ".vinext/verify-widget-layout");
 // Optional browser QA. Set PLAYWRIGHT_MODULE to a bundled playwright/index.mjs
 // if Playwright is not installed in this repository; set CHROME_EXECUTABLE if
 // Chrome is installed outside Playwright's standard "chrome" channel lookup.
+// Set DENSITY_ONLY=1 to run desktop scaling, phone geometry, and sidebar/menu
+// checks independently of the legacy content-overflow scenarios.
 // PowerShell example: $env:PLAYWRIGHT_MODULE = 'C:/path/to/playwright/index.mjs'; node scripts/verify-widget-layout.mjs
-const [globalCss, referenceCss, widgetAppearanceCss, widgetBlockLayoutCss, playwright] = await Promise.all([
+const [globalCss, referenceCss, widgetAppearanceCss, widgetBlockLayoutCss, mountainAsset, playwright] = await Promise.all([
   readFile(resolve(repoRoot, "app/globals.css"), "utf8"),
   readFile(resolve(repoRoot, "app/reference-ui.css"), "utf8"),
   readFile(resolve(repoRoot, "app/widget-appearance.css"), "utf8"),
   readFile(resolve(repoRoot, "app/widget-block-layout.css"), "utf8"),
+  readFile(resolve(repoRoot, "public/mountain-header.png")),
   (async () => {
     try {
       return process.env.PLAYWRIGHT_MODULE
@@ -25,6 +28,16 @@ const [globalCss, referenceCss, widgetAppearanceCss, widgetBlockLayoutCss, playw
     }
   })(),
 ]);
+
+assert.equal(mountainAsset.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "mountain banner fixture asset is a PNG");
+const mountainSourceDimensions = {
+  width: mountainAsset.readUInt32BE(16),
+  height: mountainAsset.readUInt32BE(20),
+};
+assert.deepEqual(mountainSourceDimensions, { width: 2172, height: 724 }, "mountain banner source dimensions are 2172×724");
+const mountainImageUrl = "url('/mountain-header.png')";
+assert.equal(referenceCss.split(mountainImageUrl).length - 1, 1, "production CSS references the mountain banner exactly once");
+const fixtureReferenceCss = referenceCss.replace(mountainImageUrl, `url("data:image/png;base64,${mountainAsset.toString("base64")}")`);
 
 const longText = "An intentionally long fictional dashboard entry exercises content overflow without account data. ".repeat(70);
 async function renderActualWidgetMarkup() {
@@ -39,12 +52,13 @@ async function renderActualWidgetMarkup() {
   window.confirm = () => true;
 
   const { clientModule } = await import("../tests/helpers/client-modules.mjs");
-  const [{ createElement, act }, { createRoot }, { default: Workspace }, { validateProfile }, { default: AnimatedWidgetGrid, calculateWidgetUnit, calculateWidgetPlacements }] = await Promise.all([
+  const [{ createElement, act }, { createRoot }, { default: Workspace }, { validateProfile }, { default: AnimatedWidgetGrid, calculateWidgetUnit, calculateWidgetPlacements }, appearanceModule] = await Promise.all([
     import("react"),
     import("react-dom/client"),
     import(await clientModule("app/workspace-client.tsx")),
     import(await clientModule("lib/profile.ts")),
     import(await clientModule("app/animated-widget-grid.tsx")),
+    import(await clientModule("lib/widget-appearance.ts")),
   ]);
   const sizeByType = new Map([[12, 0], [4, 0], [6, 0], [16, 0], [15, 2], [5, 0], [17, 0], [11, 1], [8, 1]]);
   const idByType = new Map([[12, "notes"], [4, "alerts"], [6, "timer"], [16, "quote"], [15, "overview"], [5, "calendar"], [17, "spacer"], [11, "links"], [8, "completion"], [2, "upcoming"]]);
@@ -103,17 +117,29 @@ async function renderActualWidgetMarkup() {
     cards: markup,
     gridStyle: grid.getAttribute("style") ?? "",
     desktopTopbar: document.querySelector(".desktop-topbar")?.outerHTML ?? "",
+    sidebar: document.querySelector(".sidebar")?.outerHTML ?? "",
     mobileHeader: document.querySelector(".mobile-header")?.outerHTML ?? "",
     greeting: document.querySelector(".home-greeting")?.outerHTML ?? "",
     todayPanel: document.querySelector(".home-today-panel")?.outerHTML ?? "",
     workspaceBar: document.querySelector(".workspace-bar")?.outerHTML ?? "",
     mobileBottomNav: document.querySelector(".mobile-bottom-nav")?.outerHTML ?? "",
   };
+  const densityAppearance = appearanceModule.widgetAppearanceStyle({
+    ...appearanceModule.defaultWidgetAppearance,
+    gap: 18,
+    padding: 18,
+    fontSize: 18,
+    titleSize: 20,
+    iconSize: 32,
+  });
+  const defaultDensityAppearance = appearanceModule.widgetAppearanceStyle(appearanceModule.defaultWidgetAppearance);
   assert.equal(typeof calculateWidgetUnit, "function", "actual AnimatedWidgetGrid exports the production board sizing calculation");
   await act(async () => root.unmount());
   dom.window.close();
   return {
     fixture,
+    densityAppearance,
+    defaultDensityAppearance,
     calculateWidgetUnitSource: calculateWidgetUnit.toString(),
     updateBoardUnitSource: gridOwner.updateBoardUnit.toString(),
     calculateWidgetPlacementsSource: calculateWidgetPlacements.toString(),
@@ -121,7 +147,7 @@ async function renderActualWidgetMarkup() {
   };
 }
 
-  const { fixture: actualMarkup, calculateWidgetUnitSource, updateBoardUnitSource, calculateWidgetPlacementsSource, updateCardPlacementsSource } = await renderActualWidgetMarkup();
+  const { fixture: actualMarkup, densityAppearance, defaultDensityAppearance, calculateWidgetUnitSource, updateBoardUnitSource, calculateWidgetPlacementsSource, updateCardPlacementsSource } = await renderActualWidgetMarkup();
 const cardsMarkup = actualMarkup.cards;
 const gridStyleAttribute = actualMarkup.gridStyle
   ? ` style="${actualMarkup.gridStyle.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"`
@@ -129,12 +155,13 @@ const gridStyleAttribute = actualMarkup.gridStyle
 
 // This opt-in browser fixture combines actual Workspace markup with production CSS.
 const documentHtml = `<!doctype html><html data-theme="dark" data-motion="reduced" style='--font-geist-sans:"Segoe UI";--font-geist-mono:Consolas,monospace'><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
 ${globalCss.replace(/^@import[^;]+;\s*/m, "")}
-${referenceCss}
+${fixtureReferenceCss}
 ${widgetAppearanceCss}
 ${widgetBlockLayoutCss}
 </style></head><body><div class="app-shell reference-ui" id="app">
-  <aside class="sidebar"><div class="brand-row"><div class="brand-mark">E</div><div class="brand-copy"><strong>EduEssentials</strong><span>Fictional workspace</span></div><button class="sidebar-toggle" aria-label="Collapse sidebar">≡</button></div><nav class="main-nav"><a class="nav-item active"><span>Home</span></a><a class="nav-item"><span>Courses</span></a></nav><div class="sidebar-bottom"><div class="profile-card"><span class="avatar">F</span><span><strong>Fictional profile</strong><small>example.invalid</small></span></div></div></aside>
+  ${actualMarkup.sidebar}
   <div class="mountain-backdrop"></div>${actualMarkup.desktopTopbar}
   <main class="main-content">${actualMarkup.mobileHeader}<div class="page home-page">${actualMarkup.greeting}${actualMarkup.todayPanel}<section class="workspace-section">${actualMarkup.workspaceBar}<div class="widget-grid" aria-label="My Day widgets"${gridStyleAttribute}>${cardsMarkup}</div></section><div class="fixture-footer" style="min-height:620px;padding:30px"><h2>Long page area</h2><p>Scroll content to verify the widget menu remains on top.</p></div></div></main>
   ${actualMarkup.mobileBottomNav}
@@ -319,6 +346,312 @@ async function readGridGaps(page) {
   });
 }
 
+async function readDesktopDensityMetrics(page) {
+  await settleLayout(page);
+  return page.evaluate(() => {
+    const box = (selector) => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    };
+    const number = (selector, property) => Number.parseFloat(getComputedStyle(document.querySelector(selector))[property]);
+    const card = document.querySelector(".widget-card");
+    const icon = card.querySelector(".widget-header .widget-icon");
+    const iconRect = icon.getBoundingClientRect();
+    const sidebarToggle = document.querySelector(".sidebar-toggle").getBoundingClientRect();
+    const navIcon = document.querySelector(".main-nav .nav-item svg").getBoundingClientRect();
+    const gridStyle = getComputedStyle(document.querySelector(".widget-grid"));
+    const menu = document.querySelector(".today-section-menu");
+    const menuRect = menu.getBoundingClientRect();
+    const menuButton = menu.querySelector("[role=menuitem]");
+    const menuButtonRect = menuButton.getBoundingClientRect();
+    const cardsBySize = Object.fromEntries([...document.querySelectorAll(".widget-card")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      return [element.dataset.size, { width: rect.width, height: rect.height }];
+    }));
+    return {
+      sidebarWidth: box(".sidebar").width,
+      brandTitleFontSize: number(".brand-row strong", "fontSize"),
+      sidebarToggleWidth: sidebarToggle.width,
+      sidebarToggleHeight: sidebarToggle.height,
+      navIconWidth: navIcon.width,
+      navIconHeight: navIcon.height,
+      topbarHeight: box(".desktop-topbar").height,
+      searchHeight: box(".topbar-search").height,
+      searchFontSize: number(".topbar-search input", "fontSize"),
+      greetingHeight: box(".home-greeting").height,
+      greetingTitleFontSize: number(".home-greeting h1", "fontSize"),
+      greetingSubtitleFontSize: number(".home-greeting p", "fontSize"),
+      todayTitleFontSize: number(".today-panel-header h2", "fontSize"),
+      todayPanelHeight: box(".home-today-panel").height,
+      widgetGapColumn: Number.parseFloat(gridStyle.columnGap),
+      widgetGapRow: Number.parseFloat(gridStyle.rowGap),
+      cardFontSize: number(".widget-card", "fontSize"),
+      cardPadding: number(".widget-card", "paddingTop"),
+      widgetTitleFontSize: number(".widget-header h2", "fontSize"),
+      widgetIconWidth: iconRect.width,
+      widgetIconHeight: iconRect.height,
+      cardFootprints: cardsBySize,
+      todayMenuWidth: menuRect.width,
+      todayMenuHeight: menuRect.height,
+      todayMenuFontSize: Number.parseFloat(getComputedStyle(menu).fontSize),
+      todayMenuItemHeight: menuButtonRect.height,
+    };
+  });
+}
+
+function expectedDesktopContentSpace(width) {
+  return Math.max(0, (width - 1440) / 4);
+}
+
+function expectedDesktopDensityScale(width) {
+  return Math.max(1, (width - expectedDesktopContentSpace(width)) / 1440);
+}
+
+function desktopFrameBaseline(frame) {
+  return {
+    clientWidth: frame.clientWidth,
+    sidebarLeft: frame.sidebar.left,
+    sidebarRight: frame.sidebar.right,
+    sidebarWidth: frame.sidebar.width,
+    mainLeft: frame.main.left,
+    pageGutter: frame.mainPaddingRight,
+    dashboardContentWidth: frame.main.width - frame.mainPaddingRight,
+    topbarLeft: frame.topbar.left,
+    topbarRightGutter: frame.clientWidth - frame.topbar.right,
+    topbarHeight: frame.topbar.height,
+    mountainLeft: frame.mountain.left,
+    mountainHeight: frame.mountain.height,
+  };
+}
+
+async function readDesktopFrameMetrics(page) {
+  return page.evaluate(({ width: sourceWidth, height: sourceHeight }) => {
+    const rect = (selector) => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return { left: box.left, right: box.right, width: box.width, height: box.height };
+    };
+    const mountainElement = document.querySelector(".mountain-backdrop");
+    const mountainStyle = getComputedStyle(mountainElement);
+    const mountainBox = mountainElement.getBoundingClientRect();
+    const backgroundPosition = mountainStyle.backgroundPosition.split(",").map((value) => value.trim()).filter(Boolean).at(-1);
+    const backgroundSize = mountainStyle.backgroundSize.split(",").at(-1).trim();
+    const verticalPositionTokens = backgroundPosition.match(/-?\d+(?:\.\d+)?%/g) ?? [];
+    const verticalPositionPercent = Number.parseFloat(verticalPositionTokens.at(-1) ?? "NaN");
+    const imageScale = Math.max(mountainBox.width / sourceWidth, mountainBox.height / sourceHeight);
+    const renderedImageHeight = sourceHeight * imageScale;
+    const verticalOverflow = Math.max(0, renderedImageHeight - mountainBox.height);
+    const cropTop = verticalOverflow * verticalPositionPercent / 100;
+    const app = document.querySelector(".reference-ui");
+    const main = document.querySelector(".main-content");
+    const mainStyle = getComputedStyle(main);
+    const spaceProbe = document.createElement("span");
+    Object.assign(spaceProbe.style, {
+      position: "absolute",
+      top: "0",
+      width: "var(--desktop-content-space)",
+      height: "0",
+      visibility: "hidden",
+      pointerEvents: "none",
+    });
+    app.append(spaceProbe);
+    const contentSpace = spaceProbe.getBoundingClientRect().width;
+    spaceProbe.remove();
+    const densityProbe = document.createElement("span");
+    Object.assign(densityProbe.style, {
+      position: "absolute",
+      top: "0",
+      width: "0",
+      height: "0",
+      fontSize: "var(--desktop-density-unit)",
+      visibility: "hidden",
+      pointerEvents: "none",
+    });
+    main.append(densityProbe);
+    const densityUnit = Number.parseFloat(getComputedStyle(densityProbe).fontSize);
+    densityProbe.remove();
+    const gutterProbe = document.createElement("span");
+    Object.assign(gutterProbe.style, {
+      position: "absolute",
+      top: "0",
+      width: "var(--desktop-content-gutter)",
+      height: "0",
+      visibility: "hidden",
+      pointerEvents: "none",
+    });
+    app.append(gutterProbe);
+    const contentGutter = gutterProbe.getBoundingClientRect().width;
+    gutterProbe.remove();
+    return {
+      viewportWidth: innerWidth,
+      clientWidth: document.documentElement.clientWidth,
+      contentSpace,
+      densityUnit,
+      contentGutter,
+      mainPaddingRight: Number.parseFloat(mainStyle.paddingRight),
+      shell: rect(".reference-ui"),
+      sidebar: rect(".sidebar"),
+      main: rect(".main-content"),
+      topbar: rect(".desktop-topbar"),
+      mountain: {
+        ...rect(".mountain-backdrop"),
+        backgroundImageUsesEmbeddedAsset: mountainStyle.backgroundImage.includes("data:image/png;base64,"),
+        backgroundPosition,
+        backgroundSize,
+        verticalPositionPercent,
+        visibleSourceTop: cropTop / renderedImageHeight,
+        visibleSourceBottom: (cropTop + mountainBox.height) / renderedImageHeight,
+      },
+      grid: rect(".widget-grid"),
+    };
+  }, mountainSourceDimensions);
+}
+
+function assertDesktopFrameAlignment(frame, densityScale, baseline, label) {
+  const contentSpace = expectedDesktopContentSpace(frame.clientWidth);
+  near(frame.contentSpace, contentSpace, `${label}: reserved space follows the 75% desktop growth model`, 1);
+  near(frame.densityUnit, densityScale, `${label}: content density token is scoped to the dashboard`, 0.01);
+  near(frame.shell.left, 0, `${label}: full-width shell starts at the viewport edge`, 1);
+  near(frame.shell.right, frame.clientWidth, `${label}: full-width shell reaches the viewport edge`, 1);
+  near(frame.sidebar.left, baseline.sidebarLeft, `${label}: fixed sidebar keeps its laptop-baseline inset`, 1.5);
+  near(frame.sidebar.width, baseline.sidebarWidth, `${label}: fixed sidebar keeps its laptop-baseline width`, 1.5);
+  const baselineGutterIncrease = baseline.pageGutter * (1 - 1 / 1.05);
+  const originalReservedWidthAtBaseline = baseline.clientWidth - baseline.dashboardContentWidth - 2 * baselineGutterIncrease;
+  const expectedGutter = (contentSpace + originalReservedWidthAtBaseline * densityScale - frame.sidebar.right) / 2 * 1.05;
+  near(frame.contentGutter, expectedGutter, `${label}: CSS gutter follows the centered dashboard width`, 2);
+  near(frame.mainPaddingRight, expectedGutter, `${label}: dashboard reserves the computed right gutter`, 2);
+  near(frame.main.left, frame.sidebar.right + expectedGutter, `${label}: dashboard starts after the matching left gutter`, 2);
+  near(frame.main.right, frame.clientWidth, `${label}: main shell reaches the viewport edge`, 2);
+  near(frame.topbar.left, baseline.topbarLeft, `${label}: top bar keeps its original shell left edge`, 1.5);
+  near(frame.topbar.right, frame.clientWidth - baseline.topbarRightGutter, `${label}: top bar keeps its original shell right gutter`, 1.5);
+  near(frame.topbar.height, baseline.topbarHeight, `${label}: top bar height remains fixed with viewport growth`, 1.5);
+  near(frame.mountain.left, baseline.mountainLeft, `${label}: mountain backdrop keeps its original shell left edge`, 1.5);
+  near(frame.mountain.right, frame.clientWidth, `${label}: mountain backdrop remains full width to the viewport edge`, 2);
+  near(frame.mountain.height, (70 + 80 * densityScale) * 1.125, `${label}: mountain backdrop grows with desktop content density`, 1.5);
+  assert.ok(frame.mountain.backgroundImageUsesEmbeddedAsset, `${label}: browser fixture uses the real embedded mountain artwork`);
+  assert.equal(frame.mountain.backgroundSize, "cover", `${label}: mountain artwork keeps its cover sizing`);
+  assert.equal(frame.mountain.backgroundPosition, "100% 52%", `${label}: mountain artwork uses the approved right-aligned 52% vertical position`);
+  assert.ok(Number.isFinite(frame.mountain.verticalPositionPercent), `${label}: mountain vertical position is measurable (${frame.mountain.backgroundPosition})`);
+  assert.ok(frame.mountain.visibleSourceTop <= 0.43, `${label}: banner crop keeps the highest peak visible (source y=${frame.mountain.visibleSourceTop.toFixed(3)})`);
+  assert.ok(frame.mountain.visibleSourceBottom >= 0.62, `${label}: banner crop keeps the moon fully visible (source bottom y=${frame.mountain.visibleSourceBottom.toFixed(3)})`);
+  near(frame.grid.left, frame.main.left, `${label}: widget grid starts at the dashboard content edge`, 2);
+  near(frame.grid.right, frame.main.right - frame.mainPaddingRight, `${label}: widget grid ends at the inset content edge`, 2);
+  near(frame.grid.left - frame.sidebar.right, frame.clientWidth - frame.grid.right, `${label}: widget grid has equal gaps from the fixed sidebar and viewport edge`, 2);
+}
+
+function assertDesktopDensityMetrics(metrics, baseline, scale, label, fixedShellKeys, contentDensityKeys, footprintSizes = []) {
+  for (const key of fixedShellKeys) {
+    near(metrics[key], baseline[key], `${label}: ${key} stays at the fixed shell baseline`, 2);
+  }
+  for (const key of contentDensityKeys) {
+    const tolerance = ["greetingHeight", "todayPanelHeight"].includes(key)
+      ? Math.max(5, baseline[key] * scale * 0.015)
+      : key === "todayMenuHeight" ? 5 : 3;
+    near(metrics[key], baseline[key] * scale, `${label}: ${key} scales with the 1440px content baseline`, tolerance);
+  }
+  for (const size of footprintSizes) {
+    const expected = baseline.cardFootprints[size];
+    assert.ok(expected, `${label}: 1440px baseline includes the ${size} widget footprint`);
+    near(metrics.cardFootprints[size].width, expected.width * scale, `${label}: ${size} width scales with the 1440px content baseline`, Math.max(3, expected.width * scale * 0.015));
+    near(metrics.cardFootprints[size].height, expected.height * scale, `${label}: ${size} height scales with the 1440px content baseline`, Math.max(3, expected.height * scale * 0.015));
+  }
+}
+
+async function assertSidebarReachability(page, width, height, label) {
+  await page.setViewportSize({ width, height });
+  await page.waitForTimeout(320);
+  const reachability = await page.evaluate(() => {
+    const sidebar = document.querySelector(".sidebar");
+    const settings = [...sidebar.querySelectorAll(".nav-item")].find((item) => item.textContent.includes("Settings"));
+    const profile = sidebar.querySelector(".profile-card");
+    if (!settings || !profile) throw new Error("The actual sidebar must include Settings and the profile link");
+    const makeVisible = (target) => {
+      target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+      const rect = target.getBoundingClientRect();
+      const container = sidebar.getBoundingClientRect();
+      return {
+        visible: rect.width > 0 && rect.height > 0 && rect.top >= container.top - 1 && rect.bottom <= container.bottom + 1,
+        top: rect.top,
+        bottom: rect.bottom,
+        sidebarTop: container.top,
+        sidebarBottom: container.bottom,
+        scrollTop: sidebar.scrollTop,
+      };
+    };
+    const settingsResult = makeVisible(settings);
+    const profileResult = makeVisible(profile);
+    const report = { settings: settingsResult, profile: profileResult, scrollHeight: sidebar.scrollHeight, clientHeight: sidebar.clientHeight };
+    sidebar.scrollTop = 0;
+    return report;
+  });
+  assert.ok(reachability.settings.visible, `${label}: Settings remains reachable inside the real sidebar: ${JSON.stringify(reachability)}`);
+  assert.ok(reachability.profile.visible, `${label}: profile remains reachable inside the real sidebar: ${JSON.stringify(reachability)}`);
+  return reachability;
+}
+
+async function assertExperimentalMenuFitsShortViewport(page, collapsed) {
+  const state = collapsed ? "collapsed sidebar" : "expanded sidebar";
+  await page.setViewportSize({ width: 1920, height: 300 });
+  const before = await page.evaluate((isCollapsed) => {
+    const app = document.querySelector("#app");
+    app.classList.toggle("sidebar-collapsed", isCollapsed);
+    const sidebar = document.querySelector(".sidebar");
+    const trigger = sidebar.querySelector(".experimental-trigger");
+    trigger.scrollIntoView({ block: "end", inline: "nearest", behavior: "instant" });
+    const menu = document.createElement("div");
+    menu.className = "experimental-menu";
+    menu.id = "experimental-options-browser-check";
+    menu.innerHTML = '<p>Fake preview data</p><button type="button"><span><strong>Clear</strong><small>0 classes · 0 tasks</small></span></button><button type="button"><span><strong>Light</strong><small>2 classes · 6 tasks</small></span></button><button type="button"><span><strong>Medium</strong><small>4 classes · 14 tasks</small></span></button><button type="button"><span><strong>Packed</strong><small>6 classes · 28 tasks</small></span></button><button type="button"><strong>Onboard test</strong></button><small>Your saved workspace stays untouched.</small>';
+    trigger.closest(".experimental-control").append(menu);
+    return {
+      trigger: (() => { const rect = trigger.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom }; })(),
+      sidebar: (() => { const rect = sidebar.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, scrollTop: sidebar.scrollTop }; })(),
+      supportsAnchor: CSS.supports("anchor-name", "--experimental-trigger-anchor"),
+      supportsPositionTry: CSS.supports("position-try-fallbacks", "flip-block, --experimental-viewport"),
+    };
+  }, collapsed);
+  await settleLayout(page);
+  const report = await page.evaluate(() => {
+    const menu = document.querySelector("#experimental-options-browser-check");
+    const rect = menu.getBoundingClientRect();
+    const first = menu.querySelector("button");
+    const last = [...menu.querySelectorAll("button")].at(-1);
+    const firstRect = first.getBoundingClientRect();
+    const styles = getComputedStyle(menu);
+    const beforeScroll = {
+      firstVisible: firstRect.top >= rect.top - 1 && firstRect.bottom <= rect.bottom + 1,
+      firstHit: document.elementFromPoint(firstRect.left + firstRect.width / 2, firstRect.top + firstRect.height / 2)?.closest("button") === first,
+    };
+    menu.scrollTop = menu.scrollHeight;
+    const lastRect = last.getBoundingClientRect();
+    const afterScroll = {
+      lastVisible: lastRect.top >= rect.top - 1 && lastRect.bottom <= rect.bottom + 1,
+      lastHit: document.elementFromPoint(lastRect.left + lastRect.width / 2, lastRect.top + lastRect.height / 2)?.closest("button") === last,
+      scrollTop: menu.scrollTop,
+    };
+    return {
+      bounds: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height },
+      viewport: { width: innerWidth, height: innerHeight },
+      scrollHeight: menu.scrollHeight,
+      clientHeight: menu.clientHeight,
+      overflowY: styles.overflowY,
+      beforeScroll,
+      afterScroll,
+    };
+  });
+  assert.ok(report.bounds.left >= 0 && report.bounds.right <= report.viewport.width, `1920×300 ${state} Experimental menu stays horizontally in the viewport: ${JSON.stringify({ before, ...report })}`);
+  assert.ok(report.bounds.top >= 0 && report.bounds.bottom <= report.viewport.height, `1920×300 ${state} Experimental menu stays vertically in the viewport: ${JSON.stringify({ before, ...report })}`);
+  assert.ok(report.bounds.height <= report.viewport.height, `1920×300 ${state} Experimental menu does not exceed viewport height: ${JSON.stringify({ before, ...report })}`);
+  assert.ok(report.scrollHeight > report.clientHeight && ["auto", "scroll"].includes(report.overflowY), `1920×300 ${state} Experimental menu scrolls when its full content exceeds the viewport: ${JSON.stringify({ before, ...report })}`);
+  assert.ok(report.beforeScroll.firstVisible && report.beforeScroll.firstHit, `1920×300 ${state} Experimental menu first option is visible and hit-testable: ${JSON.stringify({ before, ...report })}`);
+  assert.ok(report.afterScroll.lastVisible && report.afterScroll.lastHit, `1920×300 ${state} Experimental menu final action remains reachable by scrolling: ${JSON.stringify({ before, ...report })}`);
+  await page.evaluate((isCollapsed) => {
+    document.querySelector("#experimental-options-browser-check")?.remove();
+    document.querySelector("#app").classList.toggle("sidebar-collapsed", isCollapsed);
+    document.querySelector(".sidebar").scrollTop = 0;
+  }, false);
+  return { state, ...before, ...report };
+}
+
 await mkdir(screenshotDir, { recursive: true });
 const launchOptions = {
   headless: true,
@@ -469,6 +802,14 @@ try {
   near(veryShortLayout.grid.width, shortLayout.grid.width, "a very short viewport leaves the grid width unchanged", 1.5);
   assert.ok(veryShortLayout.grid.bottom > 300, "the full-width widget grid can extend below a short viewport");
   assertGridLayout(veryShortLayout, "1920px very short viewport");
+  const shortSidebarReports = [
+    await assertSidebarReachability(page, 1920, 640, "1920×640 short desktop"),
+    await assertSidebarReachability(page, 1920, 300, "1920×300 very short desktop"),
+  ];
+  const experimentalMenuReports = [
+    await assertExperimentalMenuFitsShortViewport(page, false),
+    await assertExperimentalMenuFitsShortViewport(page, true),
+  ];
 
   // Restore the complete 18-widget production fixture before the existing size,
   // content overflow, appearance override, reorder, and menu stress checks.
@@ -484,6 +825,175 @@ try {
   await page.evaluate(() => { document.querySelector("#app").classList.remove("sidebar-collapsed"); window.scrollTo(0, 0); });
   layout = await snapshotLayout(page);
   assert.equal(layout.cards.length, 18, "restoring responsive probe returns all 18 production widget types");
+
+  // Compare desktop density at a common viewport aspect ratio. The screenshots
+  // use the requested laptop, monitor, and 4K viewport sizes; the metric reads
+  // use a consistent 16:10 ratio so height does not affect the comparison.
+  await page.evaluate((appearance) => {
+    const menu = document.createElement("div");
+    menu.className = "popover widget-menu today-section-menu";
+    menu.setAttribute("role", "menu");
+    menu.innerHTML = '<button type="button" role="menuitem"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"></svg>Edit section</button><button type="button" role="menuitem"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"></svg>Hide section</button>';
+    for (const [name, value] of Object.entries(appearance)) menu.style.setProperty(name, value);
+    Object.assign(menu.style, { position: "fixed", left: "0", top: "0", visibility: "hidden", pointerEvents: "none" });
+    document.querySelector("#app").append(menu);
+    window.__densityMenu = menu;
+  }, defaultDensityAppearance);
+  const densityWidths = [1440, 1901, 2555, 3840];
+  const screenshotNames = {
+    1440: "desktop-density-laptop-1440x900.png",
+    1901: "desktop-density-monitor-1901x867.png",
+    2555: "desktop-density-wide-monitor-2555x1266.png",
+    3840: "desktop-density-4k-3840x2160.png",
+  };
+  const screenshotHeights = { 1440: 900, 1901: 867, 2555: 1266, 3840: 2160 };
+  const densitySnapshots = [];
+  const collapsedDensitySnapshots = [];
+  let densityBaseline = null;
+  let collapsedDensityBaseline = null;
+  let expandedDesktopFrameBaseline = null;
+  let collapsedDesktopFrameBaseline = null;
+  const desktopFrameReports = [];
+  const fixedShellKeys = [
+    "sidebarWidth", "brandTitleFontSize", "sidebarToggleWidth", "sidebarToggleHeight", "navIconWidth", "navIconHeight", "topbarHeight", "searchHeight", "searchFontSize",
+  ];
+  const contentDensityKeys = [
+    "greetingHeight", "greetingTitleFontSize", "greetingSubtitleFontSize", "todayTitleFontSize", "todayPanelHeight",
+    "widgetGapColumn", "widgetGapRow", "cardFontSize", "cardPadding", "widgetTitleFontSize", "widgetIconWidth", "widgetIconHeight",
+    "todayMenuWidth", "todayMenuHeight", "todayMenuFontSize", "todayMenuItemHeight",
+  ];
+  for (const width of densityWidths) {
+    const height = Math.round(width * 900 / 1440);
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => { document.querySelector("#app").classList.remove("sidebar-collapsed"); window.scrollTo(0, 0); });
+    await page.waitForTimeout(320);
+    const densityLayout = await snapshotLayout(page);
+    assertGridLayout(densityLayout, `${width}px desktop density`);
+    assert.equal(densityLayout.cards.length, 18, `${width}px desktop density uses every production widget`);
+    assert.ok(densityLayout.scrollWidth <= width, `${width}px desktop density has no horizontal overflow`);
+    const metrics = await readDesktopDensityMetrics(page);
+    assert.ok(metrics.todayMenuWidth > 0 && metrics.todayMenuHeight > 0, `${width}px Today menu has measurable desktop dimensions`);
+    const frame = await readDesktopFrameMetrics(page);
+    const scale = expectedDesktopDensityScale(frame.clientWidth);
+    if (!expandedDesktopFrameBaseline) expandedDesktopFrameBaseline = desktopFrameBaseline(frame);
+    assertDesktopFrameAlignment(frame, scale, expandedDesktopFrameBaseline, `${width}px expanded sidebar`);
+    desktopFrameReports.push({ viewportWidth: width, sidebar: "expanded", ...frame });
+    if (!densityBaseline) densityBaseline = metrics;
+    else assertDesktopDensityMetrics(metrics, densityBaseline, scale, `${width}px expanded sidebar`, fixedShellKeys, contentDensityKeys, Object.keys(densityBaseline.cardFootprints));
+    densitySnapshots.push({ viewportWidth: width, scale, ...metrics });
+    await page.locator(".sidebar-toggle").click();
+    await page.waitForTimeout(320);
+    const collapsedMetrics = await readDesktopDensityMetrics(page);
+    if (!collapsedDensityBaseline) collapsedDensityBaseline = collapsedMetrics;
+    else assertDesktopDensityMetrics(collapsedMetrics, collapsedDensityBaseline, scale, `${width}px collapsed sidebar`, fixedShellKeys, contentDensityKeys, Object.keys(collapsedDensityBaseline.cardFootprints));
+    collapsedDensitySnapshots.push({ viewportWidth: width, scale, ...collapsedMetrics });
+    const collapsedFrame = await readDesktopFrameMetrics(page);
+    if (!collapsedDesktopFrameBaseline) collapsedDesktopFrameBaseline = desktopFrameBaseline(collapsedFrame);
+    assertDesktopFrameAlignment(collapsedFrame, scale, collapsedDesktopFrameBaseline, `${width}px collapsed sidebar`);
+    desktopFrameReports.push({ viewportWidth: width, sidebar: "collapsed", ...collapsedFrame });
+    await page.locator(".sidebar-toggle").click();
+    await page.waitForTimeout(320);
+    await page.setViewportSize({ width, height: screenshotHeights[width] });
+    await page.waitForTimeout(320);
+    await page.screenshot({ path: resolve(screenshotDir, screenshotNames[width]) });
+  }
+
+  // Apply non-default values through the real typed appearance serializer and
+  // check every widget footprint plus the Today menu at each desktop density.
+  const densitySizes = ["mini", "small", "medium", "medium-vertical", "large"];
+  await page.evaluate(({ appearance, sizes }) => {
+    const grid = document.querySelector(".widget-grid");
+    const nodes = [...grid.children];
+    const cards = nodes.filter((node) => node.matches?.(".widget-card"));
+    const menu = window.__densityMenu;
+    window.__densityOriginalState = {
+      nodes,
+      gridStyle: grid.getAttribute("style"),
+      menuStyle: menu.getAttribute("style"),
+      cards: cards.map((node) => ({ node, size: node.dataset.size, style: node.getAttribute("style") })),
+    };
+    const probes = cards.slice(0, sizes.length);
+    if (probes.length !== sizes.length) throw new Error("The actual Workspace fixture needs one card for each widget footprint");
+    grid.replaceChildren(...probes);
+    for (const [index, card] of probes.entries()) {
+      card.dataset.size = sizes[index];
+      for (const [name, value] of Object.entries(appearance)) card.style.setProperty(name, value);
+    }
+    for (const [name, value] of Object.entries(appearance)) grid.style.setProperty(name, value);
+    for (const [name, value] of Object.entries(appearance)) menu.style.setProperty(name, value);
+  }, { appearance: densityAppearance, sizes: densitySizes });
+  let customDensityBaseline = null;
+  let customDensityCollapsedBaseline = null;
+  const customDensitySnapshots = [];
+  const customDensityCollapsedSnapshots = [];
+  for (const width of densityWidths) {
+    const height = Math.round(width * 900 / 1440);
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => { document.querySelector("#app").classList.remove("sidebar-collapsed"); window.scrollTo(0, 0); });
+    await page.waitForTimeout(320);
+    const customLayout = await snapshotLayout(page);
+    assertGridLayout(customLayout, `${width}px custom appearance density`);
+    assert.equal(customLayout.cards.length, densitySizes.length, `${width}px custom appearance fixture has all five widget footprints`);
+    const metrics = await readDesktopDensityMetrics(page);
+    assert.deepEqual(Object.keys(metrics.cardFootprints).sort(), [...densitySizes].sort(), `${width}px custom appearance fixture exposes all five footprints`);
+    const frame = await readDesktopFrameMetrics(page);
+    const scale = expectedDesktopDensityScale(frame.clientWidth);
+    if (!customDensityBaseline) customDensityBaseline = metrics;
+    else assertDesktopDensityMetrics(metrics, customDensityBaseline, scale, `${width}px expanded sidebar custom appearance`, fixedShellKeys, contentDensityKeys, densitySizes);
+    customDensitySnapshots.push({ viewportWidth: width, scale, ...metrics });
+
+    await page.locator(".sidebar-toggle").click();
+    await page.waitForTimeout(320);
+    const collapsedMetrics = await readDesktopDensityMetrics(page);
+    if (!customDensityCollapsedBaseline) customDensityCollapsedBaseline = collapsedMetrics;
+    else assertDesktopDensityMetrics(collapsedMetrics, customDensityCollapsedBaseline, scale, `${width}px collapsed sidebar custom appearance`, fixedShellKeys, contentDensityKeys, densitySizes);
+    customDensityCollapsedSnapshots.push({ viewportWidth: width, scale, ...collapsedMetrics });
+    const collapsedFrame = await readDesktopFrameMetrics(page);
+    assertDesktopFrameAlignment(collapsedFrame, scale, collapsedDesktopFrameBaseline, `${width}px collapsed sidebar custom appearance`);
+    desktopFrameReports.push({ viewportWidth: width, sidebar: "collapsed custom appearance", ...collapsedFrame });
+    await page.locator(".sidebar-toggle").click();
+    await page.waitForTimeout(320);
+  }
+  await page.evaluate(() => {
+    const grid = document.querySelector(".widget-grid");
+    const state = window.__densityOriginalState;
+    for (const { node, size, style } of state.cards) {
+      node.dataset.size = size;
+      if (style === null) node.removeAttribute("style"); else node.setAttribute("style", style);
+    }
+    grid.replaceChildren(...state.nodes);
+    if (state.gridStyle === null) grid.removeAttribute("style"); else grid.setAttribute("style", state.gridStyle);
+    const menu = window.__densityMenu;
+    if (state.menuStyle === null) menu.removeAttribute("style"); else menu.setAttribute("style", state.menuStyle);
+    menu.remove();
+    delete window.__densityOriginalState;
+    delete window.__densityMenu;
+  });
+  await page.setViewportSize({ width: 1440, height: 980 });
+  await page.evaluate(() => { document.querySelector("#app").classList.remove("sidebar-collapsed"); window.scrollTo(0, 0); });
+  layout = await snapshotLayout(page);
+  assert.equal(layout.cards.length, 18, "restoring density probes leaves all production widgets in their original order");
+
+  if (process.env.DENSITY_ONLY === "1") {
+    console.log(JSON.stringify({
+      result: "PASS",
+      fixture: "actual Workspace markup and production CSS with all 18 widget types",
+      screenshots: densityWidths.map((width) => `.vinext/verify-widget-layout/${screenshotNames[width]}`),
+      desktopDensity: {
+        commonAspectRatio: "16:10",
+        normalizedWidths: densityWidths,
+        defaultAppearance: densitySnapshots,
+        defaultAppearanceCollapsed: collapsedDensitySnapshots,
+        customAppearance: customDensitySnapshots,
+        customAppearanceCollapsed: customDensityCollapsedSnapshots,
+        customValues: { gap: 18, padding: 18, fontSize: 18, titleSize: 20, iconSize: 32 },
+      },
+      desktopFrameAlignment: desktopFrameReports,
+      responsive: responsiveReports.map(({ viewportWidth, expectedColumns, sidebar, columns, rows, perRow, width, height, unit, scrollWidth }) => ({ viewportWidth, expectedColumns, sidebar, columns, rows, perRow, width, height, unit, scrollWidth })),
+      shortDesktopSidebar: shortSidebarReports,
+      shortDesktopExperimentalMenu: experimentalMenuReports,
+    }, null, 2));
+  } else {
 
   // Capture the requested edge-sharing composition: a large square at left,
   // a horizontal medium at upper right, then a small with two minis below.
@@ -1088,9 +1598,20 @@ ${widgetBlockLayoutCss}
       ".vinext/verify-widget-layout/composition-large-medium-small-minis.png",
       ".vinext/verify-widget-layout/composition-small-small-mini-pair-mediums.png",
       ".vinext/verify-widget-layout/phone-menu-hit-test-max.png",
+      ...densityWidths.map((width) => `.vinext/verify-widget-layout/${screenshotNames[width]}`),
       ".vinext/verify-widget-layout/desktop.png",
       ".vinext/verify-widget-layout/phone.png",
     ],
+    desktopDensity: {
+      commonAspectRatio: "16:10",
+      normalizedWidths: densityWidths,
+      defaultAppearance: densitySnapshots,
+      customAppearance: customDensitySnapshots,
+      customValues: { gap: 18, padding: 18, fontSize: 18, titleSize: 20, iconSize: 32 },
+    },
+    desktopFrameAlignment: desktopFrameReports,
+    shortDesktopSidebar: shortSidebarReports,
+    shortDesktopExperimentalMenu: experimentalMenuReports,
     sizeGeometry: Object.fromEntries(Object.entries(sizeGeometry).map(([size, box]) => [size, { width: box.width, height: box.height }])),
     responsive: responsiveReports.map(({ viewportWidth, expectedColumns, sidebar, columns, rows, perRow, width, height, unit, scrollWidth }) => ({ viewportWidth, expectedColumns, sidebar, columns, rows, perRow, width, height, unit, scrollWidth })),
     composition: {
@@ -1111,6 +1632,7 @@ ${widgetBlockLayoutCss}
     menuHitTesting: { phoneWidths: phoneMenus.map(({ width }) => width), desktopSizeOptions: sizeButtonHitTests.length, desktopPopupHit: desktopPopup.options.every((option) => option.hitValue === option.value) },
     scrollbarStability: { writes: thresholdResult.writes.length, observerCallbacks: thresholdResult.observerCallbacks, fixedGridWidth: thresholdResult.final.gridWidth, scrollHeight: thresholdResult.final.scrollHeight },
   }, null, 2));
+  }
 } finally {
   await browser.close();
 }

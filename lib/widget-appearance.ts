@@ -261,12 +261,16 @@ function rgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${Number(alpha.toFixed(3))})`;
 }
 
+function densityLength(value: number): string {
+  return `calc(${value} * var(--desktop-density-unit, 1px))`;
+}
+
 function textureImage(appearance: WidgetAppearance): string {
   const opacity = appearance.surfaceOpacity / 100;
   const dot = rgba(appearance.accent, 0.2 * opacity);
   const line = rgba(appearance.accent, 0.12 * opacity);
-  if (appearance.texture === "dots") return `radial-gradient(${dot} 1px, transparent 1px)`;
-  if (appearance.texture === "grid") return `linear-gradient(${line} 1px, transparent 1px), linear-gradient(90deg, ${line} 1px, transparent 1px)`;
+  if (appearance.texture === "dots") return `radial-gradient(${dot} ${densityLength(1)}, transparent ${densityLength(1)})`;
+  if (appearance.texture === "grid") return `linear-gradient(${line} ${densityLength(1)}, transparent ${densityLength(1)}), linear-gradient(90deg, ${line} ${densityLength(1)}, transparent ${densityLength(1)})`;
   return "none";
 }
 
@@ -286,9 +290,9 @@ function backgroundValue(appearance: WidgetAppearance, texture: string): string 
 
 function shadowValue(shadow: WidgetAppearance["shadow"]): string {
   switch (shadow) {
-    case "soft": return "0 8px 24px rgba(3, 10, 22, 0.22)";
-    case "lifted": return "0 14px 34px rgba(3, 10, 22, 0.3)";
-    case "crisp": return "0 2px 8px rgba(3, 10, 22, 0.28)";
+    case "soft": return `0 ${densityLength(8)} ${densityLength(24)} rgba(3, 10, 22, 0.22)`;
+    case "lifted": return `0 ${densityLength(14)} ${densityLength(34)} rgba(3, 10, 22, 0.3)`;
+    case "crisp": return `0 ${densityLength(2)} ${densityLength(8)} rgba(3, 10, 22, 0.28)`;
     default: return "none";
   }
 }
@@ -300,7 +304,7 @@ const styleNames: Record<typeof fieldNames[number], string> = Object.fromEntries
 export function widgetAppearanceStyle(appearance: WidgetAppearance): Record<string, string> {
   const safe = normalizedAppearance(appearance, "style");
   const style: Record<string, string> = {};
-  for (const key of pxFields) style[styleNames[key]] = `${safe[key]}px`;
+  for (const key of pxFields) style[styleNames[key]] = densityLength(safe[key]);
   style[styleNames.surface] = rgba(safe.surface, safe.surfaceOpacity / 100);
   style[styleNames.surfaceOpacity] = `${safe.surfaceOpacity}%`;
   style[styleNames.accent] = safe.accent;

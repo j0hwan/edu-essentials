@@ -1,6 +1,6 @@
 /* Widgets and the Today options menu share appearance tokens. */
 .reference-ui :is(.widget-card, .today-section-menu) {
-  --ui-unit: calc(var(--wa-font-size, 14px) / 14);
+  --ui-unit: calc(var(--wa-font-size, calc(14 * var(--desktop-density-unit, 1px))) / 14);
   --ink: var(--wa-text-color, #edf1ff);
   --muted: var(--wa-muted-color, #a5bbdf);
   --brand: var(--wa-accent, #6674ff);
@@ -29,13 +29,13 @@
   letter-spacing: var(--wa-letter-spacing, 0em);
   transition: transform var(--wa-transition-ms, 180ms) ease, border-color var(--wa-transition-ms, 180ms) ease, box-shadow var(--wa-transition-ms, 180ms) ease;
 }
-.reference-ui .widget-card[data-wa-texture="dots"] { background-size: 16px 16px, auto; }
-.reference-ui .widget-card[data-wa-texture="grid"] { background-size: 22px 22px, 22px 22px, auto; }
+.reference-ui .widget-card[data-wa-texture="dots"] { background-size: calc(16 * var(--desktop-density-unit, 1px)) calc(16 * var(--desktop-density-unit, 1px)), auto; }
+.reference-ui .widget-card[data-wa-texture="grid"] { background-size: calc(22 * var(--desktop-density-unit, 1px)) calc(22 * var(--desktop-density-unit, 1px)), calc(22 * var(--desktop-density-unit, 1px)) calc(22 * var(--desktop-density-unit, 1px)), auto; }
 .reference-ui .widget-card .widget-header {
   align-items: center;
-  min-height: calc(var(--wa-icon-size, 28px) + 4px);
+  min-height: calc(var(--wa-icon-size, calc(28 * var(--desktop-density-unit, 1px))) + calc(4 * var(--desktop-density-unit, 1px)));
   flex-shrink: 0;
-  margin-bottom: 14px;
+  margin-bottom: calc(14 * var(--desktop-density-unit, 1px));
 }
 .reference-ui .widget-card .widget-header h2 {
   min-width: 0;
@@ -54,19 +54,19 @@
   background: color-mix(in srgb, var(--wa-accent, #6674ff) 16%, transparent);
 }
 .reference-ui .widget-card .widget-header .widget-icon svg { width: 65%; height: 65%; }
-.reference-ui .widget-card[data-wa-icon-style="outline"] .widget-header .widget-icon { border: 1px solid var(--wa-accent); background: transparent; }
+.reference-ui .widget-card[data-wa-icon-style="outline"] .widget-header .widget-icon { border: calc(1 * var(--desktop-density-unit, 1px)) solid var(--wa-accent); background: transparent; }
 .reference-ui .widget-card[data-wa-icon-style="minimal"] .widget-header .widget-icon { background: transparent; border: none; }
 .reference-ui .widget-card[data-wa-show-icons="false"] .widget-header > .widget-icon { display: none; }
-.reference-ui .widget-card[data-wa-header-divider="true"] .widget-header { padding-bottom: 12px; border-bottom: 1px solid var(--wa-border-color); }
-.reference-ui .widget-card[data-wa-accent-edge="top"] { border-top: 3px solid var(--wa-accent); }
-.reference-ui .widget-card[data-wa-accent-edge="left"] { border-left: 3px solid var(--wa-accent); }
+.reference-ui .widget-card[data-wa-header-divider="true"] .widget-header { padding-bottom: calc(12 * var(--desktop-density-unit, 1px)); border-bottom: calc(1 * var(--desktop-density-unit, 1px)) solid var(--wa-border-color); }
+.reference-ui .widget-card[data-wa-accent-edge="top"] { border-top: calc(3 * var(--desktop-density-unit, 1px)) solid var(--wa-accent); }
+.reference-ui .widget-card[data-wa-accent-edge="left"] { border-left: calc(3 * var(--desktop-density-unit, 1px)) solid var(--wa-accent); }
 .reference-ui .widget-card .widget-body {
   min-height: 0;
   min-width: 0;
   overflow: visible;
   font-size: var(--wa-font-size, 14px);
   line-height: var(--wa-line-height, 1.45);
-  gap: 10px;
+  gap: calc(10 * var(--desktop-density-unit, 1px));
 }
 .reference-ui .widget-card .widget-body :is(strong, blockquote) { color: var(--wa-text-color, #edf1ff); }
 .reference-ui .widget-card .widget-body :is(p, small, .form-hint, time) { color: var(--wa-muted-color, #a5bbdf); }
@@ -79,7 +79,7 @@
   font-size: var(--wa-font-size, 14px);
   border-color: var(--wa-border-color, #28405f);
   background: color-mix(in srgb, var(--wa-surface, #0d1b30) 85%, var(--wa-accent, #6674ff));
-  min-height: 110px;
+  min-height: calc(110 * var(--desktop-density-unit, 1px));
 }
 .reference-ui .widget-card .notes-widget textarea::placeholder { color: var(--wa-muted-color, #a5bbdf); }
 /* Inner controls follow the chosen palette, including the light presets. */
@@ -115,20 +115,20 @@
 }
 .reference-ui .widget-card[data-wa-hover="none"]:hover { border-color: var(--wa-border-color); box-shadow: var(--wa-shadow); }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  html:not([data-motion="reduced"]) .reference-ui .widget-card[data-wa-hover="lift"]:hover { transform: translateY(-3px); }
+  html:not([data-motion="reduced"]) .reference-ui .widget-card[data-wa-hover="lift"]:hover { transform: translateY(calc(-3 * var(--desktop-density-unit, 1px))); }
   .reference-ui .widget-card[data-wa-hover="glow"]:hover { box-shadow: 0 0 0 1px var(--wa-accent), var(--wa-shadow); }
 }
 html[data-motion="reduced"] .reference-ui .widget-card { transition: none; }
 @media (prefers-reduced-motion: reduce) { .reference-ui .widget-card { transition: none; } }
-.reference-ui .workspace-actions { flex-wrap: wrap; row-gap: 10px; }
+.reference-ui .workspace-actions { flex-wrap: wrap; row-gap: calc(10 * var(--desktop-density-unit, 1px)); }
 .reference-ui .workspace-actions > .widget-customization-trigger {
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 7px 11px;
+  border: calc(1 * var(--desktop-density-unit, 1px)) solid var(--border-strong);
+  border-radius: calc(8 * var(--desktop-density-unit, 1px));
+  padding: calc(7 * var(--desktop-density-unit, 1px)) calc(11 * var(--desktop-density-unit, 1px));
   color: var(--ink);
   background: var(--surface-2);
   display: inline-flex;
-  gap: 7px;
+  gap: calc(7 * var(--desktop-density-unit, 1px));
   align-items: center;
 }
 .reference-ui .widget-customization-trigger:hover { border-color: var(--brand); }

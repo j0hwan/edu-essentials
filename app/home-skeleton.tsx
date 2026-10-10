@@ -65,7 +65,7 @@ function HomeSkeletonCard({
 
 export function HomeSkeleton({ layout, greeting, reducedMotion = false }: HomeSkeletonProps) {
   const placements = getHomeSkeletonPlacements(layout);
-  const style = { "--home-skeleton-gap": `${layout.gap}px` } as CSSProperties;
+  const style = { "--home-skeleton-gap": `calc(${layout.gap} * var(--desktop-density-unit, 1px))` } as CSSProperties;
   const rootRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {

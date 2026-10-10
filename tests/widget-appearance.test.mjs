@@ -68,7 +68,7 @@ test("CSS variables keep opacity on backgrounds and derive safe visual values", 
   assert.equal(style["--wa-surface"], "rgba(18, 52, 86, 0.4)");
   assert.equal(style["--wa-surface-opacity"], "40%");
   assert.equal(style["--wa-text-color"], "#edf1ff");
-  assert.equal(style["--wa-blur"], "6px");
+  assert.equal(style["--wa-blur"], "calc(6 * var(--desktop-density-unit, 1px))");
   assert.equal(style["--wa-transition-ms"], "0ms");
   assert.match(style["--wa-texture"], /^linear-gradient\(/);
   assert.match(style["--wa-background"], /linear-gradient\(90deg/);
