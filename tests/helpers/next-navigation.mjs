@@ -10,6 +10,16 @@ export function usePathname() {
   return pathname;
 }
 
+export function useSearchParams() {
+  const [search, setSearch] = useState(() => window.location.search);
+  useEffect(() => {
+    const syncSearch = () => setSearch(window.location.search);
+    window.addEventListener("popstate", syncSearch);
+    return () => window.removeEventListener("popstate", syncSearch);
+  }, []);
+  return new URLSearchParams(search);
+}
+
 export function useRouter() {
   return {
     push(href) {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
@@ -8,7 +9,7 @@ class TestAnimationEvent extends dom.window.Event {
   constructor(type, { animationName = "", ...options } = {}) { super(type, options); this.animationName = animationName; }
 }
 Object.defineProperty(dom.window, "AnimationEvent", { configurable: true, value: TestAnimationEvent });
-for (const name of ["window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "AnimationEvent"]) globalThis[name] = dom.window[name];
+for (const name of ["window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "AnimationEvent", "MutationObserver"]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, act } = await import("react");
@@ -24,13 +25,66 @@ const { reorderWidgetIds } = await import(await clientModule("lib/widget-reorder
 const baseProfile = { ...validateProfile({ display_name: "Alex" }), id: "profile-a", auth_user_id: "user-a", email: "alex@example.invalid", avatar_url: null, initialized: true, updated_at: "2026-09-06T00:00:00.000Z", onboarding_completed_at: "2026-09-05T00:00:00.000Z" };
 const rootNode = document.getElementById("root");
 let root, fetcher, filesFetcher, alerts, media, downloads;
-globalThis.fetch = (...args) => String(args[0]).startsWith("/api/files") ? filesFetcher ? filesFetcher(...args) : Response.json({ files: [] }) : fetcher(...args);
+globalThis.fetch = (...args) => {
+  const url = String(args[0]);
+  return url.startsWith("/api/files") || url.startsWith("/api/file-folders") || url.startsWith("/api/file-documents")
+    ? filesFetcher ? filesFetcher(...args) : Response.json({ files: [], folders: [], activities: { files: [], folders: [] } })
+    : fetcher(...args);
+};
 window.confirm = () => true;
 window.alert = (text) => alerts.push(text);
 // Capture downloaded values without navigating or retaining personal data.
 URL.createObjectURL = (blob) => { downloads.push(blob); return "blob:test"; };
 URL.revokeObjectURL = () => {};
 window.HTMLAnchorElement.prototype.click = function () {};
+function installUploadXhr() {
+  const globalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "XMLHttpRequest");
+  const windowDescriptor = Object.getOwnPropertyDescriptor(window, "XMLHttpRequest");
+  const requests = [];
+  class TestXMLHttpRequest {
+    constructor() { this.upload = {}; this.headers = new Map(); this.status = 0; this.responseText = ""; this.timeout = 0; this.aborted = false; }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader(name, value) { this.headers.set(name.toLowerCase(), String(value)); }
+    send(body) { this.body = body; requests.push(this); }
+    abort() { this.aborted = true; this.onabort?.(); }
+    reportProgress(loaded = this.body.size, total = this.body.size) { this.upload.onprogress?.({ lengthComputable: true, loaded, total }); }
+    respond(status, payload) { this.status = status; this.responseText = JSON.stringify(payload); this.onload?.(); }
+  }
+  Object.defineProperty(globalThis, "XMLHttpRequest", { configurable: true, writable: true, value: TestXMLHttpRequest });
+  Object.defineProperty(window, "XMLHttpRequest", { configurable: true, writable: true, value: TestXMLHttpRequest });
+  return {
+    requests,
+    restore() {
+      if (globalDescriptor) Object.defineProperty(globalThis, "XMLHttpRequest", globalDescriptor); else delete globalThis.XMLHttpRequest;
+      if (windowDescriptor) Object.defineProperty(window, "XMLHttpRequest", windowDescriptor); else delete window.XMLHttpRequest;
+    },
+  };
+}
+function uploadMetadata(request) { return JSON.parse(decodeURIComponent(request.headers.get("x-file-metadata"))); }
+async function uploadedFileForRequest(request) {
+  const metadata = uploadMetadata(request), file = request.body;
+  const contentSha256 = createHash("sha256").update(Buffer.from(await file.arrayBuffer())).digest("hex");
+  return {
+    id: new URL(request.url, "https://edu.example").searchParams.get("id"),
+    name: metadata.name,
+    mime_type: file.type || "application/octet-stream",
+    size_bytes: file.size,
+    course_id: metadata.courseId || null,
+    assignment_id: metadata.assignmentId || null,
+    kind: metadata.kind,
+    state: "ready",
+    created_at: "2026-10-09T00:00:00.000Z",
+    updated_at: "2026-10-09T00:00:00.000Z",
+    content_sha256: contentSha256,
+    folder_id: metadata.folderId ?? null,
+    content_backend: "object",
+    metadata_revision: 1,
+    content_revision: 1,
+    trashed_at: null,
+    trash_operation_id: null,
+    original_folder_id: null,
+  };
+}
 function reset() {
   alerts = []; downloads = [];
   window.history.replaceState({}, "", "/home");
@@ -441,10 +495,14 @@ async function clickIn(container, text) {
   assert.ok(button, `Missing button ${text}`); await act(async () => button.click());
 }
 function installWorkspaceServer(initial = savedDashboard, courses = [], profile = baseProfile) {
-  const server = { dashboard: structuredClone(initial), courses, profile, revision: baseProfile.updated_at, writes: 0, offline: false, loseResponse: false };
+  const server = { dashboard: structuredClone(initial), courses, profile, revision: baseProfile.updated_at, writes: 0, reads: 0, offline: false, loseResponse: false, preservationFailure: false };
   fetcher = async (_url, init) => {
     if (init.method === "PUT") {
       if (server.offline) throw new Error("Offline");
+      if (server.preservationFailure) {
+        server.preservationFailure = false;
+        return Response.json({ error: "Free file capacity or restore the prior course folder before retrying.", code: "syllabus-preservation" }, { status: 409 });
+      }
       const body = JSON.parse(init.body);
       if (body.baseRevision !== server.revision) return Response.json({}, { status: 409 });
       const state = academicSnapshot(body.courses, body.dashboard);
@@ -453,16 +511,359 @@ function installWorkspaceServer(initial = savedDashboard, courses = [], profile 
       if (server.loseResponse) { server.loseResponse = false; throw new Error("Response lost"); }
       return Response.json({ ok: true, revision: server.revision });
     }
+    server.reads++;
     return Response.json({ initialized: true, courses: server.courses, dashboard: server.dashboard, revision: server.revision, profile: server.profile });
   };
   return server;
 }
-async function saveAndReload() {
+async function saveAndReload(workspaceProps = {}) {
   if (unloadBlocked()) await waitUntil(() => !unloadBlocked(), "workspace autosave");
   assert.equal(unloadBlocked(), false, "autosave finishes before the workspace is reloaded");
-  await unmount(); reset(); await render(Workspace, { initialProfile: baseProfile });
+  await unmount(); reset(); await render(Workspace, { initialProfile: baseProfile, ...workspaceProps });
 }
 const cards = () => [...rootNode.querySelectorAll(".widget-grid > .widget-card[data-widget-id]")];
+
+test("native document creation, draft protection, retry and reload integrate with the saved workspace", async () => {
+  reset();
+  const profile = { ...baseProfile, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+  const server = installWorkspaceServer(savedDashboard, [sampleCourse], profile);
+  const before = structuredClone({ dashboard: server.dashboard, courses: server.courses, profile: server.profile });
+  const folderId = "22222222-2222-4222-8222-222222222222";
+  const stamp = "2026-10-01T00:00:00.000Z";
+  const folder = { id: folderId, name: sampleCourse.code, kind: "course", course_id: sampleCourse.id, course_code: sampleCourse.code, parent_id: null, revision: 1, created_at: stamp, updated_at: stamp, archived_at: null, semester_label: null, course_name_snapshot: null, course_color_snapshot: null, trashed_at: null, trash_operation_id: null, original_parent_id: null };
+  let native = null, text = "", offline = false;
+  const creates = [], puts = [], reads = [], activityOpens = [];
+  const result = () => ({ file: { ...native }, document: { file_id: native.id, body: text, content_revision: native.content_revision } });
+  filesFetcher = async (url, init = {}) => {
+    if (url.startsWith("/api/file-documents")) {
+      assert.equal(new Headers(init.headers).get("x-profile-id"), profile.id);
+      if (init.method === "POST") {
+        const body = JSON.parse(init.body); creates.push(body);
+        assert.equal(body.body, "", "the first durable create is empty");
+        text = body.body;
+        native = { id: body.id, name: body.name, mime_type: "text/plain", size_bytes: 0, course_id: body.courseId, assignment_id: null, kind: "resource", state: "ready", created_at: stamp, updated_at: stamp, content_sha256: null, folder_id: body.folderId, content_backend: "native-text", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null };
+        return Response.json(result());
+      }
+      if (init.method === "PUT") {
+        const body = JSON.parse(init.body); puts.push(body);
+        if (offline) throw new Error("Offline document service");
+        assert.equal(body.baseContentRevision, native.content_revision);
+        if (body.name !== undefined) { assert.equal(body.baseMetadataRevision, native.metadata_revision); native.name = body.name; native.metadata_revision++; }
+        if (text !== body.body) native.content_revision++;
+        text = body.body; native.size_bytes = new TextEncoder().encode(text).byteLength;
+        return Response.json({ ...result(), requestId: body.requestId, acknowledgedContentRevision: native.content_revision });
+      }
+      reads.push(url); return Response.json(result());
+    }
+    if (url === "/api/files/actions" && init.method === "POST") {
+      const body = JSON.parse(init.body); activityOpens.push(body);
+      assert.equal(body.action, "open");
+      assert.deepEqual(body.items, [{ type: "file", id: native.id, revision: native.metadata_revision }]);
+      return Response.json({ activities: { files: [{ file_id: native.id, starred_at: null, last_opened_at: stamp }], folders: [] } });
+    }
+    if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files: native ? [native] : [], activities: { files: [] } });
+    if (url.startsWith("/api/file-folders?view=active")) return Response.json({ folders: [folder], activities: { folders: [] } });
+    return Response.json({ files: [], folders: [], activities: { files: [], folders: [] } });
+  };
+  const previousFrame = window.requestAnimationFrame, previousCancelFrame = window.cancelAnimationFrame;
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(window.performance.now()), 0);
+  window.cancelAnimationFrame = (frame) => window.clearTimeout(frame);
+  try {
+    await render(Workspace, { initialProfile: profile, filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder");
+    await clickAria(`Open folder: ${sampleCourse.code}`);
+    await click("New"); await click("New text file");
+    await waitUntil(() => rootNode.querySelector(".native-document-fields input:not(:disabled)"), "durable empty document opens in editor");
+    await waitUntil(() => activityOpens.length === 1, "created native document Recent acknowledgement");
+    assert.equal(creates.length, 1); assert.equal(creates[0].folderId, folderId); assert.equal(creates[0].courseId, sampleCourse.id);
+    assert.equal(field("File name").value, "Untitled.txt"); assert.equal(field("Text").value, "");
+    offline = true;
+    const localText = "Résumé, 日本語, 🌱\nA complete local draft.";
+    await edit("File name", "Course notes.txt"); await edit("Text", localText); await click("Save");
+    await waitUntil(() => rootNode.textContent.includes("Failed to save"), "document failure");
+    assert.equal(unloadBlocked(), true);
+    await click("Settings"); assert.ok(rootNode.querySelector(".native-document-dialog"), "workspace navigation keeps the editor open");
+    assert.equal([...rootNode.querySelectorAll("button")].find((button) => button.textContent === "Sign out").disabled, true);
+    assert.equal(rootNode.querySelector('a[href^="/api/export"]').getAttribute("aria-disabled"), "true");
+    await click("Download current drafts (.json)");
+    assert.equal(JSON.parse(await downloads.at(-1).text()).nativeDocumentDraft.body, localText);
+    assert.equal(field("Text").value, localText);
+    window.confirm = () => false; await click("Close editor"); assert.ok(rootNode.querySelector(".native-document-dialog"));
+    await click("Download draft"); assert.equal(await downloads.at(-1).text(), localText);
+    offline = false; await click("Retry save");
+    await waitUntil(() => !unloadBlocked(), "retry acknowledgement");
+    await waitUntil(() => activityOpens.length === 2, "saved native document Recent acknowledgement");
+    assert.equal(puts.length, 2); assert.equal(puts[0].requestId, puts[1].requestId); assert.deepEqual(puts[0], puts[1]);
+    assert.equal(native.id, creates[0].id); assert.equal(text, localText); assert.equal(native.name, "Course notes.txt");
+    await click("Close editor"); await saveAndReload({ initialProfile: profile, filesBrowserEnabled: true });
+    await click("Files"); await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "folder after reload");
+    await clickAria(`Open folder: ${sampleCourse.code}`);
+    await waitUntil(() => rootNode.querySelector('[aria-label="Edit text: Course notes.txt"]'), "saved native file");
+    await clickAria("Edit text: Course notes.txt");
+    await waitUntil(() => field("Text").value === localText, "saved text readback");
+    assert.equal(field("File name").value, "Course notes.txt"); assert.equal(reads.length, 1);
+    assert.equal(creates.length, 1, "reopening never creates another document");
+    await waitUntil(() => activityOpens.length === 3, "reopened native document Recent acknowledgement");
+    assert.deepEqual({ dashboard: server.dashboard, courses: server.courses, profile: server.profile }, before, "native editing preserves all workspace and course data");
+    assert.equal(server.writes, 0, "native content writes are independent of workspace saves");
+    const previousAccountDraft = "Keep this local draft after account changes — 中文";
+    await edit("Text", previousAccountDraft);
+    const writesBeforeAccountChange = puts.length;
+    const changedProfile = { ...profile, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", auth_user_id: "user-b", email: "second@example.invalid" };
+    server.profile = changedProfile;
+    await render(Workspace, { initialProfile: changedProfile, filesBrowserEnabled: true });
+    await waitUntil(() => rootNode.textContent.includes("previous account session"), "account fence retains editor");
+    assert.equal(field("Text").value, previousAccountDraft, "workspace account hydration preserves the captured draft");
+    assert.equal(field("Text").matches(":disabled"), true);
+    assert.equal(unloadBlocked(), true);
+    await waitForMilliseconds(850);
+    assert.equal(puts.length, writesBeforeAccountChange, "no queued draft is written to either account after the account switch");
+    await click("Download draft"); assert.equal(await downloads.at(-1).text(), previousAccountDraft);
+    window.confirm = () => false; await click("Close editor"); assert.ok(rootNode.querySelector(".native-document-dialog"));
+    window.confirm = () => true; await click("Close editor"); await click("Settings");
+    assert.equal([...rootNode.querySelectorAll("button")].find((button) => button.textContent === "Sign out").disabled, false);
+  } finally {
+    filesFetcher = undefined;
+    if (root) await unmount();
+    if (previousFrame) window.requestAnimationFrame = previousFrame; else delete window.requestAnimationFrame;
+    if (previousCancelFrame) window.cancelAnimationFrame = previousCancelFrame; else delete window.cancelAnimationFrame;
+  }
+});
+
+test("folder operations retain workspace drafts, retry creates, preserve associations and fence account changes", async () => {
+  reset();
+  const organizationProfile = { ...baseProfile, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+  const assignment = { id: "history-essay", title: "Archive essay", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Keep this assignment", weight: "15%" };
+  const initial = { ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment] } };
+  const server = installWorkspaceServer(initial, [sampleCourse], organizationProfile);
+  const before = structuredClone({ dashboard: server.dashboard, courses: server.courses, profile: server.profile });
+  const stamp = "2026-10-01T00:00:00.000Z";
+  const courseFolderId = "22222222-2222-4222-8222-222222222222";
+  const folders = [{ id: courseFolderId, name: sampleCourse.code, kind: "course", course_id: sampleCourse.id, course_code: sampleCourse.code, parent_id: null, revision: 1, created_at: stamp, updated_at: stamp, archived_at: null, semester_label: null, course_name_snapshot: null, course_color_snapshot: null, trashed_at: null, trash_operation_id: null, original_parent_id: null }];
+  const text = "Résumé, 日本語, 🌱\nBody survives organization changes.";
+  const native = { id: "33333333-3333-4333-8333-333333333333", name: "Course notes.txt", mime_type: "text/plain", size_bytes: new TextEncoder().encode(text).byteLength, course_id: sampleCourse.id, assignment_id: assignment.id, kind: "attachment", state: "ready", created_at: stamp, updated_at: stamp, content_sha256: null, folder_id: courseFolderId, content_backend: "native-text", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null };
+  const creates = [], renames = [], moves = [], documentReads = [], activityOpens = [];
+  let loseCreateResponse = true;
+  filesFetcher = async (url, init = {}) => {
+    if (init.method && init.method !== "GET") {
+      assert.equal(new Headers(init.headers).get("x-profile-id"), organizationProfile.id);
+      const body = JSON.parse(init.body);
+      if (url === "/api/file-folders" && init.method === "POST") {
+        creates.push(body);
+        let folder = folders.find((row) => row.id === body.id);
+        if (!folder) {
+          folder = { ...folders[0], id: body.id, name: body.name, kind: "custom", course_id: null, course_code: null, parent_id: body.parentId };
+          folders.push(folder);
+        }
+        assert.equal(folder.name, body.name); assert.equal(folder.parent_id, body.parentId);
+        if (loseCreateResponse) { loseCreateResponse = false; throw new Error("Create response lost"); }
+        return Response.json({ folder });
+      }
+      if (url === "/api/file-folders" && init.method === "PUT") {
+        renames.push(body); const folder = folders.find((row) => row.id === body.id);
+        assert.equal(body.action, "rename"); assert.equal(body.revision, folder.revision);
+        folder.name = body.name; folder.revision++;
+        return Response.json({ folder });
+      }
+      if (url === "/api/files/actions") {
+        if (body.action === "open") {
+          activityOpens.push(body);
+          assert.deepEqual(body.items, [{ type: "file", id: native.id, revision: native.metadata_revision }]);
+          return Response.json({ activities: { files: [{ file_id: native.id, starred_at: null, last_opened_at: stamp }], folders: [] } });
+        }
+        moves.push(body); assert.equal(body.action, "move"); assert.equal(body.items.length, 1);
+        assert.deepEqual(body.items[0], { type: "file", id: native.id, revision: native.metadata_revision });
+        native.folder_id = body.destinationId; native.metadata_revision++;
+        return Response.json({ files: [native], folders: [] });
+      }
+      throw new Error(`Unexpected Files mutation ${url}`);
+    }
+    if (url.startsWith("/api/file-documents")) {
+      documentReads.push(url);
+      return Response.json({ file: native, document: { file_id: native.id, body: text, content_revision: native.content_revision } });
+    }
+    if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files: [native], activities: { files: [] } });
+    if (url.startsWith("/api/file-folders?view=active")) return Response.json({ folders, activities: { folders: [] } });
+    return Response.json({ files: [], folders: [], activities: { files: [], folders: [] } });
+  };
+  const previousFrame = window.requestAnimationFrame;
+  window.requestAnimationFrame = (callback) => { callback(0); return 1; };
+  const dialog = () => rootNode.querySelector(".file-organization-dialog");
+  try {
+    await render(Workspace, { initialProfile: organizationProfile, filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder");
+    await clickAria(`Open folder: ${sampleCourse.code}`); await click("New"); await click("New folder");
+    await edit("Folder name", "Research notes"); await clickIn(dialog(), "Create folder");
+    await waitUntil(() => dialog()?.textContent.includes("could not be reached"), "ambiguous create failure");
+    assert.equal(creates.length, 1); assert.equal(creates[0].parentId, courseFolderId);
+    const keptInput = field("Folder name");
+    await click("Settings");
+    assert.ok(dialog(), "the folder draft survives SPA navigation");
+    assert.equal(keptInput.value, "Research notes"); assert.equal(unloadBlocked(), true);
+    assert.equal([...rootNode.querySelectorAll("button")].find((button) => button.textContent === "Sign out").disabled, true);
+    assert.equal(rootNode.querySelector('a[href^="/api/export"]').getAttribute("aria-disabled"), "true");
+    const settingsInput = field("Major"); settingsInput.focus();
+    const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    settingsInput.dispatchEvent(tab); assert.equal(tab.defaultPrevented, false, "a hidden Files dialog does not trap Settings keyboard input");
+    const escape = new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    settingsInput.dispatchEvent(escape); assert.ok(dialog(), "Escape in Settings does not discard the hidden Files draft");
+    await click("Download current drafts (.json)");
+    const recovery = JSON.parse(await downloads.at(-1).text()).fileOrganizationDraft;
+    assert.equal(recovery.capturedProfileId, organizationProfile.id); assert.equal(recovery.id, creates[0].id); assert.equal(recovery.name, "Research notes");
+    await click("Review Files"); await clickIn(dialog(), "Create folder");
+    await waitUntil(() => !dialog(), "idempotent create retry");
+    assert.deepEqual(creates[1], creates[0]); assert.equal(folders.length, 2);
+    await clickAria(`Open folder: ${sampleCourse.code}`);
+    await waitUntil(() => rootNode.querySelector('[aria-label="More options for Research notes"]'), "created folder readback");
+    await clickAria("More options for Research notes"); await click("Rename folder"); await edit("Name", "Research archive"); await clickIn(dialog(), "Rename");
+    await waitUntil(() => !dialog(), "folder rename");
+    assert.equal(renames[0].id, creates[0].id); assert.equal(folders[1].parent_id, courseFolderId);
+    await clickAria("More options for Course notes.txt"); await clickIn(rootNode.querySelector(".files-context-menu"), "Move to…");
+    const rootDestination = [...dialog().querySelectorAll(".file-organization-destination")].find((node) => node.querySelector("strong")?.textContent === "My files");
+    await clickIn(rootDestination, "Move here"); await clickIn(dialog(), "Move items");
+    await waitUntil(() => !dialog(), "file move");
+    assert.equal(native.folder_id, null); assert.equal(native.course_id, sampleCourse.id); assert.equal(native.assignment_id, assignment.id); assert.equal(native.content_revision, 1);
+    assert.equal(server.writes, 0); assert.deepEqual({ dashboard: server.dashboard, courses: server.courses, profile: server.profile }, before);
+    await saveAndReload({ initialProfile: organizationProfile, filesBrowserEnabled: true }); await click("Files");
+    await waitUntil(() => rootNode.querySelector('[aria-label="More options for Course notes.txt"]'), "moved file after reload");
+    const fileRow = rootNode.querySelector('[aria-label="More options for Course notes.txt"]').closest(".files-item");
+    assert.match(fileRow.textContent, /HIST 205/); assert.match(fileRow.textContent, /Archive essay/);
+    await clickAria("More options for Course notes.txt"); await click("Edit text");
+    await waitUntil(() => rootNode.querySelector(".native-document-fields textarea:not(:disabled)"), "moved document body");
+    assert.equal(field("Text").value, text); assert.equal(documentReads.length, 1); assert.equal(activityOpens.length, 1); await click("Close editor");
+    await click("New"); await click("New folder"); await edit("Folder name", "Previous account draft");
+    const writesBeforeAccountChange = creates.length + renames.length + moves.length;
+    const changedProfile = { ...baseProfile, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", auth_user_id: "user-b", email: "second@example.invalid" };
+    server.profile = changedProfile;
+    await render(Workspace, { initialProfile: changedProfile, filesBrowserEnabled: true });
+    await waitUntil(() => dialog()?.textContent.includes("previous account"), "retained organization account fence");
+    assert.equal(field("Folder name").value, "Previous account draft"); assert.equal(field("Folder name").disabled, true);
+    assert.equal(unloadBlocked(), true); await clickIn(dialog(), "Download draft");
+    assert.equal(JSON.parse(await downloads.at(-1).text()).capturedProfileId, organizationProfile.id);
+    await waitForMilliseconds(50); assert.equal(creates.length + renames.length + moves.length, writesBeforeAccountChange);
+    window.confirm = () => false; await clickAria("Close Files dialog"); assert.ok(dialog());
+    window.confirm = () => true; await clickAria("Close Files dialog"); assert.equal(dialog(), null);
+    assert.equal(server.writes, 0);
+  } finally {
+    window.requestAnimationFrame = previousFrame; filesFetcher = undefined;
+    if (root) await unmount();
+  }
+});
+
+test("Trash Undo follows navigation, restores academic links and fences held account acknowledgements", async () => {
+  reset();
+  const profileA = { ...baseProfile, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+  const profileB = { ...baseProfile, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", auth_user_id: "user-b" };
+  const assignment = { id: "history-essay", title: "Archive essay", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Keep academic data", weight: "15%" };
+  const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment] } }, [sampleCourse], profileA);
+  const before = structuredClone({ dashboard: server.dashboard, courses: server.courses });
+  const stamp = "2026-10-01T00:00:00.000Z";
+  const file = { id: "33333333-3333-4333-8333-333333333333", name: "Linked notes.txt", mime_type: "text/plain", size_bytes: 40, course_id: sampleCourse.id, assignment_id: assignment.id, kind: "attachment", state: "ready", created_at: stamp, updated_at: stamp, content_sha256: null, folder_id: null, content_backend: "native-text", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null, original_location_path: null };
+  const writes = [];
+  let holdDelete = false, finishDelete, failRestoreRead = false;
+  filesFetcher = async (url, init = {}) => {
+    if (init.method === "DELETE") {
+      writes.push({ profile: new Headers(init.headers).get("x-profile-id"), method: "DELETE" });
+      file.trashed_at = "2026-10-08T00:00:00.000Z"; file.trash_operation_id = "44444444-4444-4444-8444-444444444444"; file.original_location_path = "My files"; file.metadata_revision++; file.updated_at = file.trashed_at;
+      const response = structuredClone(file);
+      if (holdDelete) await new Promise((resolve) => { finishDelete = resolve; });
+      return Response.json({ file: response });
+    }
+    if (url === "/api/files/actions" && init.method === "POST") {
+      const body = JSON.parse(init.body);
+      writes.push({ profile: new Headers(init.headers).get("x-profile-id"), body });
+      assert.equal(body.action, "restore"); assert.deepEqual(body.items, [{ type: "file", id: file.id, revision: file.metadata_revision }]);
+      file.trashed_at = null; file.trash_operation_id = null; file.original_location_path = null; file.metadata_revision++;
+      failRestoreRead = true;
+      return Response.json({ files: [file], folders: [], recoveryFolder: null });
+    }
+    if (failRestoreRead) { failRestoreRead = false; throw new Error("Read after restore interrupted"); }
+    return Response.json({ files: file.trashed_at ? [] : [file], folders: [], activities: { files: [], folders: [] } });
+  };
+  try {
+    await render(Workspace, { initialProfile: profileA }); await waitUntil(() => !rootNode.textContent.includes("Loading workspace"), "workspace hydration"); await click("Files");
+    await waitUntil(() => rootNode.querySelector(".private-file-list")?.textContent.includes(file.name), "linked file");
+    await click("Move to Trash");
+    await waitUntil(() => rootNode.textContent.includes("Linked notes.txt moved to Trash"), "global Trash notification");
+    assert.equal(rootNode.querySelector(".private-file-list").textContent.includes(file.name), false);
+    await click("Settings"); assert.ok([...rootNode.querySelectorAll("button")].some((node) => node.textContent === "Undo"));
+    await click("Undo"); await waitUntil(() => file.trashed_at === null && rootNode.textContent.includes("The restore was saved, but Files could not refresh"), "acknowledged restore with failed refresh");
+    assert.equal(writes.length, 2); await click("Retry Files refresh");
+    await waitUntil(() => rootNode.textContent.includes("Restored from Trash."), "Undo refresh retry");
+    assert.equal(writes.length, 2, "refresh retry never repeats the acknowledged restore");
+    await waitUntil(() => ![...rootNode.querySelectorAll("button")].some((node) => node.textContent === "Undo"), "dismissed Undo notification");
+    assert.equal(file.course_id, sampleCourse.id); assert.equal(file.assignment_id, assignment.id); assert.equal(file.content_revision, 1);
+    await click("Files"); await waitUntil(() => rootNode.querySelector(".private-file-list")?.textContent.includes(file.name), "restored attachment");
+    assert.deepEqual({ dashboard: server.dashboard, courses: server.courses }, before); assert.equal(server.writes, 0);
+    assert.ok(writes.every((write) => write.profile === profileA.id));
+    holdDelete = true; await click("Move to Trash"); await waitUntil(() => !!finishDelete, "held Trash request");
+    server.profile = profileB; await render(Workspace, { initialProfile: profileB });
+    server.profile = profileA; await render(Workspace, { initialProfile: profileA });
+    await act(async () => finishDelete());
+    await waitForMilliseconds(75);
+    assert.equal([...rootNode.querySelectorAll("button")].some((node) => node.textContent === "Undo"), false, "a late A acknowledgment cannot become Undo after A → B → A");
+    assert.equal(writes.length, 3); assert.equal(server.writes, 0);
+  } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
+test("Trash confirmations retain exact requests through workspace navigation and account changes", async () => {
+  reset();
+  const profileA = { ...baseProfile, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+  const profileB = { ...baseProfile, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", auth_user_id: "user-b" };
+  const server = installWorkspaceServer(savedDashboard, [], profileA);
+  const stamp = "2026-10-01T00:00:00.000Z";
+  const file = { id: "33333333-3333-4333-8333-333333333333", name: "Résumé 日本語.txt", mime_type: "text/plain", size_bytes: 40, course_id: null, assignment_id: null, kind: "resource", state: "ready", created_at: stamp, updated_at: stamp, content_sha256: null, folder_id: null, content_backend: "native-text", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null, original_location_path: null };
+  const requests = [];
+  let trashFailure = true;
+  filesFetcher = async (url, init = {}) => {
+    if (url === "/api/files/actions" && init.method === "POST") {
+      const body = JSON.parse(init.body); requests.push({ profile: new Headers(init.headers).get("x-profile-id"), body });
+      if (body.action === "empty-trash") return Response.json({ error: "Storage cleanup interrupted" }, { status: 503 });
+      assert.equal(body.action, "trash");
+      if (trashFailure) { trashFailure = false; return Response.json({ error: "Connection interrupted" }, { status: 503 }); }
+      file.trashed_at = "2026-10-08T00:00:00.000Z"; file.trash_operation_id = "44444444-4444-4444-8444-444444444444"; file.original_location_path = file.name; file.metadata_revision++;
+      return Response.json({ files: [file], folders: [], recoveryFolder: null });
+    }
+    if (url.startsWith("/api/file-folders")) return Response.json({ folders: [], activities: { folders: [] } });
+    const view = new URL(url, window.location.href).searchParams.get("view");
+    return Response.json({ files: view === "trash" ? file.trashed_at ? [file] : [] : view === "all" ? [file] : file.trashed_at ? [] : [file], activities: { files: [] } });
+  };
+  const previousFrame = window.requestAnimationFrame;
+  window.requestAnimationFrame = (callback) => { callback(0); return 1; };
+  const dialog = () => rootNode.querySelector(".files-trash-dialog");
+  try {
+    await render(Workspace, { initialProfile: profileA, filesBrowserEnabled: true }); await click("Files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="More options for ${file.name}"]`), "browser file");
+    await clickAria(`More options for ${file.name}`); await clickIn(rootNode.querySelector(".files-context-menu"), "Move to Trash");
+    assert.ok(dialog()); assert.equal(requests.length, 0, "opening a confirmation does not mutate content");
+    await click("Settings"); assert.ok(dialog()); assert.equal(unloadBlocked(), true);
+    assert.equal([...rootNode.querySelectorAll("button")].find((node) => node.textContent === "Sign out").disabled, true);
+    const input = field("Major"); input.focus();
+    const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }); input.dispatchEvent(tab); assert.equal(tab.defaultPrevented, false);
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); assert.ok(dialog());
+    await click("Download current drafts (.json)");
+    const draft = JSON.parse(await downloads.at(-1).text()).fileOrganizationDraft;
+    assert.equal(draft.capturedProfileId, profileA.id); assert.equal(draft.action, "trash"); assert.equal(draft.items[0].revision, 1);
+    await click("Review Files"); await clickIn(dialog(), "Move to Trash"); await waitUntil(() => dialog()?.textContent.includes("Connection interrupted"), "retained trash failure");
+    await clickIn(dialog(), "Retry move to Trash"); await waitUntil(() => !dialog(), "confirmed Trash");
+    assert.deepEqual(requests[1], requests[0]); assert.ok(rootNode.textContent.includes(`${file.name} moved to Trash`));
+    await click("Dismiss Trash notification"); await click("Trash");
+    await waitUntil(() => rootNode.querySelector(".files-trash-empty-button")?.textContent.includes("(1)"), "all Trash count");
+    await clickIn(rootNode, "Empty Trash (1)"); assert.match(dialog().textContent, /cannot be undone/);
+    await clickIn(dialog(), "Empty Trash"); await waitUntil(() => dialog()?.textContent.includes("Storage cleanup interrupted"), "interrupted purge");
+    const purgeRequest = requests.at(-1); assert.equal(purgeRequest.body.action, "empty-trash"); assert.ok(purgeRequest.body.requestId);
+    await click("Settings"); await click("Download current drafts (.json)");
+    const purgeDraft = JSON.parse(await downloads.at(-1).text()).fileOrganizationDraft;
+    assert.equal(purgeDraft.requestId, purgeRequest.body.requestId); assert.equal(purgeDraft.count, 1);
+    server.profile = profileB; await render(Workspace, { initialProfile: profileB, filesBrowserEnabled: true });
+    await waitUntil(() => dialog()?.textContent.includes("previous account"), "retained old-account purge draft");
+    assert.equal(dialog().querySelector(".files-trash-submit").disabled, true);
+    await clickIn(dialog(), "Download request"); assert.equal(JSON.parse(await downloads.at(-1).text()).capturedProfileId, profileA.id);
+    assert.equal(requests.length, 3); await clickAria("Close Trash dialog"); assert.equal(dialog(), null); assert.equal(server.writes, 0);
+  } finally { window.requestAnimationFrame = previousFrame; filesFetcher = undefined; if (root) await unmount(); }
+});
 
 test("workspace autosave shows one action-free pending status while the debounced write is held", async (t) => {
   t.after(async () => { if (root) await unmount(); });
@@ -907,6 +1308,147 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await click("Approve class and items"); server.loseResponse = true; await waitForWorkspaceError("Response lost");
     await click("Retry save"); await saveAndReload(); assert.equal(server.courses.length, 1); assert.equal(server.dashboard.d.assignments.length, 2); assert.equal(server.dashboard.d.syllabusDrafts.length, 0);
     assert.equal(server.dashboard.d.assignments[1].type, "Exam"); assert.equal(server.dashboard.d.assignments[0].weight, "20%"); assert.match(Object.values(server.dashboard.d.courseDetails)[0].syllabusText, /Read chapter/);
+  });
+
+  await t.test("existing course syllabus text saves through Files without changing the rest of the workspace", async () => {
+    reset();
+    const historyFileId = "11111111-1111-4111-8111-111111111111";
+    const historyFolderId = "22222222-2222-4222-8222-222222222222";
+    const historyDetails = {
+      officeHours: "Tuesday, 1–3 PM",
+      meetings: [{ id: "history-meeting", days: [1, 3], start: "09:30", end: "11:00", from: "2026-09-01", until: "2026-12-15", location: "Hall 2" }],
+      syllabusText: "Original HIST 205 syllabus text", syllabusName: "Original History guide", syllabusFileId: historyFileId,
+    };
+    const biologyDetails = { officeHours: "Friday by appointment", meetings: [], syllabusText: "BIO text stays separate", syllabusName: "BIO guide" };
+    const assignments = [{ id: "history-essay", title: "Archive essay", courseId: "history", dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Keep this assignment", weight: "15%" }];
+    const manualEvents = [{ id: "personal-event", title: "Personal appointment", courseId: "", dateKey: "2026-10-18", time: "14:00", type: "Personal" }];
+    const filePreferences = { filter: "all", view: "grid" };
+    const initial = { ...savedDashboard, d: { ...savedDashboard.d, assignments, manualEvents, courseDetails: { history: historyDetails, biology: biologyDetails }, filePreferences } };
+    const biologyCourse = { ...sampleCourse, id: "biology", code: "BIO 201", name: "Biology" };
+    const courses = [sampleCourse, biologyCourse];
+    const server = installWorkspaceServer(initial, courses);
+    const sourceFile = {
+      id: historyFileId, name: "HIST 205 source.pdf", mime_type: "application/pdf", size_bytes: 256,
+      course_id: "history", assignment_id: null, kind: "syllabus", state: "ready",
+      created_at: "2026-09-01T00:00:00.000Z", updated_at: "2026-09-03T00:00:00.000Z",
+      content_sha256: null, folder_id: historyFolderId, content_backend: "object", metadata_revision: 1,
+      content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null,
+    };
+    const courseFolder = {
+      id: historyFolderId, name: "HIST 205", parent_id: null, kind: "course", course_id: "history", course_code: "HIST 205",
+      revision: 1, created_at: "2026-09-01T00:00:00.000Z", updated_at: "2026-09-03T00:00:00.000Z",
+      archived_at: null, semester_label: null, course_name_snapshot: null, course_color_snapshot: null,
+      trashed_at: null, trash_operation_id: null, original_parent_id: null,
+    };
+    filesFetcher = async (url) => {
+      if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files: [sourceFile], activities: { files: [] } });
+      if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [] } });
+      if (url.startsWith("/api/file-folders?view=active")) return Response.json({ folders: [courseFolder], activities: { folders: [] } });
+      if (url.startsWith("/api/file-folders?view=archives") || url.startsWith("/api/file-folders?view=trash")) return Response.json({ folders: [], activities: { folders: [] } });
+      throw new Error(`Unexpected syllabus workspace file request: ${url}`);
+    };
+
+    try {
+      await render(Workspace, { initialProfile: baseProfile, filesBrowserEnabled: true });
+      await click("Files");
+      await waitUntil(() => rootNode.querySelector('[aria-label="Open folder: HIST 205"]'), "saved course folder in Files");
+      assert.equal(rootNode.querySelector('.files-layout-toggle button[aria-label="Grid view"]').getAttribute("aria-pressed"), "true");
+      await clickAria("Open folder: HIST 205");
+      await waitUntil(() => rootNode.querySelector(".files-syllabus-pin"), "saved course syllabus pin");
+      await click("Replace upload");
+      assert.ok(rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]'), "Files opens the syllabus editor for the owning course");
+      const firstText = "Edited course-bound source: résumé, 日本語, ✓";
+      await edit("Syllabus text", firstText);
+      await edit("Syllabus name", "Revised History guide");
+      const originalWrites = server.writes;
+      server.offline = true;
+      await click("Save syllabus");
+      await waitForWorkspaceError("Offline");
+      assert.ok(rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]'), "a failed durable write leaves the attachment form open");
+      assert.equal(field("Syllabus text").value, firstText, "the complete text draft survives the failed save");
+      assert.match(rootNode.querySelector('[aria-label="Uploaded syllabus source"]').textContent, /HIST 205 source\.pdf/);
+      assert.equal(server.writes, originalWrites, "the failed attempt did not change the saved dashboard");
+      assert.equal(server.dashboard.d.courseDetails.history.syllabusText, historyDetails.syllabusText);
+
+      server.offline = false;
+      await click("Save syllabus");
+      await waitUntil(() => !rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]'), "syllabus modal closes after retry");
+      await waitForWorkspaceSave(server, originalWrites);
+      assert.equal(server.writes, originalWrites + 1, "retry writes one complete workspace snapshot");
+      const persisted = server.dashboard.d;
+      assert.equal(persisted.courseDetails.history.syllabusText, firstText);
+      assert.equal(persisted.courseDetails.history.syllabusName, "Revised History guide");
+      assert.equal(persisted.courseDetails.history.syllabusFileId, sourceFile.id, "the existing source remains attached to the same course");
+      assert.equal(persisted.courseDetails.history.officeHours, historyDetails.officeHours);
+      assert.deepEqual(persisted.courseDetails.history.meetings, historyDetails.meetings);
+      assert.deepEqual(persisted.courseDetails.biology, biologyDetails, "a second course's details are unchanged");
+      assert.deepEqual(persisted.assignments, assignments);
+      assert.deepEqual(persisted.manualEvents, manualEvents);
+      assert.deepEqual(persisted.filePreferences, filePreferences);
+      assert.deepEqual(server.courses.map((course) => course.id), ["biology", "history"]);
+      assert.deepEqual(server.profile, baseProfile);
+
+      await saveAndReload({ filesBrowserEnabled: true });
+      await click("Files");
+      await clickAria("Open folder: HIST 205");
+      await waitUntil(() => rootNode.querySelector(".files-syllabus-pin"), "course syllabus pin after workspace reload");
+      assert.equal(rootNode.querySelector('.files-layout-toggle button[aria-label="Grid view"]').getAttribute("aria-pressed"), "true", "the existing Files view preference survives the reload");
+      await click("View text");
+      assert.equal(rootNode.querySelector(".syllabus-text-preview-content").textContent, firstText, "the course-bound text reloads into its read-only preview");
+      await click("Close preview");
+
+      await click("Replace upload");
+      const afterReloadText = "Second revision after reconnect: café, 日本語";
+      await edit("Syllabus text", afterReloadText);
+      const beforeLostResponse = server.writes;
+      const readsBeforeLostResponse = server.reads;
+      server.loseResponse = true;
+      await click("Save syllabus");
+      await waitForWorkspaceError("Response lost");
+      assert.ok(rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]'), "an ambiguous response keeps the text draft open until the user retries");
+      assert.equal(field("Syllabus text").value, afterReloadText);
+      assert.equal(server.writes, beforeLostResponse + 1, "the first lost-response attempt committed exactly one snapshot");
+      await click("Save syllabus");
+      await waitUntil(() => !rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]'), "matching readback acknowledges a lost save response");
+      await waitForWorkspaceSave(server, beforeLostResponse);
+      assert.equal(server.writes, beforeLostResponse + 1, "the lost response retry confirms the saved snapshot without a duplicate write");
+      assert.equal(server.reads, readsBeforeLostResponse + 1, "the explicit retry acknowledges the identical saved snapshot by readback");
+      assert.equal(server.dashboard.d.courseDetails.history.syllabusText, afterReloadText);
+      assert.deepEqual(server.dashboard.d.assignments, assignments);
+      assert.deepEqual(server.dashboard.d.manualEvents, manualEvents);
+      assert.deepEqual(server.dashboard.d.courseDetails.history.meetings, historyDetails.meetings);
+
+      await saveAndReload({ filesBrowserEnabled: true });
+      await click("Files");
+      await clickAria("Open folder: HIST 205");
+      await waitUntil(() => rootNode.querySelector(".files-syllabus-pin"), "course pin after lost-response reload");
+      await click("View text");
+      assert.equal(rootNode.querySelector(".syllabus-text-preview-content").textContent, afterReloadText);
+      await click("Close preview");
+
+      await click("Replace upload");
+      const preservationDraft = "Preserve the old source if replacement capacity is full.";
+      await edit("Syllabus text", preservationDraft);
+      const beforePreservation = server.writes;
+      const readsBeforePreservation = server.reads;
+      server.preservationFailure = true;
+      await click("Save syllabus");
+      await waitForWorkspaceError("Free file capacity");
+      assert.ok(rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]'), "preservation rejection keeps the edit form and source ID draft open");
+      assert.equal(field("Syllabus text").value, preservationDraft);
+      assert.match(rootNode.textContent, /Free file capacity or restore the prior course folder/);
+      assert.doesNotMatch(rootNode.textContent, /Another session saved different changes/, "preservation conflicts are shown as retryable capacity errors");
+      assert.equal(server.writes, beforePreservation, "preservation rejection does not commit the workspace");
+      assert.equal(server.reads, readsBeforePreservation, "preservation rejection is not resolved by reading back or adopting another revision");
+
+      await click("Save syllabus");
+      await waitUntil(() => !rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]'), "syllabus saves after capacity is available");
+      await waitForWorkspaceSave(server, beforePreservation);
+      assert.equal(server.dashboard.d.courseDetails.history.syllabusText, preservationDraft);
+    } finally {
+      filesFetcher = undefined;
+      if (root) await unmount();
+    }
   });
 
   await t.test("removing a class clears its assignments and schedule but retains personal events", async () => {
@@ -1426,4 +1968,597 @@ test("private files UI retains upload retries, restores file preferences, search
     const result = rootNode.querySelector('.search-results button'); assert.ok(result); await act(async () => result.click());
     assert.match(rootNode.textContent, /Actual bytes/); assert.ok(rootNode.querySelector('a[download][href*="account=profile-a"]'));
   } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
+test("real Files preferences save with academic data while temporary search is discarded on reload", async () => {
+  reset();
+  const profile = { ...baseProfile, id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", current_term: "Fall 2026" };
+  const assignment = { id: "history-essay", title: "Keep this assignment", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Academic data stays saved", weight: "15%" };
+  const manualEvents = [{ id: "history-event", title: "Keep this event", courseId: sampleCourse.id, dateKey: "2026-10-16", time: "10:00", type: "Study block" }];
+  const courseDetails = { [sampleCourse.id]: { officeHours: "Tuesday afternoons", meetings: [], syllabusText: "History syllabus remains intact", syllabusName: "History guide" } };
+  const initial = { ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment], manualEvents, courseDetails, filePreferences: { filter: "all", view: "list" } } };
+  const server = installWorkspaceServer(initial, [sampleCourse], profile);
+  const folderId = "22222222-2222-4222-8222-222222222222";
+  const stamp = "2026-10-01T00:00:00.000Z";
+  const folder = { id: folderId, name: sampleCourse.code, kind: "course", course_id: sampleCourse.id, course_code: sampleCourse.code, parent_id: null, revision: 1, created_at: stamp, updated_at: stamp, archived_at: null, semester_label: null, course_name_snapshot: null, course_color_snapshot: null, trashed_at: null, trash_operation_id: null, original_parent_id: null };
+  const file = { id: "33333333-3333-4333-8333-333333333333", name: "Course guide.pdf", mime_type: "application/pdf", size_bytes: 128, course_id: sampleCourse.id, assignment_id: assignment.id, kind: "attachment", state: "ready", created_at: stamp, updated_at: stamp, content_sha256: null, folder_id: folderId, content_backend: "object", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null };
+  filesFetcher = async (url) => {
+    if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files: [file], activities: { files: [] } });
+    if (url.startsWith("/api/file-folders?view=active")) return Response.json({ folders: [folder], activities: { folders: [] } });
+    if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [] } });
+    if (url.startsWith("/api/file-folders?view=")) return Response.json({ folders: [], activities: { folders: [] } });
+    throw new Error(`Unexpected preferences fixture request: ${url}`);
+  };
+
+  try {
+    await render(Workspace, { initialProfile: profile, filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder for preferences");
+    await edit("Course filter", sampleCourse.id);
+    await edit("File type", "pdf");
+    await edit("Sort by", "modified");
+    await clickAria("Sort ascending");
+    await edit("Include archived", true);
+    await clickAria("Grid view");
+
+    const expected = { filter: sampleCourse.id, view: "grid", sortBy: "modified", sortDirection: "desc", fileType: "pdf", includeArchived: true };
+    const writesBeforePreferences = server.writes;
+    await waitForWorkspaceSave(server, writesBeforePreferences);
+    assert.deepEqual(server.dashboard.d.filePreferences, expected);
+    assert.deepEqual(server.dashboard.d.assignments, [assignment]);
+    assert.deepEqual(server.dashboard.d.manualEvents, manualEvents);
+    assert.deepEqual(server.dashboard.d.courseDetails, courseDetails);
+    assert.deepEqual(server.courses, [sampleCourse]);
+    const writesAfterPreferences = server.writes;
+
+    await edit("Search files", "temporary-query-only");
+    await waitForMilliseconds(450);
+    assert.equal(server.writes, writesAfterPreferences, "typing into the temporary query does not save a workspace revision");
+    assert.deepEqual(server.dashboard.d.filePreferences, expected);
+    assert.equal(JSON.stringify(server.dashboard).includes("temporary-query-only"), false, "search text is absent from the saved workspace payload");
+
+    await saveAndReload({ initialProfile: profile, filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Search files"]'), "Files tools after workspace reload");
+    assert.equal(rootNode.querySelector('[aria-label="Search files"]').value, "", "a reload clears the temporary query");
+    assert.equal(field("Course filter").value, sampleCourse.id);
+    assert.equal(field("File type").value, "pdf");
+    assert.equal(field("Sort by").value, "modified");
+    assert.equal(rootNode.querySelector('[aria-label="Sort descending"]').textContent.trim(), "Descending");
+    assert.equal(field("Include archived").checked, true);
+    assert.equal(rootNode.querySelector('.files-layout-toggle button[aria-label="Grid view"]').getAttribute("aria-pressed"), "true");
+    assert.deepEqual(server.dashboard.d.filePreferences, expected);
+    assert.equal(server.writes, writesAfterPreferences, "reloading the saved browser state does not write another workspace revision");
+  } finally {
+    filesFetcher = undefined;
+    if (root) await unmount();
+  }
+});
+
+test("real Files activity records successful upload previews and native reads/saves but ignores failed attempts", async () => {
+  reset();
+  const previousFrame = window.requestAnimationFrame, previousCancelFrame = window.cancelAnimationFrame;
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(window.performance.now()), 0);
+  window.cancelAnimationFrame = (frame) => window.clearTimeout(frame);
+  const assignment = { id: "history-essay", title: "Archive essay", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Keep academic links", weight: "15%" };
+  const profile = { ...baseProfile, id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", current_term: "Fall 2026" };
+  const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment] } }, [sampleCourse], profile);
+  const stamp = "2026-10-01T00:00:00.000Z";
+  const folderId = "22222222-2222-4222-8222-222222222222";
+  const nativeId = "33333333-3333-4333-8333-333333333333";
+  const failedPreviewId = "44444444-4444-4444-8444-444444444444";
+  const folder = { id: folderId, name: sampleCourse.code, kind: "course", course_id: sampleCourse.id, course_code: sampleCourse.code, parent_id: null, revision: 1, created_at: stamp, updated_at: stamp, archived_at: null, semester_label: null, course_name_snapshot: null, course_color_snapshot: null, trashed_at: null, trash_operation_id: null, original_parent_id: null };
+  let nativeBody = "Original native text";
+  let nativeOffline = true;
+  let uploadRow = null;
+  let activityClock = 0;
+  const native = { id: nativeId, name: "Native notes.txt", mime_type: "text/plain", size_bytes: new TextEncoder().encode(nativeBody).byteLength, course_id: sampleCourse.id, assignment_id: assignment.id, kind: "attachment", state: "ready", created_at: stamp, updated_at: stamp, content_sha256: null, folder_id: folderId, content_backend: "native-text", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null };
+  const failedPreview = { id: failedPreviewId, name: "Unavailable reading.txt", mime_type: "text/plain", size_bytes: 40, course_id: sampleCourse.id, assignment_id: assignment.id, kind: "attachment", state: "ready", created_at: stamp, updated_at: stamp, content_sha256: null, folder_id: folderId, content_backend: "object", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null };
+  const filesById = new Map([[native.id, native], [failedPreview.id, failedPreview]]);
+  const uploadIds = [], openActions = [], nativeWrites = [], renameRequests = [], byteReads = [];
+  const uploadXhr = installUploadXhr();
+  const fileRows = () => [...filesById.values()].map((file) => ({ ...file }));
+  const activityRows = () => ({ files: [...filesById.keys()].filter((id) => lastOpened.has(id)).map((file_id) => ({ file_id, starred_at: null, last_opened_at: lastOpened.get(file_id) })), folders: [] });
+  const lastOpened = new Map();
+  const nativeResult = () => ({ file: { ...native }, document: { file_id: native.id, body: nativeBody, content_revision: native.content_revision } });
+  filesFetcher = async (url, init = {}) => {
+    assert.equal(new Headers(init.headers).get("x-profile-id"), profile.id);
+    if (url.startsWith("/api/file-documents")) {
+      if (init.method === "PUT") {
+        const body = JSON.parse(init.body); nativeWrites.push(body);
+        assert.equal(body.baseContentRevision, native.content_revision);
+        if (nativeOffline) { nativeOffline = false; return Response.json({ error: "Native document save offline" }, { status: 503 }); }
+        if (body.name !== undefined && body.name !== native.name) { assert.equal(body.baseMetadataRevision, native.metadata_revision); native.name = body.name; native.metadata_revision++; }
+        if (body.body !== nativeBody) native.content_revision++;
+        nativeBody = body.body; native.size_bytes = new TextEncoder().encode(nativeBody).byteLength; native.updated_at = "2026-10-08T00:00:02.000Z";
+        return Response.json({ ...nativeResult(), requestId: body.requestId, acknowledgedContentRevision: native.content_revision });
+      }
+      return Response.json(nativeResult());
+    }
+    if (url === "/api/files/actions" && init.method === "POST") {
+      const body = JSON.parse(init.body); openActions.push(body);
+      assert.equal(body.action, "open"); assert.equal(body.items.length, 1);
+      const item = body.items[0], file = filesById.get(item.id);
+      assert.equal(item.type, "file"); assert.ok(file, "an open ACK must refer to a stored file");
+      assert.equal(item.revision, file.metadata_revision);
+      activityClock++;
+      const openedAt = `2026-10-08T00:00:${String(activityClock).padStart(2, "0")}.000Z`;
+      lastOpened.set(file.id, openedAt);
+      return Response.json({ activities: { files: [{ file_id: file.id, starred_at: null, last_opened_at: openedAt }], folders: [] } });
+    }
+    if (url.startsWith("/api/files?id=") && init.method === "PUT") {
+      const body = JSON.parse(init.body); renameRequests.push(body);
+      assert.equal(body.action, "rename"); assert.equal(body.baseMetadataRevision, uploadRow.metadata_revision);
+      uploadRow.name = body.name; uploadRow.metadata_revision++; uploadRow.updated_at = "2026-10-08T00:00:01.000Z";
+      return Response.json({ file: { ...uploadRow } });
+    }
+    if (url.startsWith("/api/files?id=")) {
+      const id = new URL(url, "https://edu.example").searchParams.get("id"); byteReads.push(id);
+      if (id === failedPreview.id) return Response.json({ error: "Preview bytes unavailable" }, { status: 503 });
+      if (uploadRow && id === uploadRow.id) return new Response("Uploaded bytes", { headers: { "content-type": "text/plain" } });
+      throw new Error(`Unexpected file-byte read: ${url}`);
+    }
+    if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files: fileRows(), activities: activityRows() });
+    if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/file-folders?view=active")) return Response.json({ folders: [folder], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/file-folders?view=")) return Response.json({ folders: [], activities: { files: [], folders: [] } });
+    throw new Error(`Unexpected activity fixture request: ${url}`);
+  };
+
+  try {
+    await render(Workspace, { initialProfile: profile, filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder for file activity");
+    await clickAria(`Open folder: ${sampleCourse.code}`);
+
+    await clickAria(`Preview file: ${failedPreview.name}`);
+    await waitUntil(() => rootNode.textContent.includes("Preview bytes unavailable"), "failed file preview");
+    assert.equal(openActions.length, 0, "a failed read does not create a Recent record");
+    await click("Close file preview");
+
+    await click("New"); await click("Upload file");
+    const selectedUpload = new File(["Uploaded bytes"], "Uploaded notes.txt", { type: "text/plain" });
+    const chooser = field("Choose files");
+    await act(async () => { Object.defineProperty(chooser, "files", { configurable: true, value: [selectedUpload] }); chooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await waitUntil(() => uploadXhr.requests.length === 1, "failed upload attempt starts");
+    const firstUpload = uploadXhr.requests[0];
+    const uploadedId = new URL(firstUpload.url, "https://edu.example").searchParams.get("id");
+    uploadIds.push(uploadedId);
+    const originalMetadata = uploadMetadata(firstUpload);
+    assert.equal(originalMetadata.folderId, folderId); assert.equal(originalMetadata.courseId, sampleCourse.id);
+    await act(async () => firstUpload.respond(503, { error: "Storage offline" }));
+    await waitUntil(() => rootNode.querySelector(`[data-upload-id="${uploadedId}"] .files-upload-error`)?.textContent.includes("Storage offline"), "failed upload attempt");
+    assert.equal(openActions.length, 0, "a failed upload attempt does not create a Recent record");
+    await clickIn(rootNode.querySelector(`[data-upload-id="${uploadedId}"]`), "Retry upload");
+    await waitUntil(() => uploadXhr.requests.length === 2, "retry of uploaded file");
+    const retryUpload = uploadXhr.requests[1];
+    uploadIds.push(new URL(retryUpload.url, "https://edu.example").searchParams.get("id"));
+    assert.equal(retryUpload.body, selectedUpload); assert.deepEqual(uploadMetadata(retryUpload), originalMetadata);
+    uploadRow = await uploadedFileForRequest(retryUpload);
+    filesById.set(uploadRow.id, uploadRow);
+    await act(async () => retryUpload.respond(201, { file: uploadRow }));
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: Uploaded notes.txt"]`), "uploaded file after retry");
+    assert.deepEqual(uploadIds, [uploadedId, uploadedId], "the successful upload retries the same reserved file ID");
+    assert.equal(openActions.length, 0, "a successful upload alone is not a file open");
+
+    await click("Close uploads");
+    await clickAria("Preview file: Uploaded notes.txt");
+    await waitUntil(() => rootNode.querySelector(".syllabus-source")?.textContent === "Uploaded bytes", "uploaded file bytes read successfully");
+    await waitUntil(() => openActions.length === 1, "uploaded preview Recent acknowledgement");
+    await click("Close file preview"); await click("Recent");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: Uploaded notes.txt"]`), "uploaded file in Recent");
+    assert.equal(rootNode.querySelector(`[aria-label="Preview file: ${failedPreview.name}"]`), null, "failed preview is absent from Recent");
+
+    await click("My files"); await clickAria(`Open folder: ${sampleCourse.code}`);
+    await clickAria("More options for Uploaded notes.txt"); await click("Rename file");
+    await edit("Name", "Uploaded renamed.txt"); await click("Rename");
+    await waitUntil(() => !rootNode.querySelector(".file-organization-dialog"), "successful uploaded file rename");
+    await waitUntil(() => openActions.filter((action) => action.items[0].id === uploadedId).length === 2, "renamed file Recent acknowledgement");
+    assert.equal(renameRequests.length, 1); assert.equal(renameRequests[0].name, "Uploaded renamed.txt");
+    assert.equal(uploadRow.name, "Uploaded renamed.txt"); assert.equal(uploadRow.metadata_revision, 2);
+
+    await clickAria(`Edit text: ${native.name}`);
+    await waitUntil(() => rootNode.querySelector(".native-document-fields textarea")?.value === nativeBody, "native document read");
+    await waitUntil(() => openActions.filter((action) => action.items[0].id === native.id).length === 1, "native read Recent acknowledgement");
+    assert.equal(native.content_revision, 1);
+    const changedText = "Successfully saved the real native document.";
+    await edit("Text", changedText);
+    await waitUntil(() => rootNode.textContent.includes("Failed to save"), "failed native save attempt");
+    assert.equal(nativeWrites.length, 1); assert.equal(native.content_revision, 1);
+    assert.equal(openActions.filter((action) => action.items[0].id === native.id).length, 1, "a failed native save does not add another Recent event");
+    await click("Retry save");
+    await waitUntil(() => native.content_revision === 2 && openActions.filter((action) => action.items[0].id === native.id).length === 2, "successful native save Recent acknowledgement", 6000);
+    assert.equal(nativeBody, changedText); assert.equal(native.size_bytes, new TextEncoder().encode(changedText).byteLength);
+    await click("Close editor"); await click("Recent");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Edit text: ${native.name}"]`), "native document in Recent");
+    assert.equal(server.writes, 0, "file reads and native content saves do not rewrite academic workspace data");
+    assert.deepEqual(server.dashboard.d.assignments, [assignment]);
+    assert.equal(byteReads.filter((id) => id === failedPreview.id).length, 1);
+    assert.equal(uploadRow?.content_revision, 1);
+  } finally {
+    filesFetcher = undefined;
+    uploadXhr.restore();
+    if (root) await unmount();
+    if (previousFrame) window.requestAnimationFrame = previousFrame; else delete window.requestAnimationFrame;
+    if (previousCancelFrame) window.cancelAnimationFrame = previousCancelFrame; else delete window.cancelAnimationFrame;
+  }
+});
+
+test("real course archive uses a captured editable term label and unarchives without changing academic links or file bytes", async () => {
+  reset();
+  const previousFrame = window.requestAnimationFrame, previousCancelFrame = window.cancelAnimationFrame;
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(window.performance.now()), 0);
+  window.cancelAnimationFrame = (frame) => window.clearTimeout(frame);
+  const profile = { ...baseProfile, id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", current_term: "Fall 2026" };
+  const assignment = { id: "history-essay", title: "Keep linked assignment", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Academic link remains", weight: "15%" };
+  const manualEvents = [{ id: "history-event", title: "Keep linked event", courseId: sampleCourse.id, dateKey: "2026-10-16", time: "10:00", type: "Study block" }];
+  const courseDetails = { [sampleCourse.id]: { officeHours: "Tuesday afternoons", meetings: [], syllabusText: "Saved syllabus stays linked", syllabusName: "History guide" } };
+  const initial = { ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment], manualEvents, courseDetails, filePreferences: { filter: "all", view: "list" } } };
+  const server = installWorkspaceServer(initial, [sampleCourse], profile);
+  const workspaceBeforeArchive = structuredClone({ dashboard: server.dashboard, courses: server.courses });
+  const stamp = "2026-10-01T00:00:00.000Z";
+  const folderId = "22222222-2222-4222-8222-222222222222";
+  const childFolderId = "33333333-3333-4333-8333-333333333333";
+  const fileId = "44444444-4444-4444-8444-444444444444";
+  const folder = { id: folderId, name: sampleCourse.code, kind: "course", course_id: sampleCourse.id, course_code: sampleCourse.code, parent_id: null, revision: 1, created_at: stamp, updated_at: stamp, archived_at: null, semester_label: null, course_name_snapshot: null, course_color_snapshot: null, trashed_at: null, trash_operation_id: null, original_parent_id: null };
+  const child = { id: childFolderId, name: "Research", kind: "custom", course_id: null, course_code: null, parent_id: folderId, revision: 1, created_at: stamp, updated_at: stamp, archived_at: null, semester_label: null, course_name_snapshot: null, course_color_snapshot: null, trashed_at: null, trash_operation_id: null, original_parent_id: null };
+  const bytes = "Course attachment bytes stay exactly the same.";
+  const file = { id: fileId, name: "Linked notes.txt", mime_type: "text/plain", size_bytes: new TextEncoder().encode(bytes).byteLength, course_id: sampleCourse.id, assignment_id: assignment.id, kind: "attachment", state: "ready", created_at: stamp, updated_at: stamp, content_sha256: null, folder_id: childFolderId, content_backend: "object", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null };
+  const originalFile = structuredClone(file);
+  const archiveRequests = [], byteReads = [];
+  let archived = false, failArchiveOnce = true;
+  const workspaceFetch = fetcher;
+  fetcher = async (url, init = {}) => {
+    if (url === "/api/profile" && init.method === "PUT") {
+      const body = JSON.parse(init.body);
+      server.profile = { ...server.profile, ...validateProfile(body), updated_at: "2026-10-08T00:00:03.000Z" };
+      return Response.json({ profile: server.profile });
+    }
+    return workspaceFetch(url, init);
+  };
+  filesFetcher = async (url, init = {}) => {
+    assert.equal(new Headers(init.headers).get("x-profile-id"), profile.id);
+    if (url === "/api/file-folders" && init.method === "PUT") {
+      const body = JSON.parse(init.body); archiveRequests.push(structuredClone(body));
+      assert.equal(body.id, folder.id); assert.equal(body.revision, folder.revision);
+      if (body.action === "archive") {
+        if (failArchiveOnce) { failArchiveOnce = false; return Response.json({ error: "Archive service offline" }, { status: 503 }); }
+        folder.archived_at = "2026-10-08T00:00:04.000Z"; folder.semester_label = body.semesterLabel;
+        folder.course_name_snapshot = sampleCourse.name; folder.course_color_snapshot = sampleCourse.color;
+      } else {
+        assert.equal(body.action, "unarchive");
+        folder.archived_at = null; folder.semester_label = null; folder.course_name_snapshot = null; folder.course_color_snapshot = null;
+      }
+      folder.revision++; folder.updated_at = "2026-10-08T00:00:05.000Z";
+      return Response.json({ folder: { ...folder } });
+    }
+    if (url.startsWith("/api/files?id=")) {
+      byteReads.push(url);
+      return new Response(bytes, { headers: { "content-type": "text/plain" } });
+    }
+    if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files: [{ ...file }], activities: { files: [] } });
+    if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [] } });
+    if (url.startsWith("/api/file-folders?view=active")) return Response.json({ folders: archived ? [] : [{ ...folder }, { ...child }], activities: { folders: [] } });
+    if (url.startsWith("/api/file-folders?view=archives")) return Response.json({ folders: archived ? [{ ...folder }, { ...child }] : [], activities: { folders: [] } });
+    if (url.startsWith("/api/file-folders?view=trash")) return Response.json({ folders: [], activities: { folders: [] } });
+    throw new Error(`Unexpected archive fixture request: ${url}`);
+  };
+  const saveArchive = filesFetcher;
+  filesFetcher = async (url, init = {}) => {
+    const response = await saveArchive(url, init);
+    if (url === "/api/file-folders" && init.method === "PUT" && response.ok) {
+      const body = JSON.parse(init.body); archived = body.action === "archive";
+    }
+    return response;
+  };
+
+  try {
+    await render(Workspace, { initialProfile: profile, filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="More options for ${sampleCourse.code}"]`), "course folder available to archive");
+    await clickAria(`More options for ${sampleCourse.code}`); await click("Archive folder…");
+    assert.equal(field("Semester label").value, "Fall 2026", "the archive label starts with the account's current term");
+    await edit("Semester label", "My fall archive");
+    await click("Settings");
+    await edit("Current term", "Spring 2027"); await click("Save changes");
+    await waitUntil(() => server.profile.current_term === "Spring 2027", "account term update while archive draft is open");
+    await click("Review Files");
+    assert.equal(field("Semester label").value, "My fall archive", "an account term change does not rewrite the captured archive draft");
+    await click("Archive folder");
+    await waitUntil(() => rootNode.textContent.includes("Archive service offline"), "archive request failure retained for retry");
+    assert.equal(field("Semester label").value, "My fall archive");
+    assert.equal(field("Semester label").disabled, true, "the captured label is immutable once the archive request starts");
+    assert.deepEqual(archiveRequests[0], { action: "archive", id: folderId, revision: 1, semesterLabel: "My fall archive" });
+    await click("Archive folder");
+    await waitUntil(() => !rootNode.querySelector(".file-archive-dialog"), "archive retry succeeds");
+    assert.deepEqual(archiveRequests[1], archiveRequests[0], "retry uses the identical captured label and folder revision");
+    assert.equal(folder.semester_label, "My fall archive");
+    assert.equal(folder.course_name_snapshot, sampleCourse.name); assert.equal(folder.course_color_snapshot, sampleCourse.color);
+
+    await click("Archives");
+    await waitUntil(() => [...rootNode.querySelectorAll(".files-archive-group h3")].some((heading) => heading.textContent === "My fall archive"), "archived course group");
+    await clickAria(`More options for ${sampleCourse.code}`); await click("Unarchive folder…");
+    await click("Unarchive folder");
+    await waitUntil(() => !rootNode.querySelector(".file-archive-dialog"), "course unarchive succeeds");
+    assert.equal(folder.archived_at, null); assert.equal(folder.semester_label, null);
+    await click("My files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "unarchived course in My files");
+
+    assert.deepEqual(server.dashboard, workspaceBeforeArchive.dashboard, "archive and unarchive do not rewrite workspace data");
+    assert.deepEqual(server.courses, workspaceBeforeArchive.courses);
+    assert.deepEqual(server.dashboard.d.assignments, [assignment]);
+    assert.deepEqual(server.dashboard.d.manualEvents, manualEvents);
+    assert.deepEqual(server.dashboard.d.courseDetails, courseDetails);
+    assert.deepEqual(file, originalFile, "the file's academic links, metadata revisions and content revision remain unchanged");
+    assert.equal(byteReads.length, 0, "archiving does not read or rewrite file bytes");
+    assert.equal(server.writes, 0, "archive and unarchive do not write a workspace revision");
+    assert.equal(server.profile.current_term, "Spring 2027", "the deliberate term edit is saved independently of the archive operation");
+  } finally {
+    filesFetcher = undefined;
+    if (root) await unmount();
+    if (previousFrame) window.requestAnimationFrame = previousFrame; else delete window.requestAnimationFrame;
+    if (previousCancelFrame) window.cancelAnimationFrame = previousCancelFrame; else delete window.cancelAnimationFrame;
+  }
+});
+
+test("Workspace multi-file uploads retain independent retries, block account actions, and record Recent only after opening", async () => {
+  reset();
+  const previousFrame = window.requestAnimationFrame;
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(window.performance.now()), 0);
+  const profile = { ...baseProfile, id: "12121212-1212-4121-8121-121212121212" };
+  const server = installWorkspaceServer(savedDashboard, [sampleCourse], profile);
+  const folderId = "23232323-2323-4323-8323-232323232323";
+  const stamp = "2026-10-01T00:00:00.000Z";
+  const folder = { id: folderId, name: sampleCourse.code, kind: "course", course_id: sampleCourse.id, course_code: sampleCourse.code, parent_id: null, revision: 1, created_at: stamp, updated_at: stamp, archived_at: null, semester_label: null, course_name_snapshot: null, course_color_snapshot: null, trashed_at: null, trash_operation_id: null, original_parent_id: null };
+  const storedFiles = new Map(), fileBytes = new Map(), lastOpened = new Map(), activityActions = [], fileReads = [];
+  const xhr = installUploadXhr();
+  const rows = () => [...storedFiles.values()].map((file) => ({ ...file }));
+  const activityRows = () => ({ files: [...lastOpened].map(([file_id, last_opened_at]) => ({ file_id, starred_at: null, last_opened_at })), folders: [] });
+  filesFetcher = async (url, init = {}) => {
+    const method = init.method ?? "GET";
+    if (url === "/api/files/actions" && method === "POST") {
+      const body = JSON.parse(init.body); activityActions.push(body);
+      assert.equal(body.action, "open"); assert.equal(body.items.length, 1);
+      const file = storedFiles.get(body.items[0].id);
+      assert.ok(file, "open must refer to an uploaded file");
+      assert.equal(body.items[0].revision, file.metadata_revision);
+      const openedAt = "2026-10-09T00:00:01.000Z"; lastOpened.set(file.id, openedAt);
+      return Response.json({ activities: { files: [{ file_id: file.id, starred_at: null, last_opened_at: openedAt }], folders: [] } });
+    }
+    if (url.startsWith("/api/files?id=") && method === "GET") {
+      const id = new URL(url, "https://edu.example").searchParams.get("id"); fileReads.push(id);
+      const bytes = fileBytes.get(id); assert.ok(bytes, `Missing bytes for ${id}`);
+      return new Response(bytes, { headers: { "content-type": storedFiles.get(id)?.mime_type ?? "application/octet-stream" } });
+    }
+    if (url === "/api/files" && method === "GET") return Response.json({ files: rows() });
+    if (url.startsWith("/api/files?view=active")) return Response.json({ files: rows(), activities: activityRows() });
+    if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/file-folders?view=active")) return Response.json({ folders: [folder], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/file-folders?view=")) return Response.json({ folders: [], activities: { files: [], folders: [] } });
+    throw new Error(`Unexpected Workspace upload request: ${method} ${url}`);
+  };
+
+  const failedFile = new File(["first upload body"], "Retry me.txt", { type: "text/plain" });
+  const successfulFile = new File(["second upload body"], "Open me.txt", { type: "text/plain" });
+  const oversizedFile = new File([new Uint8Array(26_214_401)], "Too large.txt", { type: "text/plain" });
+  try {
+    await render(Workspace, { initialProfile: profile, filesBrowserEnabled: true });
+    await click("Files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder for multi-file upload");
+    await clickAria(`Open folder: ${sampleCourse.code}`);
+    await click("New"); await click("Upload file");
+    const chooser = field("Choose files");
+    await act(async () => {
+      Object.defineProperty(chooser, "files", { configurable: true, value: [failedFile, successfulFile, oversizedFile] });
+      chooser.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+
+    await waitUntil(() => xhr.requests.length === 1, "first queued upload");
+    const failedRequest = xhr.requests[0];
+    const failedId = new URL(failedRequest.url, "https://edu.example").searchParams.get("id");
+    const failedMetadata = uploadMetadata(failedRequest);
+    assert.deepEqual(failedMetadata, { name: failedFile.name, courseId: sampleCourse.id, assignmentId: "", kind: "resource", folderId });
+    await act(async () => failedRequest.reportProgress(failedFile.size, failedFile.size));
+    assert.equal(rootNode.querySelector(`[data-upload-id="${failedId}"] progress`).value, 99, "progress stays below completion until the server confirms the upload");
+    assert.match(rootNode.querySelector(`[data-upload-id="${failedId}"] .files-upload-status`).textContent, /99%/);
+    await act(async () => failedRequest.respond(503, { error: "Storage offline" }));
+
+    await waitUntil(() => xhr.requests.length === 2, "second file continues after first upload failure");
+    const successfulRequest = xhr.requests[1];
+    const successfulRow = await uploadedFileForRequest(successfulRequest);
+    storedFiles.set(successfulRow.id, successfulRow); fileBytes.set(successfulRow.id, "second upload body");
+    await act(async () => successfulRequest.respond(201, { file: successfulRow }));
+    await waitUntil(() => rootNode.querySelector(`[data-upload-id="${successfulRow.id}"] .files-upload-status`)?.textContent === "Uploaded and verified", "second file success");
+    assert.equal(xhr.requests.length, 2, "an oversized selection is retained as a row without starting an upload");
+    assert.match(rootNode.querySelector(`[data-upload-id="${failedId}"] .files-upload-error`).textContent, /Storage offline/);
+    const oversizedRow = [...rootNode.querySelectorAll(".files-upload-row")].find((row) => row.textContent.includes(oversizedFile.name));
+    assert.match(oversizedRow.querySelector(".files-upload-error").textContent, /25 MiB/);
+    assert.equal(activityActions.length, 0, "upload completion alone never marks a file Recent");
+
+    await click("Close uploads");
+    assert.equal(rootNode.querySelector('[role="dialog"][aria-label="Upload files"]'), null, "closing the chooser leaves its queue mounted in Workspace");
+    await click("Recent");
+    await waitUntil(() => rootNode.querySelector(".files-state-panel h3")?.textContent === "No recent files", "empty Recent view before a real open");
+    assert.doesNotMatch(rootNode.querySelector(".files-browser-content").textContent, /Open me\.txt/);
+    await clickIn(rootNode.querySelector('.files-view-nav'), "My files");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder after Recent view");
+    await clickAria(`Open folder: ${sampleCourse.code}`);
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: ${successfulFile.name}"]`), "uploaded file in My files");
+    await clickAria(`Preview file: ${successfulFile.name}`);
+    await waitUntil(() => rootNode.querySelector(".syllabus-source")?.textContent === "second upload body", "uploaded file preview read");
+    await waitUntil(() => activityActions.length === 1, "open acknowledged to Recent");
+    assert.deepEqual(fileReads, [successfulRow.id]);
+    await click("Close file preview"); await click("Recent");
+    await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: ${successfulFile.name}"]`), "file appears in Recent only after opening");
+
+    await click("Settings");
+    assert.equal(window.location.pathname, "/settings");
+    assert.equal(unloadBlocked(), true, "retained failed and oversized rows protect the workspace from unload");
+    assert.equal(rootNode.querySelector('a[href^="/api/export"]').getAttribute("aria-disabled"), "true");
+    assert.equal([...rootNode.querySelectorAll("button")].find((button) => button.textContent.trim() === "Sign out").disabled, true);
+    await click("Download current drafts (.json)");
+    const currentDraft = JSON.parse(await downloads.at(-1).text());
+    const failedDraft = currentDraft.fileUploads.uploads.find((upload) => upload.id === failedId);
+    assert.ok(failedDraft, "the current-work draft preserves the failed selection for recovery");
+    assert.deepEqual(failedDraft.metadata, failedMetadata);
+    assert.ok(currentDraft.fileUploads.uploads.some((upload) => upload.name === oversizedFile.name));
+
+    await click("Review uploads");
+    const failedRow = rootNode.querySelector(`[data-upload-id="${failedId}"]`);
+    await clickIn(failedRow, "Download original");
+    assert.equal(downloads.at(-1), failedFile, "each failed row can download its exact original selection");
+    await clickIn(failedRow, "Download request draft");
+    const requestDraft = JSON.parse(await downloads.at(-1).text());
+    assert.equal(requestDraft.id, failedId); assert.deepEqual(requestDraft.metadata, failedMetadata);
+    await clickIn(failedRow, "Retry upload");
+    await waitUntil(() => xhr.requests.length === 3, "retry of failed selection");
+    const retryRequest = xhr.requests[2];
+    assert.equal(new URL(retryRequest.url, "https://edu.example").searchParams.get("id"), failedId, "retry reuses the reserved file ID");
+    assert.equal(retryRequest.body, failedFile, "retry uses the original File object");
+    assert.deepEqual(uploadMetadata(retryRequest), failedMetadata, "retry preserves the captured folder and class metadata");
+    const retriedRow = await uploadedFileForRequest(retryRequest);
+    storedFiles.set(retriedRow.id, retriedRow); fileBytes.set(retriedRow.id, "first upload body");
+    await act(async () => retryRequest.respond(201, { file: retriedRow }));
+    await waitUntil(() => rootNode.querySelector(`[data-upload-id="${failedId}"] .files-upload-status`)?.textContent === "Uploaded and verified", "failed selection retry success");
+    assert.equal(rootNode.querySelector('a[href^="/api/export"]').getAttribute("aria-disabled"), "true", "the invalid oversized row still blocks account export");
+    await clickAria(`Dismiss upload ${oversizedFile.name}`);
+    assert.equal(unloadBlocked(), false, "completing retry and dismissing the invalid row clears upload protection");
+    assert.notEqual(rootNode.querySelector('a[href^="/api/export"]').getAttribute("aria-disabled"), "true");
+    assert.equal([...rootNode.querySelectorAll("button")].find((button) => button.textContent.trim() === "Sign out").disabled, false);
+    assert.equal(server.writes, 0, "upload progress and file reads do not rewrite the academic workspace");
+  } finally {
+    filesFetcher = undefined;
+    xhr.restore();
+    if (root) await unmount();
+    if (previousFrame) window.requestAnimationFrame = previousFrame; else delete window.requestAnimationFrame;
+  }
+});
+
+test("legacy class and assignment upload controls keep their associations beside the Files upload queue", async () => {
+  reset();
+  const profile = { ...baseProfile, id: "34343434-3434-4434-8434-343434343434" };
+  const assignment = { id: "history-essay", title: "History essay", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Keep the course link", weight: "15%" };
+  installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment] } }, [sampleCourse], profile);
+  const uploads = [], storedFiles = new Map();
+  const xhr = installUploadXhr();
+  filesFetcher = async (url, init = {}) => {
+    const method = init.method ?? "GET";
+    if (url.startsWith("/api/files?id=") && method === "POST") {
+      const metadata = JSON.parse(decodeURIComponent(new Headers(init.headers).get("x-file-metadata")));
+      const id = new URL(url, "https://edu.example").searchParams.get("id");
+      uploads.push({ id, metadata, file: init.body });
+      const file = { id, name: metadata.name, mime_type: init.body.type || "application/octet-stream", size_bytes: init.body.size, course_id: metadata.courseId || null, assignment_id: metadata.assignmentId || null, kind: metadata.kind, state: "ready", created_at: "2026-10-09T00:00:00.000Z", updated_at: "2026-10-09T00:00:00.000Z", content_sha256: null, folder_id: metadata.folderId ?? null, content_backend: "object", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null };
+      storedFiles.set(id, file);
+      return Response.json({ file }, { status: 201 });
+    }
+    if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files: [...storedFiles.values()], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/file-folders?view=")) return Response.json({ folders: [], activities: { files: [], folders: [] } });
+    throw new Error(`Unexpected legacy upload request: ${method} ${url}`);
+  };
+  try {
+    await render(Workspace, { initialProfile: profile, filesBrowserEnabled: true });
+    await click("Courses");
+    await waitUntil(() => rootNode.querySelector(".class-card"), "course card for class attachment");
+    await act(async () => rootNode.querySelector(".class-card").click());
+    await waitUntil(() => [...rootNode.querySelectorAll("button")].some((button) => button.textContent.trim() === "Add class file" && !button.disabled), "class upload control enabled");
+    await click("Add class file");
+    const classFile = new File(["class file bytes"], "Class handout.txt", { type: "text/plain" });
+    const classChooser = field("Choose file");
+    await act(async () => { Object.defineProperty(classChooser, "files", { configurable: true, value: [classFile] }); classChooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await click("Upload / retry file");
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].metadata.courseId, sampleCourse.id); assert.equal(uploads[0].metadata.assignmentId, "");
+    assert.equal(uploads[0].metadata.name, classFile.name); assert.equal(uploads[0].metadata.kind, "resource");
+    assert.equal(xhr.requests.length, 0, "class attachments retain the existing single-file fetch flow");
+
+    await click("Close class"); await click("Courses");
+    await act(async () => rootNode.querySelector(".class-card").click());
+    const assignmentRow = [...rootNode.querySelectorAll(".assignment-row")].find((row) => row.textContent.includes(assignment.title));
+    assert.ok(assignmentRow, "the class detail retains its assignment row");
+    await act(async () => assignmentRow.click());
+    await waitUntil(() => rootNode.querySelector('[aria-label="Assignment details"]'), "assignment details after opening the linked row");
+    await waitUntil(() => [...rootNode.querySelectorAll("button")].some((button) => button.textContent.trim() === "Attach file" && !button.disabled), "assignment upload control enabled");
+    await click("Attach file");
+    const assignmentFile = new File(["assignment bytes"], "Essay source.txt", { type: "text/plain" });
+    const assignmentChooser = rootNode.querySelector('[aria-label="File editor"] input[type="file"]');
+    assert.ok(assignmentChooser, "assignment attachment opens the legacy file editor");
+    await act(async () => { Object.defineProperty(assignmentChooser, "files", { configurable: true, value: [assignmentFile] }); assignmentChooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await click("Upload / retry file");
+    assert.equal(uploads.length, 2);
+    assert.equal(uploads[1].metadata.courseId, sampleCourse.id); assert.equal(uploads[1].metadata.assignmentId, assignment.id);
+    assert.equal(uploads[1].metadata.name, assignmentFile.name); assert.equal(uploads[1].metadata.kind, "attachment");
+    assert.equal(xhr.requests.length, 0, "assignment attachments retain the existing single-file fetch flow");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Assignment details"] .private-file-list')?.textContent.includes(assignmentFile.name), "assignment attachment displayed with its saved association");
+  } finally {
+    filesFetcher = undefined;
+    xhr.restore();
+    if (root) await unmount();
+  }
+});
+
+test("late upload acknowledgements are fenced across an A to B to A profile session change", async () => {
+  reset();
+  const previousFrame = window.requestAnimationFrame;
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(window.performance.now()), 0);
+  const profileA = { ...baseProfile, id: "45454545-4545-4454-8454-454545454545" };
+  const profileB = { ...baseProfile, id: "56565656-5656-4565-8565-565656565656", email: "other@example.invalid" };
+  const profiles = new Map([[profileA.id, profileA], [profileB.id, profileB]]);
+  fetcher = async (_url, init = {}) => {
+    const profileId = new Headers(init.headers).get("x-profile-id");
+    const profile = profiles.get(profileId);
+    assert.ok(profile, `Workspace request used an unknown profile ${profileId}`);
+    if (init.method === "PUT") return Response.json({ ok: true, revision: profile.updated_at });
+    return Response.json({ initialized: true, courses: [], dashboard: savedDashboard, revision: profile.updated_at, profile });
+  };
+  const requests = [], xhr = installUploadXhr();
+  let accountAFileStore = [], accountBFileStore = [];
+  const storeFor = (profileId) => profileId === profileA.id ? accountAFileStore : accountBFileStore;
+  filesFetcher = async (url, init = {}) => {
+    const profileId = new Headers(init.headers).get("x-profile-id");
+    requests.push({ url, method: init.method ?? "GET", profileId });
+    const files = storeFor(profileId);
+    if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files, activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/file-folders?view=")) return Response.json({ folders: [], activities: { files: [], folders: [] } });
+    throw new Error(`Unexpected cross-profile upload request: ${init.method ?? "GET"} ${url}`);
+  };
+  const lateFile = new File(["late account A bytes"], "A only.txt", { type: "text/plain" });
+  try {
+    await render(Workspace, { initialProfile: profileA, filesBrowserEnabled: true });
+    await click("Files"); await waitUntil(() => rootNode.querySelector(".files-browser"), "Files browser for account A");
+    await click("New"); await click("Upload file");
+    const chooser = field("Choose files");
+    await act(async () => { Object.defineProperty(chooser, "files", { configurable: true, value: [lateFile] }); chooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await waitUntil(() => xhr.requests.length === 1, "account A upload starts");
+    const heldRequest = xhr.requests[0];
+    assert.equal(heldRequest.headers.get("x-profile-id"), profileA.id);
+    const heldId = new URL(heldRequest.url, "https://edu.example").searchParams.get("id");
+
+    await render(Workspace, { initialProfile: profileB, filesBrowserEnabled: true });
+    await waitUntil(() => rootNode.querySelector(`[data-upload-id="${heldId}"] .files-upload-error`)?.textContent.includes("original account"), "account switch aborts and retains the original queue row");
+    assert.equal(field("Choose files").disabled, true, "an old account chooser cannot add files to the new account");
+    const retryButton = [...rootNode.querySelectorAll(`[data-upload-id="${heldId}"] button`)].find((button) => button.textContent.trim() === "Retry upload");
+    assert.ok(retryButton?.disabled, "the old account's retry is disabled while account B is active");
+
+    await render(Workspace, { initialProfile: profileA, filesBrowserEnabled: true });
+    await waitUntil(() => requests.some((request) => request.url === "/api/files" && request.profileId === profileA.id) && !rootNode.querySelector(".files-browser")?.textContent.includes("Loading your files"), "account A rehydrates with its new session generation");
+    const aReadsBeforeLateResponse = requests.filter((request) => request.url === "/api/files" && request.profileId === profileA.id).length;
+    const bReadsBeforeLateResponse = requests.filter((request) => request.url === "/api/files" && request.profileId === profileB.id).length;
+    const lateResponseFile = await uploadedFileForRequest(heldRequest);
+    await act(async () => heldRequest.respond(201, { file: lateResponseFile }));
+    await waitForMilliseconds(100);
+    assert.equal(heldRequest.aborted, true, "the original XHR was aborted when the profile session changed");
+    assert.equal(rootNode.querySelector(`[data-upload-id="${heldId}"] .files-upload-status`)?.textContent.includes("Uploaded and verified"), false, "a late response cannot acknowledge an upload from an earlier A session");
+    assert.equal(rootNode.querySelector(".files-browser-content").textContent.includes(lateFile.name), false, "the late acknowledgement does not insert account A data into the re-entered Workspace");
+    assert.equal(requests.filter((request) => request.url === "/api/files" && request.profileId === profileA.id).length, aReadsBeforeLateResponse, "stale completion does not refresh files through a later A session");
+    assert.equal(requests.filter((request) => request.url === "/api/files" && request.profileId === profileB.id).length, bReadsBeforeLateResponse, "stale completion never reads account B files");
+    assert.equal(accountAFileStore.length, 0); assert.equal(accountBFileStore.length, 0);
+    assert.equal(requests.filter((request) => request.method === "POST" && request.url.startsWith("/api/files")).length, 0, "no fetch-based write is redirected to either account");
+  } finally {
+    filesFetcher = undefined;
+    xhr.restore();
+    if (root) await unmount();
+    if (previousFrame) window.requestAnimationFrame = previousFrame; else delete window.requestAnimationFrame;
+  }
 });

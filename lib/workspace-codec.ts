@@ -3,6 +3,7 @@ import { validateStudy, type StudyData } from "./study";
 import { validateWidgetAppearanceState, type WidgetAppearanceState } from "./widget-appearance";
 import { widgetSizes, type WidgetSize } from "./widget-layout";
 import { validateTodaySections, type TodaySectionId } from "./today-sections";
+import type { FilesBrowserPreferences } from "./files-browser";
 export { widgetSizes };
 export type { WidgetSize };
 
@@ -72,7 +73,7 @@ export type WorkspaceData = {
   dashboardView: "cards" | "list";
   calendarFilter?: string; courseDetails?: Record<string, CourseDetails>; syllabusDrafts?: SyllabusDraft[];
   study?: StudyData;
-  filePreferences?: { filter: string; view: "list" | "grid" };
+  filePreferences?: FilesBrowserPreferences;
   widgetAppearance?: WidgetAppearanceState;
 };
 
@@ -301,6 +302,15 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
   if (value.calendarFilter !== undefined && (typeof value.calendarFilter !== "string" || value.calendarFilter.length > 120)) throw new Error("Invalid calendar filter.");
   if (value.study !== undefined) validateStudy(value.study);
   if (value.filePreferences !== undefined && (!isRecord(value.filePreferences) || typeof value.filePreferences.filter !== "string" || value.filePreferences.filter.length > 120 || !["list", "grid"].includes(String(value.filePreferences.view)))) throw new Error("Invalid file preferences.");
+  if (isRecord(value.filePreferences)) {
+    const preferences = value.filePreferences;
+    const fields = new Set(["filter", "view", "sortBy", "sortDirection", "fileType", "includeArchived"]);
+    if (Object.keys(preferences).some((key) => !fields.has(key)) ||
+        (preferences.sortBy !== undefined && (typeof preferences.sortBy !== "string" || !["name", "modified"].includes(preferences.sortBy))) ||
+        (preferences.sortDirection !== undefined && (typeof preferences.sortDirection !== "string" || !["asc", "desc"].includes(preferences.sortDirection))) ||
+        (preferences.fileType !== undefined && (typeof preferences.fileType !== "string" || !["all", "text", "pdf", "image", "other"].includes(preferences.fileType))) ||
+        (preferences.includeArchived !== undefined && typeof preferences.includeArchived !== "boolean")) throw new Error("Invalid file preferences.");
+  }
   if (value.courseDetails !== undefined) { if (!isRecord(value.courseDetails) || Object.keys(value.courseDetails).length > 100) throw new Error("Invalid class details."); Object.values(value.courseDetails).forEach(validateCourseDetails); }
   if (value.syllabusDrafts !== undefined) { if (!Array.isArray(value.syllabusDrafts) || value.syllabusDrafts.length > 10) throw new Error("Keep at most 10 syllabus reviews."); value.syllabusDrafts.forEach(validateDraft); if (new Set(value.syllabusDrafts.map((d) => d.id)).size !== value.syllabusDrafts.length) throw new Error("Duplicate syllabus review ID."); }
   return { ...normalized, ...(value.widgetAppearance !== undefined ? { widgetAppearance: validateWidgetAppearanceState(value.widgetAppearance) } : {}) } as WorkspaceData;

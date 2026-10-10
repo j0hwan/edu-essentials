@@ -38,8 +38,24 @@ async function citationsCurrent(profileId: string, citations: Citation[]) {
   }
   const ids = citations.filter((c) => c.kind === "document").map((c) => c.sourceId!);
   if (!ids.length) return true;
-  const sources = await getSupabaseAdmin().from("ai_sources").select("id,version,enabled,state").eq("profile_id", profileId).in("id", ids); check(sources.error);
-  return citations.filter((c) => c.kind === "document").every((c) => sources.data?.some((s) => s.id === c.sourceId && s.version === c.version && s.enabled && s.state === "ready"));
+  const db = getSupabaseAdmin();
+  const sources = await db.from("ai_sources").select("id,version,enabled,state,file_id,file_available")
+    .eq("profile_id", profileId).in("id", ids); check(sources.error);
+  const documents = citations.filter((c) => c.kind === "document");
+  if (!documents.every((c) => sources.data?.some((s) => s.id === c.sourceId && s.version === c.version
+      && s.enabled && s.state === "ready" && s.file_available))) return false;
+  const fileIds = [...new Set((sources.data ?? []).map((s) => s.file_id).filter((id): id is string => !!id))];
+  if (!fileIds.length) return true;
+  const files = await db.from("user_files").select("id,content_sha256,state,deleted_at,trashed_at")
+    .eq("profile_id", profileId).in("id", fileIds); check(files.error);
+  const currentFiles = new Map((files.data ?? []).map((file) => [file.id, file]));
+  return documents.every((citation) => {
+    const source = sources.data?.find((row) => row.id === citation.sourceId);
+    if (!source?.file_id) return true;
+    const file = currentFiles.get(source.file_id);
+    return !!file && file.state === "ready" && file.deleted_at === null && file.trashed_at === null
+      && file.content_sha256 === citation.version;
+  });
 }
 
 export async function aiRoute(request: Request, resource: string): Promise<Response> {
@@ -94,11 +110,10 @@ export async function aiRoute(request: Request, resource: string): Promise<Respo
       }
     }
     if (resource === "sources") {
-      if (request.method === "GET") { const result = await db.from("ai_sources").select("id,label,state,error,enabled,file_id,updated_at").eq("profile_id", profile.id).order("updated_at", { ascending: false }).limit(1000); check(result.error); return json({ sources: result.data }); }
+      if (request.method === "GET") { const result = await db.from("ai_sources").select("id,label,state,error,enabled,file_id,file_available,updated_at").eq("profile_id", profile.id).order("updated_at", { ascending: false }).limit(1000); check(result.error); return json({ sources: result.data }); }
       if (request.method === "POST") {
         const body = z.object({ id: uuid, action: z.enum(["retry", "exclude", "include"]) }).strict().parse(await readPersistenceJson(request, 2048));
-        const patch = body.action === "exclude" ? { enabled: false, lease_id: null } : { enabled: true, state: "queued", attempts: 0, error: null, lease_id: null, available_at: new Date().toISOString() };
-        const result = await db.from("ai_sources").update(patch).eq("profile_id", profile.id).eq("id", body.id); check(result.error); return json({ ok: true });
+        const result = await db.rpc("mutate_account_ai_source", { p_profile_id: profile.id, p_auth_user_id: profile.auth_user_id, p_id: body.id, p_action: body.action }); check(result.error); return json({ ok: true });
       }
     }
     if (resource === "citations" && request.method === "GET") {
@@ -157,8 +172,12 @@ function aiFailure(error: unknown) {
   if (error instanceof ProviderError) console.warn("AI provider request failed", { status: error.status, upstreamStatus: error.upstreamStatus, retryable: error.retryable });
   if (error instanceof AuthError || error instanceof PersistenceRequestError || error instanceof ProviderError) return json({ error: error.message }, error.status);
   if (error instanceof ZodError) return json({ error: "Invalid assistant request. Review the fields and try again." }, 400);
-  const code = (error as { code?: string })?.code;
+  const databaseError = error as { code?: string; message?: string };
+  const code = databaseError?.code;
   if (code === "40001") return json({ error: "Your workspace or proposal changed. Refresh and request a new preview." }, 409);
+  if (code === "P0001" && (databaseError.message?.startsWith("PRESERVE_COURSE_SYLLABUS:") || databaseError.message?.startsWith("PRESERVE_SYLLABUS_REPLACEMENT:"))) {
+    return json({ error: "This proposal could not be applied because the course syllabus could not be preserved. Free file capacity, keep the course, or shorten its syllabus text before applying the proposal again. No academic changes were committed." }, 409);
+  }
   if (code === "P0002" || code === "PGRST116") return json({ error: "This item is unavailable in your account." }, 404);
   if (code === "42P01" || code === "PGRST202" || code === "PGRST205") return json({ error: "AI database setup is not installed yet." }, 503);
   return json({ error: "The assistant could not verify a complete response. No academic changes were made. Try a narrower question." }, 503);

@@ -1,0 +1,107 @@
+.reference-ui .native-document-backdrop { z-index: 250; }
+.reference-ui .native-document-dialog {
+  width: min(100%, calc(780 * var(--ui-unit)));
+  max-height: calc(100dvh - 36px);
+  display: flex;
+  flex-direction: column;
+  gap: calc(12 * var(--ui-unit));
+}
+.reference-ui .native-document-heading { align-items: center; }
+.reference-ui .native-document-heading h2 { font-size: calc(17 * var(--ui-unit)); }
+.reference-ui .native-document-status {
+  display: flex;
+  min-height: calc(31 * var(--ui-unit));
+  align-items: center;
+  gap: calc(8 * var(--ui-unit));
+  border: 1px solid #294572;
+  border-radius: calc(7 * var(--ui-unit));
+  background: #132b4d;
+  padding: calc(6 * var(--ui-unit)) calc(9 * var(--ui-unit));
+  color: #c4d6fb;
+  font-size: calc(11 * var(--ui-unit));
+}
+.reference-ui .native-document-status svg { flex: 0 0 auto; }
+.reference-ui .native-document-status.is-saving { border-color: #43538a; background: #202d55; color: #d3d8ff; }
+.reference-ui .native-document-status.is-error { border-color: #6b4f49; background: #332622; color: #ffd1b5; }
+.reference-ui .native-document-fields {
+  display: grid;
+  min-height: 0;
+  gap: calc(11 * var(--ui-unit));
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.reference-ui .native-document-fields label {
+  display: grid;
+  min-width: 0;
+  gap: calc(5 * var(--ui-unit));
+  color: #a8bedf;
+  font-size: calc(11 * var(--ui-unit));
+  font-weight: 600;
+}
+.reference-ui .native-document-fields input,
+.reference-ui .native-document-fields textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #304971;
+  border-radius: calc(6 * var(--ui-unit));
+  background: #09182a;
+  padding: calc(9 * var(--ui-unit)) calc(10 * var(--ui-unit));
+  color: #e6edff;
+  font: inherit;
+  font-size: calc(12 * var(--ui-unit));
+}
+.reference-ui .native-document-fields input:focus,
+.reference-ui .native-document-fields textarea:focus { outline: 2px solid #90a7ff; outline-offset: 1px; border-color: #7184ff; }
+.reference-ui .native-document-fields input:disabled,
+.reference-ui .native-document-fields textarea:disabled { opacity: .74; }
+.reference-ui .native-document-fields textarea {
+  min-height: min(52vh, calc(420 * var(--ui-unit)));
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.reference-ui .native-document-error {
+  margin: 0;
+  border: 1px solid #684a49;
+  border-radius: calc(6 * var(--ui-unit));
+  background: #342423;
+  padding: calc(8 * var(--ui-unit)) calc(10 * var(--ui-unit));
+  color: #ffd0c2;
+  font-size: calc(11 * var(--ui-unit));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.reference-ui .native-document-conflict {
+  display: grid;
+  gap: calc(7 * var(--ui-unit));
+  border: 1px solid #655a3b;
+  border-radius: calc(7 * var(--ui-unit));
+  background: #302d24;
+  padding: calc(9 * var(--ui-unit));
+}
+.reference-ui .native-document-conflict p { margin: 0 0 calc(2 * var(--ui-unit)); color: #ffdf8c; font-size: calc(11 * var(--ui-unit)); line-height: 1.45; }
+.reference-ui .native-document-conflict .files-secondary-button { justify-self: start; }
+.reference-ui .native-document-retry-initial { align-self: flex-start; }
+.reference-ui .native-document-actions { flex-wrap: wrap; justify-content: flex-start; gap: calc(7 * var(--ui-unit)); margin-top: 0; border-top: 0; padding-top: 0; }
+.reference-ui .native-document-actions .native-document-close { margin-left: auto; }
+.reference-ui .native-document-help { margin: calc(-4 * var(--ui-unit)) 0 0; color: #91a9cf; font-size: calc(10 * var(--ui-unit)); line-height: 1.45; }
+.reference-ui .native-document-dialog :is(button, input, textarea):focus-visible { outline: 2px solid #90a7ff; outline-offset: 2px; }
+
+@media (max-width: 650px) {
+  .reference-ui .native-document-backdrop { align-items: end; padding: 0; }
+  .reference-ui .native-document-dialog {
+    width: 100%;
+    max-height: 94dvh;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: calc(12 * var(--ui-unit)) calc(12 * var(--ui-unit)) 0 0;
+    padding: calc(13 * var(--ui-unit));
+  }
+  .reference-ui .native-document-fields textarea { min-height: 34vh; }
+  .reference-ui .native-document-actions { justify-content: flex-start; }
+  .reference-ui .native-document-actions .native-document-close { margin-left: 0; }
+}

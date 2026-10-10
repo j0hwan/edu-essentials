@@ -29,7 +29,7 @@ export class Autosave {
     this.state = { status, ready: this.state.ready, dirty: this.invalid || this.uncertain || this.writing || (this.state.ready && this.latest !== this.saved), message };
     this.listeners.forEach((listener) => listener());
   }
-  stop = () => { clearTimeout(this.timer); this.generation++; this.writing = false; };
+  stop = () => { clearTimeout(this.timer); this.generation++; this.writing = false; this.listeners.forEach((listener) => listener()); };
   loading = () => {
     this.stop(); this.invalid = false; this.uncertain = false;
     this.state = { status: "loading", ready: false, dirty: false, message: "Loading your workspace…" };
@@ -59,6 +59,24 @@ export class Autosave {
   retry = () => {
     if (!this.state.ready || this.invalid || this.state.status === "conflict" || this.writing) return;
     this.publish("dirty"); void this.flush();
+  };
+  /** Await the latest snapshot, including edits queued behind an existing write.
+   * A failure ends the attempt; only an explicit retry starts another one. */
+  flushLatest = async (retry = false) => {
+    const generation = this.generation;
+    if (retry && this.state.ready && !this.invalid && !this.writing && ["save-error", "session-error"].includes(this.state.status)) this.publish("dirty");
+    while (generation === this.generation && this.state.ready && !this.invalid && !["conflict", "session-error", "save-error"].includes(this.state.status)) {
+      if (this.writing) {
+        await new Promise<void>((resolve) => {
+          const unsubscribe = this.subscribe(() => {
+            if (!this.writing || generation !== this.generation) { unsubscribe(); resolve(); }
+          });
+        });
+      } else {
+        void this.flush();
+        if (this.state.status === "saved") return;
+      }
+    }
   };
   flush = async () => {
     clearTimeout(this.timer);

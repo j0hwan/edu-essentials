@@ -1,35 +1,85 @@
-import { getSupabaseAdmin } from "../lib/supabase-server";
-import { aiConfig } from "../lib/ai/config";
 import { extractDocument, UnsupportedDocument } from "../lib/ai/extract";
 import { chunkPages } from "../lib/ai/chunks";
-import { hashBytes, FILE_BUCKET } from "../lib/files";
+import { hashBytes } from "../lib/files";
+import type { PrivateFile } from "../lib/files";
+import { readFileContent } from "../lib/file-content";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+type AiFileMetadata = PrivateFile & { profile_id: string; deleted_at: string | null };
+
+type AiSourceJob = {
+  id: string;
+  profile_id: string;
+  file_id: string | null;
+  version: string;
+  lease_id: string;
+  attempts: number;
+  body?: string | null;
+};
+
+type ContentReader = typeof readFileContent;
+
+/** Fetch, verify, and publish one claimed job. Exposed for deterministic worker tests. */
+export async function processClaimedSource(db: SupabaseClient, source: AiSourceJob, readContent: ContentReader = readFileContent) {
+  let chunks;
+  if (source.file_id) {
+    const result = await db.from("user_files").select("*")
+      .eq("profile_id", source.profile_id).eq("id", source.file_id).single();
+    const file = result.data as AiFileMetadata | null;
+    if (result.error || !file || file.profile_id !== source.profile_id || file.id !== source.file_id
+        || file.state !== "ready" || file.deleted_at !== null || file.trashed_at !== null
+        || !file.content_sha256 || file.content_sha256 !== source.version) {
+      throw new Error("Source file changed or is unavailable.");
+    }
+    const limit = file.content_backend === "native-text" ? 1048576 : 10485760;
+    if (file.size_bytes > limit) throw new UnsupportedDocument(file.content_backend === "native-text"
+      ? "Text documents are limited to 1 MiB of UTF-8 content."
+      : "AI indexing supports files up to 10 MB.");
+    const bytes = await readContent(db, source.profile_id, file);
+    if (bytes.length !== Number(file.size_bytes) || await hashBytes(bytes) !== source.version) {
+      throw new Error("Source verification failed.");
+    }
+    chunks = await extractDocument(bytes, file.mime_type);
+  } else chunks = chunkPages([source.body ?? ""]);
+
+  const published = await db.rpc("ai_publish_source", {
+    p_profile_id: source.profile_id, p_id: source.id, p_version: source.version,
+    p_lease: source.lease_id, p_chunks: chunks,
+  });
+  if (published.error) throw new Error("Index publication failed.");
+  return published.data === true;
+}
+
+/** Update failure state only if this exact processing lease is still current. */
+export async function failClaimedSource(db: SupabaseClient, source: AiSourceJob, error: unknown, now = Date.now()) {
+  const unsupported = error instanceof UnsupportedDocument;
+  const updated = await db.from("ai_sources").update({
+    state: unsupported ? "unsupported" : source.attempts >= 5 ? "failed" : "queued",
+    error: unsupported ? error.message : "Indexing could not finish. It will retry, or you can retry from Manage sources.",
+    lease_id: null,
+    lease_until: null,
+    available_at: new Date(now + Math.min(3600, 60 * 2 ** source.attempts) * 1000).toISOString(),
+  }).eq("profile_id", source.profile_id).eq("id", source.id).eq("version", source.version)
+    .eq("lease_id", source.lease_id).eq("state", "processing").eq("enabled", true).eq("file_available", true);
+  return updated;
+}
 
 /** Durable DB jobs, leases, and version checks make restarts and duplicate ticks safe. */
 export async function ingestTick() {
+  const [{ getSupabaseAdmin }, { aiConfig }] = await Promise.all([
+    import("../lib/supabase-server"), import("../lib/ai/config"),
+  ]);
   const config = aiConfig(), db = getSupabaseAdmin();
   const cleanup = await db.rpc("ai_cleanup"); if (cleanup.error) throw new Error("AI cleanup failed.");
   if (!config.enabled || !config.apiKey || !config.allowlist.length) return;
   for (let i = 0; i < 2; i++) {
     const claimed = await db.rpc("ai_claim_source", { p_allowed: config.allowlist, p_synthetic: config.mode !== "paid" });
     if (claimed.error) throw new Error("AI job claim failed.");
-    const source = claimed.data; if (!source) break;
+    const source = claimed.data as AiSourceJob | null; if (!source) break;
     try {
-      let chunks;
-      if (source.file_id) {
-        const file = await db.from("user_files").select("mime_type,size_bytes,content_sha256").eq("profile_id", source.profile_id).eq("id", source.file_id).eq("state", "ready").is("deleted_at", null).single();
-        if (file.error || !file.data) throw new Error("Source file unavailable.");
-        if (file.data.size_bytes > 10485760) throw new UnsupportedDocument("AI indexing supports files up to 10 MB.");
-        const downloaded = await db.storage.from(FILE_BUCKET).download(`${source.profile_id}/${source.file_id}`);
-        if (downloaded.error || !downloaded.data) throw new Error("Source download failed.");
-        const bytes = new Uint8Array(await downloaded.data.arrayBuffer());
-        if (bytes.length !== Number(file.data.size_bytes) || await hashBytes(bytes) !== source.version) throw new Error("Source verification failed.");
-        chunks = await extractDocument(bytes, file.data.mime_type);
-      } else chunks = chunkPages([source.body ?? ""]);
-      const published = await db.rpc("ai_publish_source", { p_profile_id: source.profile_id, p_id: source.id, p_version: source.version, p_lease: source.lease_id, p_chunks: chunks });
-      if (published.error) throw new Error("Index publication failed.");
+      await processClaimedSource(db, source);
     } catch (error) {
-      const unsupported = error instanceof UnsupportedDocument;
-      await db.from("ai_sources").update({ state: unsupported ? "unsupported" : source.attempts >= 5 ? "failed" : "queued", error: unsupported ? error.message : "Indexing could not finish. It will retry, or you can retry from Manage sources.", lease_id: null, lease_until: null, available_at: new Date(Date.now() + Math.min(3600, 60 * 2 ** source.attempts) * 1000).toISOString() }).eq("profile_id", source.profile_id).eq("id", source.id).eq("version", source.version).eq("lease_id", source.lease_id);
+      await failClaimedSource(db, source, error);
     }
   }
   // A small embedding batch per tick leaves quota for interactive questions.

@@ -56,6 +56,15 @@ test("widgets, notes, assignment edits and calendar events round trip", () => {
 });
 
 // Run real auth and API functions with a deterministic Supabase adapter.
+test("file discovery preferences round trip without persisting search text", () => {
+  const defaults = { assignments: [], manualEvents: [], dashboardView: "list" };
+  const preferences = { filter: "all", view: "grid", sortBy: "modified", sortDirection: "desc", fileType: "pdf", includeArchived: true };
+  assert.deepEqual(decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: preferences } }).data.filePreferences, preferences);
+  assert.deepEqual(decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: { filter: "personal", view: "list" } } }).data.filePreferences, { filter: "personal", view: "list" });
+  for (const patch of [{ query: "temporary search" }, { sortBy: ["name"] }, { sortDirection: "up" }, { fileType: "syllabus" }, { includeArchived: "yes" }]) {
+    assert.throws(() => decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: { ...preferences, ...patch } } }), /Invalid file preferences/);
+  }
+});
 // No live users or production data are created by these tests.
 const state = globalThis.__accountTests = { user: null, calls: [], profile: null };
 function query(table) {

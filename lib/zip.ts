@@ -4,11 +4,17 @@ const encoder = new TextEncoder();
 const crcTable = Array.from({ length: 256 }, (_, n) => { for (let i = 0; i < 8; i++) n = (n >>> 1) ^ ((n & 1) ? 0xedb88320 : 0); return n >>> 0; });
 const crc32 = (bytes: Uint8Array) => { let crc = 0xffffffff; for (const byte of bytes) crc = (crc >>> 8) ^ crcTable[(crc ^ byte) & 255]; return (crc ^ 0xffffffff) >>> 0; };
 function header(size: number, values: [number, number | bigint, number][]) { const bytes = new Uint8Array(size), view = new DataView(bytes.buffer); for (const [offset, value, width] of values) { if (width === 2) view.setUint16(offset, Number(value), true); else if (width === 4) view.setUint32(offset, Number(value), true); else view.setBigUint64(offset, BigInt(value), true); } return bytes; }
-export type ZipEntry = { name: string; bytes: () => Promise<Uint8Array> };
-export async function* zipEntries(entries: ZipEntry[]): AsyncGenerator<Uint8Array> {
+export type ZipEntry = { name: string; bytes: (signal?: AbortSignal) => Promise<Uint8Array> };
+function interrupted(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new DOMException("The ZIP download was interrupted.", "AbortError");
+}
+export async function* zipEntries(entries: ZipEntry[], signal?: AbortSignal): AsyncGenerator<Uint8Array> {
   let offset = BigInt(0); const central: Uint8Array[] = [];
   for (const entry of entries) {
-    const name = encoder.encode(entry.name), start = offset, bytes = await entry.bytes(), crc = crc32(bytes), size = bytes.length;
+    if (signal?.aborted) throw interrupted(signal);
+    const name = encoder.encode(entry.name), start = offset, bytes = await entry.bytes(signal);
+    if (signal?.aborted) throw interrupted(signal);
+    const crc = crc32(bytes), size = bytes.length;
     const local = header(30, [[0, 0x04034b50, 4], [4, 45, 2], [6, 0x0800, 2], [14, crc, 4], [18, size, 4], [22, size, 4], [26, name.length, 2]]);
     yield local; yield name; yield bytes; offset += BigInt(local.length + name.length + size);
     const extra = header(12, [[0, 1, 2], [2, 8, 2], [4, start, 8]]);
@@ -20,7 +26,27 @@ export async function* zipEntries(entries: ZipEntry[]): AsyncGenerator<Uint8Arra
   yield header(20, [[0, 0x07064b50, 4], [8, offset, 8], [16, 1, 4]]);
   yield header(22, [[0, 0x06054b50, 4], [8, 0xffff, 2], [10, 0xffff, 2], [12, 0xffffffff, 4], [16, 0xffffffff, 4]]);
 }
-export function zipStream(entries: ZipEntry[]) {
-  const iterator = zipEntries(entries);
-  return new ReadableStream<Uint8Array>({ async pull(controller) { try { const result = await iterator.next(); if (result.done) controller.close(); else controller.enqueue(result.value); } catch (error) { controller.error(error); } }, async cancel() { await iterator.return(undefined); } });
+export function zipStream(entries: ZipEntry[], options: { signal?: AbortSignal } = {}) {
+  const abortController = new AbortController();
+  const externalSignal = options.signal;
+  const forwardAbort = () => abortController.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) forwardAbort();
+  else externalSignal?.addEventListener("abort", forwardAbort, { once: true });
+  const iterator = zipEntries(entries, abortController.signal);
+  const cleanup = () => externalSignal?.removeEventListener("abort", forwardAbort);
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        if (abortController.signal.aborted) throw interrupted(abortController.signal);
+        const result = await iterator.next();
+        if (result.done) { cleanup(); controller.close(); }
+        else controller.enqueue(result.value);
+      } catch (error) { cleanup(); controller.error(error); }
+    },
+    async cancel(reason) {
+      if (!abortController.signal.aborted) abortController.abort(reason);
+      cleanup();
+      await iterator.return(undefined);
+    },
+  });
 }

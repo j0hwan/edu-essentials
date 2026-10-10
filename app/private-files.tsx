@@ -1,6 +1,6 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Private authenticated blob URLs cannot use the public image optimizer. */
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { fileKinds, fileMetadata, fileSize, MAX_FILE_BYTES, type FileMetadata, type PrivateFile } from "../lib/files";
 import type { Course } from "../lib/academics";
 import type { SavedAssignment } from "../lib/workspace-codec";
@@ -33,24 +33,29 @@ export function FileEditor({ store, courses, assignments, initial, defaults, onC
 export function PrivateImage({ file, store }: { file: PrivateFile; store: FileStore }) {
   const [url, setUrl] = useState("");
   const blob = store.blob;
-  useEffect(() => { const controller = new AbortController(); let owned = ""; void blob(file, controller.signal).then((data) => { if (!controller.signal.aborted) { owned = URL.createObjectURL(data); setUrl(owned); } }).catch(() => {}); return () => { controller.abort(); if (owned) URL.revokeObjectURL(owned); }; }, [file.id, file.updated_at, blob, file]);
-  return url ? <img className="private-class-image" src={url} alt={file.name} /> : null;
+  useEffect(() => { if (file.trashed_at) return; const controller = new AbortController(); let owned = ""; void blob(file, controller.signal).then((data) => { if (!controller.signal.aborted) { owned = URL.createObjectURL(data); setUrl(owned); } }).catch(() => {}); return () => { controller.abort(); if (owned) URL.revokeObjectURL(owned); }; }, [file.id, file.updated_at, blob, file]);
+  return !file.trashed_at && url ? <img className="private-class-image" src={url} alt={file.name} /> : null;
 }
-export function FilePreview({ file, store, onClose, onEdit, onReview, canWrite }: { file: PrivateFile; store: FileStore; onClose: () => void; onEdit: () => void; onReview?: (file: PrivateFile, text: string) => void; canWrite: boolean }) {
+export function FilePreview({ file, store, onClose, onEdit, onReview, onOpened, canWrite }: { file: PrivateFile; store: FileStore; onClose: () => void; onEdit: () => void; onReview?: (file: PrivateFile, text: string) => void; onOpened?: (file: PrivateFile) => void; canWrite: boolean }) {
   const [url, setUrl] = useState(""), [text, setText] = useState(""), [error, setError] = useState(""), [attempt, setAttempt] = useState(0);
   const blob = store.blob;
+  const openedRef = useRef(onOpened), fileRef = useRef(file);
+  useLayoutEffect(() => { openedRef.current = onOpened; fileRef.current = file; }, [file, onOpened]);
   useEffect(() => {
     const controller = new AbortController(); let owned = "";
-    if (file.state !== "ready") return;
-    void blob(file, controller.signal).then(async (data) => { const content = file.mime_type === "text/plain" && data.size <= 1000000 ? await data.text() : ""; if (!controller.signal.aborted) { owned = URL.createObjectURL(data); setUrl(owned); setText(content); setError(""); } }).catch((error) => { if (!controller.signal.aborted) setError(error.message); });
+    const captured = fileRef.current;
+    if (captured.state !== "ready" || captured.trashed_at || captured.deleted_at) return;
+    setUrl(""); setText(""); setError("");
+    void blob(captured, controller.signal).then(async (data) => { const content = captured.mime_type === "text/plain" && data.size <= 1000000 ? await data.text() : ""; if (!controller.signal.aborted) { owned = URL.createObjectURL(data); setUrl(owned); setText(content); setError(""); openedRef.current?.(captured); } }).catch((error) => { if (!controller.signal.aborted) setError(error.message); });
     return () => { controller.abort(); if (owned) URL.revokeObjectURL(owned); };
-  }, [file, blob, attempt]);
+  }, [file.id, file.updated_at, file.metadata_revision, file.content_revision, file.state, file.trashed_at, file.deleted_at, blob, attempt]);
   return <div className="modal-backdrop"><section className="add-class-modal academic-editor" role="dialog" aria-modal="true" aria-label="Private file preview"><div className="modal-header"><h2>{file.name}</h2><button className="secondary-button" onClick={onClose}>Close file preview</button></div><p>{fileSize(Number(file.size_bytes))} · {file.kind} · {file.state}</p>
     {file.state !== "ready" ? <p>Upload or deletion is pending. Retry it from Files.</p> : error ? <p role="alert">{error}<button onClick={() => setAttempt((n) => n + 1)}>Retry preview</button></p> : !url ? <p>Loading private preview…</p> : file.mime_type.startsWith("image/") ? <img className="private-preview-image" src={url} alt={file.name} /> : file.mime_type === "application/pdf" ? <iframe title={file.name} className="private-pdf-preview" sandbox="" src={url} /> : file.mime_type === "text/plain" && file.size_bytes <= 1000000 ? <pre className="syllabus-source">{text}</pre> : <p>Download this file to open it in a compatible application.</p>}
     <div className="modal-actions">{file.state === "ready" && <a className="secondary-button" href={store.url(file)} download>Download original file</a>}{url && ["application/pdf", "image/png", "image/jpeg", "image/webp", "image/gif", "text/plain"].includes(file.mime_type) && <a className="secondary-button" href={url} target="_blank" rel="noopener noreferrer">Open preview in new tab</a>}<button className="secondary-button" disabled={!canWrite || store.busy} onClick={onEdit}>Edit / retry file</button>{file.kind === "syllabus" && file.state === "ready" && onReview && <button className="primary-button" disabled={!canWrite} onClick={() => onReview(file, text.slice(0, 60000))}>Review syllabus</button>}</div>
   </section></div>;
 }
 
-export function FileList({ files, store, onOpen, onEdit, canWrite }: { files: PrivateFile[]; store: FileStore; onOpen: (file: PrivateFile) => void; onEdit: (file: PrivateFile) => void; canWrite: boolean }) {
-  return <ul className="private-file-list">{files.map((file) => <li key={file.id}><button className="text-button" onClick={() => onOpen(file)}>{file.name}</button><span>{fileSize(Number(file.size_bytes))} · {file.kind} · {file.state}</span><button className="secondary-button" disabled={!canWrite || store.busy || file.state === "deleting"} onClick={() => onEdit(file)}>{file.state === "pending" ? "Retry upload" : "Edit file"}</button><button className="secondary-button" disabled={!canWrite || store.busy} onClick={async () => { if (window.confirm(`Delete ${file.name} and its stored bytes?`)) { try { await store.remove(file); } catch { /* The shared file error retains retry controls. */ } } }}>{file.state === "deleting" ? "Retry deletion" : "Delete file"}</button></li>)}{!files.length && <li>No files yet.</li>}</ul>;
+export function FileList({ files, store, onOpen, onEdit, onTrashed, canWrite }: { files: PrivateFile[]; store: FileStore; onOpen: (file: PrivateFile) => void; onEdit: (file: PrivateFile) => void; onTrashed?: (file: PrivateFile) => void; canWrite: boolean }) {
+  const activeFiles = files.filter((file) => !file.trashed_at);
+  return <ul className="private-file-list">{activeFiles.map((file) => <li key={file.id}><button className="text-button" onClick={() => onOpen(file)}>{file.name}</button><span>{fileSize(Number(file.size_bytes))} · {file.kind} · {file.state}</span><button className="secondary-button" disabled={!canWrite || store.busy || file.state === "deleting"} onClick={() => onEdit(file)}>{file.state === "pending" ? "Retry upload" : "Edit file"}</button><button className="secondary-button" disabled={!canWrite || store.busy} onClick={async () => { if (window.confirm(file.state === "ready" ? `Move ${file.name} to Trash?` : `Cancel ${file.name} and remove its stored bytes?`)) { try { const saved = await store.remove(file); if (saved?.trashed_at && saved.state === "ready") onTrashed?.(saved); } catch { /* The shared file error retains retry controls. */ } } }}>{file.state === "deleting" ? "Retry deletion" : file.state === "pending" ? "Cancel upload" : "Move to Trash"}</button></li>)}{!activeFiles.length && <li>No files yet.</li>}</ul>;
 }

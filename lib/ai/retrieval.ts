@@ -27,6 +27,7 @@ export async function searchAcademicDocuments(profileId: string, context: Academ
   const excludedKeys = new Set((excluded.data ?? []).map((s) => s.source_key));
   const fresh = notes.filter((n) => !excludedKeys.has(n.id) && (courseId === undefined || n.course === courseId)).flatMap((n) => chunkPages([n.body]).map((chunk) => ({ ...n, ...chunk, score: words.reduce((s, word) => s + (chunk.body.toLowerCase().includes(word) ? 1 : 0), 0) }))).filter((n) => n.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
   for (const n of fresh) citations.unshift({ id: `record:${n.id}:${n.ordinal}`, kind: "record", recordId: n.id, version: context.revision, label: n.label, text: n.body });
-  const pending = await db.from("ai_sources").select("id", { count: "exact", head: true }).eq("profile_id", profileId).eq("enabled", true).neq("state", "ready");
+  const pending = await db.from("ai_sources").select("id", { count: "exact", head: true })
+    .eq("profile_id", profileId).eq("enabled", true).eq("file_available", true).neq("state", "ready");
   return { citations: citations.slice(0, 8), status: `${status}; ${pending.count ?? 0} sources are not indexed. Absence of a search result does not prove a fact is absent.` };
 }

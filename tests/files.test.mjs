@@ -3,9 +3,13 @@ import test from 'node:test';
 import { clientModule } from './helpers/client-modules.mjs';
 const { detectedMime, fileMetadata, readFileBytes, MAX_FILE_BYTES, hashBytes } = await import(await clientModule('lib/files.ts'));
 const encode = (text) => new TextEncoder().encode(text);
-test('private file validation rejects paths, forged associations, active images and oversized streams', async () => {
+test('private file validation rejects paths, forged ownership, active images and oversized streams', async () => {
   const base = { name: 'résumé.txt', courseId: '', assignmentId: '', kind: 'resource' };
-  assert.deepEqual(fileMetadata({ ...base, profile_id: 'foreign', object_path: 'foreign/file' }), base);
+  assert.deepEqual(fileMetadata(base), base);
+  assert.deepEqual(fileMetadata({ ...base, content_backend: 'native-text', metadata_revision: 50, content_revision: 10 }), base,
+    'legacy clients may omit the organization and revision fields without sending them as metadata');
+  assert.throws(() => fileMetadata({ ...base, profile_id: 'foreign' }), /signed-in session/);
+  assert.throws(() => fileMetadata({ ...base, auth_user_id: 'foreign' }), /signed-in session/);
   for (const name of ['../x', 'a\\b', 'a\u0000b', ' '.repeat(2), 'a'.repeat(256)]) assert.throws(() => fileMetadata({ ...base, name }));
   assert.throws(() => fileMetadata({ ...base, kind: 'class-image' }));
   assert.equal(detectedMime(encode('<svg onload="alert(1)"></svg>'), 'fake.png'), 'application/octet-stream');

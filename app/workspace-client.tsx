@@ -57,8 +57,17 @@ import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
 import AcademicEditor from "./academic-editor";
 import SyllabusReview from "./syllabus-review";
+import { SyllabusAttachment, SyllabusTextPreview, type SyllabusAttachmentValue } from "./course-syllabus";
 import AcademicCalendar from "./academic-calendar";
 import { usePrivateFiles } from "./use-private-files";
+import { useFileActivity } from "./use-file-activity";
+import { useFileUploads } from "./use-file-uploads";
+import FileUploadDialog from "./file-upload-dialog";
+import FilesBrowser from "./files-browser";
+import type { FilesBrowserPreferences } from "../lib/files-browser";
+import { restoreTrashItems, type TrashUndoReceipt } from "../lib/files-trash-operations";
+import { NativeDocumentEditor } from "./native-document-editor";
+import type { NativeDocumentCreate } from "../lib/native-documents";
 import { FileEditor, FileList, FilePreview, PrivateImage } from "./private-files";
 import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
 import StudyWidget, { studyWidgetTypes } from "./study-widgets";
@@ -253,7 +262,7 @@ function CourseStamp({ course, small = false }: { course: Course; small?: boolea
   );
 }
 
-export default function EduEssentialsApp({ initialProfile, children }: { initialProfile: Profile; children?: React.ReactNode }) {
+export default function EduEssentialsApp({ initialProfile, children, filesBrowserEnabled = false }: { initialProfile: Profile; children?: React.ReactNode; filesBrowserEnabled?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const page = pageFromPathname(pathname);
@@ -411,7 +420,11 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [addClassOpen, setAddClassOpen] = useState(false);
   const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent } | null>(null);
   const [syllabusId, setSyllabusId] = useState<string | null>(null);
-  const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: { filter: string; view: "list" | "grid" }; widgetAppearance?: WidgetAppearanceState }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: { filter: "all", view: "list" } });
+  const [syllabusAttachment, setSyllabusAttachment] = useState<{ courseId: string; folderId: string | null } | null>(null);
+  const [syllabusTextCourseId, setSyllabusTextCourseId] = useState<string | null>(null);
+  const [syllabusPreviewFileId, setSyllabusPreviewFileId] = useState<string | null>(null);
+  const workspaceLoadGeneration = useRef(0);
+  const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: FilesBrowserPreferences; widgetAppearance?: WidgetAppearanceState }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: { filter: "all", view: "list" } });
   const [now, setNow] = useState(() => new Date());
   const today = dayKey(now, profile.timezone);
   const assignments = storedAssignments.map((item) => ({ ...item, status: assignmentStatus(item, today), due: dateLabel(item.dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
@@ -420,7 +433,30 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const [searchQuery, setSearchQuery] = useState("");
   const [fileQuery, setFileQuery] = useState("");
   const [filePreview, setFilePreview] = useState<PrivateFile | null>(null);
+  const [filePreviewReadOnly, setFilePreviewReadOnly] = useState(false);
   const [fileDialog, setFileDialog] = useState<{ initial?: PrivateFile; defaults?: Partial<FileMetadata>; reviewId?: string } | null>(null);
+  const [uploadDialog, setUploadDialog] = useState<{ profileId: string; folderId: string | null; courseId: string } | null>(null);
+  const [filesDataRevision, setFilesDataRevision] = useState(0);
+  const [nativeDocumentDialog, setNativeDocumentDialog] = useState<{ file?: PrivateFile; create?: NativeDocumentCreate; readOnly?: boolean } | null>(null);
+  const [nativeDocumentDraft, setNativeDocumentDraft] = useState<{ fileId: string | null; name: string; body: string; dirty: boolean } | null>(null);
+  const handleNativeDocumentDraft = useCallback((draft: typeof nativeDocumentDraft) => setNativeDocumentDraft(draft), []);
+  const [organizationState, setOrganizationState] = useState<{ busy: boolean; dirty: boolean; draft: unknown } | null>(null);
+  const handleOrganizationState = useCallback((state: typeof organizationState) => setOrganizationState(state), []);
+  // A session generation also fences A → B → A account changes while a request is held.
+  const [fileActionSession, setFileActionSession] = useState({ profileId: initialProfile.id, generation: 0 });
+  if (fileActionSession.profileId !== initialProfile.id) setFileActionSession({ profileId: initialProfile.id, generation: fileActionSession.generation + 1 });
+  const fileActionSessionRef = useRef(fileActionSession);
+  const undoAbortRef = useRef<AbortController | null>(null);
+  const [trashUndo, setTrashUndo] = useState<{ session: typeof fileActionSession; receipt: TrashUndoReceipt; busy: boolean; error: string; restored?: boolean; recovered?: boolean } | null>(null);
+  const currentTrashUndo = trashUndo?.session === fileActionSession ? trashUndo : null;
+  const undoBusy = !!currentTrashUndo?.busy;
+  useLayoutEffect(() => { fileActionSessionRef.current = fileActionSession; undoAbortRef.current?.abort(); }, [fileActionSession]);
+  useEffect(() => () => { undoAbortRef.current?.abort(); }, []);
+  const handleTrashCompleted = useCallback((receipt: TrashUndoReceipt) => {
+    if (fileActionSessionRef.current !== fileActionSession || receipt.profileId !== fileActionSession.profileId) return;
+    setTrashUndo({ session: fileActionSession, receipt, busy: false, error: "" });
+  }, [fileActionSession]);
+  const handleLegacyTrashed = useCallback((file: PrivateFile) => handleTrashCompleted({ profileId: fileActionSession.profileId, items: [{ type: "file", id: file.id, file }], label: file.name }), [fileActionSession, handleTrashCompleted]);
   const fileStore = usePrivateFiles(initialProfile.id);
   const [toast, setToast] = useState<string | null>(null);
   const profileMajor = profile.major;
@@ -438,6 +474,8 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       body: JSON.stringify({ ...JSON.parse(snapshot), baseRevision }),
     });
     if (response.status === 409) {
+      const failure = await response.clone().json() as { code?: string; error?: string };
+      if (failure.code === "syllabus-preservation") throw new SaveFailure(failure.error || "The old syllabus could not be preserved. Your changes are still here; free file space and retry.");
       // A matching readback acknowledges a lost response. Never adopt a newer
       // revision for different content, which would silently overwrite it.
       const readback = await accountFetch("/api/workspace", { cache: "no-store" });
@@ -457,10 +495,43 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   }));
   const saveState = useSyncExternalStore(autosave.subscribe, autosave.getSnapshot, autosave.getSnapshot);
   const persistenceStatus = saveState.status;
-  const canWriteFiles = !experimentalMode && saveState.ready && !saveState.dirty;
+  const canWriteFiles = !experimentalMode && saveState.ready && !saveState.dirty && !undoBusy;
   const refreshFiles = fileStore.refresh;
+  const handleUploadSaved = useCallback(async (_file: PrivateFile, signal: AbortSignal) => {
+    await refreshFiles(signal, true);
+    if (!signal.aborted) setFilesDataRevision((revision) => revision + 1);
+  }, [refreshFiles]);
+  const fileUploads = useFileUploads(fileActionSession, fileStore, handleUploadSaved, canWriteFiles && !profilePending && !organizationState && !nativeDocumentDialog);
+  const fileActivity = useFileActivity(fileActionSession, !experimentalMode && saveState.ready && !profilePending, refreshFiles);
+  const handleFileOpened = fileActivity.opened;
+  const handleNativeDocumentSaved = useCallback((file: PrivateFile) => { handleFileOpened(file); void refreshFiles(); }, [handleFileOpened, refreshFiles]);
+  const closeNativeDocument = useCallback(() => { setNativeDocumentDialog(null); setNativeDocumentDraft(null); void refreshFiles(); }, [refreshFiles]);
+  const handleOrganizationSaved = useCallback(async (signal?: AbortSignal) => { await refreshFiles(signal, true); }, [refreshFiles]);
+  const undoTrash = async () => {
+    if (!currentTrashUndo || undoBusy || !canWriteFiles || profilePending || organizationState || nativeDocumentDialog || fileStore.busy) return;
+    const captured = currentTrashUndo;
+    let acknowledged = captured;
+    const controller = new AbortController(); undoAbortRef.current = controller;
+    setTrashUndo({ ...captured, busy: true, error: "" });
+    try {
+      if (!captured.restored) {
+        const result = await restoreTrashItems(captured.receipt.profileId, captured.receipt.items, { signal: controller.signal });
+        acknowledged = { ...captured, restored: true, recovered: !!result.recoveryFolder };
+      }
+      if (controller.signal.aborted || fileActionSessionRef.current !== captured.session) return;
+      await refreshFiles(controller.signal, true);
+      if (controller.signal.aborted || fileActionSessionRef.current !== captured.session) return;
+      setTrashUndo(null);
+      setToast(acknowledged.recovered ? "Restored to Restored files because the original location is unavailable." : "Restored from Trash.");
+    } catch (error) {
+      if (!controller.signal.aborted && fileActionSessionRef.current === captured.session) setTrashUndo({ ...acknowledged, busy: false, error: acknowledged.restored ? "The restore was saved, but Files could not refresh. Retry Files refresh; the restore will not be repeated." : error instanceof Error ? error.message : "Could not restore these items. Retry Undo or review Trash." });
+    } finally {
+      if (undoAbortRef.current === controller) undoAbortRef.current = null;
+      if (controller.signal.aborted && fileActionSessionRef.current === captured.session) setTrashUndo((current) => current?.receipt === captured.receipt ? { ...current, busy: false } : current);
+    }
+  };
   useEffect(() => { if (saveState.status === "saved") void refreshFiles(); }, [saveState.status, refreshFiles]);
-  useSaveProtection(saveState.dirty || profilePending);
+  useSaveProtection(saveState.dirty || profilePending || fileUploads.dirty || fileUploads.busy || !!nativeDocumentDraft?.dirty || !!organizationState?.dirty || !!organizationState?.busy || undoBusy);
   const topSearchRef = useRef<HTMLInputElement | null>(null);
   const study = extraData.study;
   const activeGpaSystem = experimentalMode ? "4.0 scale" : profile.gpa_system;
@@ -508,6 +579,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
   useEffect(() => {
     const controller = new AbortController();
+    const loadGeneration = ++workspaceLoadGeneration.current;
     autosave.loading();
     async function hydrateWorkspace() {
       try {
@@ -537,13 +609,13 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         setActiveWorkspaceId(decoded.activeWorkspaceId); setNotes(decoded.notes);
         setAssignments(details.assignments); setManualEvents(details.manualEvents);
         setDashboardView(details.dashboardView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: details.syllabusDrafts, study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences, widgetAppearance: details.widgetAppearance }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setAppearanceOpen(false); setEditor(null); setSyllabusId(null);
-        setSelectedClass(null); setSelectedAssignment(null);
+        setSelectedClass(null); setSelectedAssignment(null); setSyllabusAttachment(null); setSyllabusTextCourseId(null); setSyllabusPreviewFileId(null);
         setExperimentalMode(null); setExperimentalMenuOpen(false); setExperimentalRestoring(false);
         autosave.hydrate(canonicalJson({ courses: [...(data.courses ?? [])].sort((a, b) => a.id.localeCompare(b.id)), dashboard: encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, details) }), data.revision ?? null);
       } catch (error) { if (!controller.signal.aborted) { setExperimentalRestoring(false); autosave.loadFailed(error); } }
     }
     void hydrateWorkspace();
-    return () => { controller.abort(); autosave.stop(); };
+    return () => { controller.abort(); workspaceLoadGeneration.current = loadGeneration + 1; autosave.stop(); };
   }, [reloadAttempt, accountFetch, autosave, initialProfile.id]);
 
   useEffect(() => {
@@ -552,15 +624,19 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     catch (error) { autosave.invalidate(error instanceof Error ? error.message : "Invalid workspace data."); }
   }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarFilter, extraData, courses, autosave, experimentalMode, onboardingTest]);
 
-  const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarFilter, ...extraData });
+  const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarFilter, nativeDocumentDraft, fileOrganizationDraft: organizationState?.draft, fileUploads: fileUploads.draft, ...extraData });
   const reloadWorkspace = () => {
+    if (fileUploads.dirty || fileUploads.busy) { flash("Finish or dismiss retained uploads before reloading. Review uploads to download the original selections."); return; }
+    if (nativeDocumentDialog) { flash("Save or download your text draft and close its editor before reloading the workspace."); return; }
+    if (organizationState) { flash("Close the Files dialog before reloading the workspace."); return; }
+    if (undoBusy) { flash("Wait for Undo to finish before reloading the workspace."); return; }
     if (persistenceStatus === "saving" || profileSaving) return;
     if ((saveState.dirty || profilePending) && !window.confirm("Replace unsaved workspace and settings edits with saved data? Download your unsaved work first to keep a copy.")) return;
     setReloadAttempt((attempt) => attempt + 1);
   };
 
   const prepareAssistant = async () => {
-    if (experimentalMode || profilePending || editor || syllabusId || fileStore.busy) throw new Error("Save and close pending editors before asking the assistant.");
+    if (experimentalMode || profilePending || editor || syllabusId || syllabusAttachment || nativeDocumentDialog || organizationState || fileUploads.dirty || fileStore.busy || undoBusy) throw new Error("Save and close pending editors before asking the assistant.");
     await autosave.flush();
     const current = autosave.getSnapshot();
     if (!current.ready || current.dirty || current.status !== "saved") throw new Error("Wait for saving to finish, or resolve the workspace save message first.");
@@ -694,6 +770,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const overdueAssignments = assignments.filter((assignment) => assignment.status === "overdue");
 
   const navigate = (destination: PageId) => {
+    if (nativeDocumentDialog) { flash("Close the text editor before navigating. Your draft is still here."); return; }
     router.push(`/${destination}`);
     setSidebarOpen(false);
     setExperimentalMenuOpen(false);
@@ -704,6 +781,10 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
   const flash = (message: string) => setToast(message);
 
   const applyExperimentalData = (density: ExperimentalDensity) => {
+    if (fileUploads.dirty || fileUploads.busy) { flash("Finish or dismiss retained uploads before loading preview data."); return; }
+    if (nativeDocumentDialog) { flash("Close the text editor before loading preview data."); return; }
+    if (organizationState) { flash("Close the Files dialog before loading preview data."); return; }
+    if (undoBusy) { flash("Wait for Undo to finish before loading preview data."); return; }
     if (!saveState.ready || saveState.dirty || profilePending || fileStore.busy) {
       flash("Wait for your real workspace to finish saving first");
       return;
@@ -858,7 +939,27 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     setExtraData({ courseDetails: data.courseDetails, syllabusDrafts: data.syllabusDrafts, study: data.study, filePreferences: data.filePreferences, widgetAppearance: data.widgetAppearance }); return true;
   };
   const commitStudy = (patch: Partial<StudyData>) => commitAcademic(courses, { study: { ...study, ...patch } });
+  const saveCourseSyllabus = async (courseId: string, value: SyllabusAttachmentValue) => {
+    if (experimentalMode || profilePending || !autosave.getSnapshot().ready || !courses.some((course) => course.id === courseId)) throw new Error("Reload the saved course before attaching a syllabus.");
+    const generation = workspaceLoadGeneration.current;
+    const details = { ...(extraData.courseDetails[courseId] ?? emptyCourseDetails()), syllabusText: value.syllabusText, syllabusName: value.syllabusName };
+    if (value.syllabusFileId) details.syllabusFileId = value.syllabusFileId;
+    else delete details.syllabusFileId;
+    const nextExtra = { ...extraData, courseDetails: { ...extraData.courseDetails, [courseId]: details } };
+    const dashboard = encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...nextExtra });
+    validateAcademicEdit(courses, dashboard, { assignments: storedAssignments, manualEvents, dashboardView });
+    const snapshot = canonicalJson(academicSnapshot(courses, dashboard));
+    setExtraData(nextExtra);
+    autosave.change(snapshot);
+    await autosave.flushLatest(true);
+    if (generation !== workspaceLoadGeneration.current) throw new Error("The workspace was reloaded. Reopen the saved course to continue.");
+    const saved = autosave.getSnapshot();
+    if (!saved.ready || saved.dirty || saved.status !== "saved") throw new Error(saved.message || "The syllabus could not be saved. Your draft is still here; retry saving.");
+    flash("Syllabus saved");
+  };
   const controlTimer = (action: "start" | "pause" | "resume" | "finish" | "reset", kind: TimerKind) => {
+    // This callback runs only from StudyPanel/StudyWidget user events.
+    // eslint-disable-next-line react-hooks/purity
     try { commitStudy(timerAction(study, action, kind, Date.now(), uid("session"))); setNow(new Date()); }
     catch (error) { flash(error instanceof Error ? error.message : "Unable to update the timer."); }
   };
@@ -1051,7 +1152,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
         {saveState.ready && page === "tasks" && <div className="page">{renderPageHeader("Your coursework", "Tasks", "All your assignments, across every course.", <button className="primary-button" onClick={newAssignment}><Plus size={16} /> Add assignment</button>)}{renderAssignmentTable(assignments)}</div>}
         {saveState.ready && page === "calendar" && renderCalendar()}
         {saveState.ready && page === "search" && renderSearch()}
-        {saveState.ready && page === "files" && renderFiles()}
+        {(saveState.ready || organizationState) && (page === "files" || organizationState) && <div hidden={page !== "files"}>{renderFiles()}</div>}
         {page === "assistant" && <AcademicAssistant profileId={initialProfile.id} prepare={prepareAssistant} apply={applyAssistant} experimental={!!experimentalMode} />}
         {saveState.ready && <div key={reloadAttempt} hidden={page !== "settings"}>{renderSettings()}</div>}
       </main>
@@ -1078,9 +1179,16 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
       {addClassOpen && renderAddClassDialog()}
       {editor && <AcademicEditor key={(editor.course ?? editor.assignment ?? editor.event)!.id} initial={editor} courses={courses} today={today} onApply={applyEditor} onClose={() => setEditor(null)} onDelete={editor.course && courses.some((c) => c.id === editor.course!.id) ? () => removeClass(editor.course!) : editor.assignment && storedAssignments.some((a) => a.id === editor.assignment!.id) ? () => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== editor.assignment!.id) })) setEditor(null); } } : editor.event && manualEvents.some((e) => e.id === editor.event!.id) ? () => { if (window.confirm("Delete this event?")) { if (commitAcademic(courses, { manualEvents: manualEvents.filter((e) => e.id !== editor.event!.id) })) setEditor(null); } } : undefined} />}
       {syllabusId && extraData.syllabusDrafts.filter((d) => d.id === syllabusId).map((draft) => <SyllabusReview key={draft.id} draft={draft} onUpload={() => setFileDialog({ defaults: { kind: "syllabus" }, reviewId: draft.id })} onFile={() => { const file = fileStore.files.find((f) => f.id === draft.sourceFileId); if (file) setFilePreview(file); else flash("Refresh Files to load this saved source."); }} onChange={(next) => { commitAcademic(courses, { syllabusDrafts: extraData.syllabusDrafts.map((d) => d.id === draft.id ? next : d) }); }} onApprove={() => approveReview(draft)} onClose={() => setSyllabusId(null)} onDelete={() => { if (window.confirm("Discard this syllabus review and its source text?")) { if (commitAcademic(courses, { syllabusDrafts: extraData.syllabusDrafts.filter((d) => d.id !== draft.id) })) setSyllabusId(null); } }} />)}
-      {fileDialog && <FileEditor key={fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file"} store={fileStore} courses={courses} assignments={assignments} initial={fileDialog.initial} defaults={fileDialog.defaults} canWrite={canWriteFiles} onClose={() => setFileDialog(null)} onSaved={(file) => { if (fileDialog.reviewId) setExtraData((current) => ({ ...current, syllabusDrafts: current.syllabusDrafts.map((draft) => draft.id === fileDialog.reviewId ? { ...draft, sourceFileId: file.id, sourceName: file.name } : draft) })); }} />}
-      {filePreview && <FilePreview file={fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview} store={fileStore} onClose={() => setFilePreview(null)} canWrite={canWriteFiles} onEdit={() => { setFileDialog({ initial: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview }); setFilePreview(null); }} onReview={(file, text) => { createReview(file, text); setFilePreview(null); }} />}
+      {syllabusAttachment && courses.filter((course) => course.id === syllabusAttachment.courseId).map((course) => <SyllabusAttachment key={course.id} courseId={course.id} course={course} details={extraData.courseDetails[course.id] ?? emptyCourseDetails()} folderId={syllabusAttachment.folderId} store={fileStore} canWrite={canWriteFiles} onSave={(value) => saveCourseSyllabus(course.id, value)} onClose={() => setSyllabusAttachment(null)} />)}
+      {syllabusTextCourseId && courses.filter((course) => course.id === syllabusTextCourseId).map((course) => <SyllabusTextPreview key={course.id} course={course} text={extraData.courseDetails[course.id]?.syllabusText ?? ""} name={extraData.courseDetails[course.id]?.syllabusName ?? course.code + " syllabus"} onClose={() => setSyllabusTextCourseId(null)} />)}
+      {nativeDocumentDialog && <NativeDocumentEditor key={nativeDocumentDialog.file?.id ?? nativeDocumentDialog.create!.id} profileId={initialProfile.id} file={nativeDocumentDialog.file} create={nativeDocumentDialog.create} canWrite={!nativeDocumentDialog.readOnly && !experimentalMode && saveState.ready && !profilePending} onSaved={handleNativeDocumentSaved} onClose={closeNativeDocument} onDraftChange={handleNativeDocumentDraft} />}
+      {fileDialog && <FileEditor key={fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file"} store={fileStore} courses={courses} assignments={assignments} initial={fileDialog.initial} defaults={fileDialog.defaults} canWrite={canWriteFiles} onClose={() => setFileDialog(null)} onSaved={(file) => { if (fileDialog.initial?.state === "ready") handleFileOpened(file); if (fileDialog.reviewId) setExtraData((current) => ({ ...current, syllabusDrafts: current.syllabusDrafts.map((draft) => draft.id === fileDialog.reviewId ? { ...draft, sourceFileId: file.id, sourceName: file.name } : draft) })); }} />}
+      {filePreview && <FilePreview key={`${initialProfile.id}-${fileActionSession.generation}-${filePreview.id}`} file={fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview} store={fileStore} onOpened={handleFileOpened} onClose={() => { setFilePreview(null); setFilePreviewReadOnly(false); setSyllabusPreviewFileId(null); }} canWrite={canWriteFiles && !filePreviewReadOnly} onEdit={() => { setFileDialog({ initial: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview }); setFilePreview(null); setSyllabusPreviewFileId(null); }} onReview={syllabusPreviewFileId === filePreview.id ? undefined : (file, text) => { createReview(file, text); setFilePreview(null); }} />}
+      {uploadDialog && <FileUploadDialog queue={fileUploads} currentProfileId={initialProfile.id} defaults={uploadDialog} canWrite={uploadDialog.profileId === initialProfile.id && canWriteFiles && !profilePending && !organizationState && !nativeDocumentDialog} onClose={() => setUploadDialog(null)} />}
       <div className="toast-stack">
+        <SaveToast active={fileUploads.rows.length > 0 && !uploadDialog} title={fileUploads.busy ? "Uploading files…" : fileUploads.dirty ? "Uploads need attention" : "Uploads complete"} message="Review individual results or retry retained selections." loading={fileUploads.busy}>
+          <button type="button" onClick={() => setUploadDialog({ profileId: initialProfile.id, folderId: null, courseId: "" })}>Review uploads</button>
+        </SaveToast>
         <SaveToast
           active={showWorkspaceToast}
           title={workspaceToastTitle}
@@ -1103,6 +1211,19 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
           loading={!fileStore.error && fileStore.busy}
         >
           {fileStore.error && <><button type="button" onClick={() => void fileStore.refresh()} disabled={fileStore.busy}>Reload files</button><a href="/login" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a></>}
+        </SaveToast>
+        <SaveToast active={!!currentTrashUndo} title={undoBusy ? "Restoring from Trash…" : currentTrashUndo?.error ? "Couldn't restore from Trash" : `${currentTrashUndo?.receipt.label ?? "Item"} moved to Trash`} message={currentTrashUndo?.error || "Undo restores the saved location and keeps class and assignment links."} error={!!currentTrashUndo?.error} loading={undoBusy}>
+          <button type="button" disabled={!canWriteFiles || profilePending || !!organizationState || !!nativeDocumentDialog || fileStore.busy} onClick={() => void undoTrash()}>{currentTrashUndo?.restored ? "Retry Files refresh" : currentTrashUndo?.error ? "Retry Undo" : "Undo"}</button>
+          {currentTrashUndo?.error && filesBrowserEnabled && <button type="button" disabled={undoBusy} onClick={() => router.push("/files?view=trash")}>Review Trash</button>}
+          <button type="button" disabled={undoBusy} onClick={() => setTrashUndo(null)}>Dismiss Trash notification</button>
+        </SaveToast>
+        <SaveToast active={!!organizationState && page !== "files"} title="Files changes are still open" message="Return to Files to finish or close the dialog." loading={!!organizationState?.busy}>
+          <button type="button" onClick={() => navigate("files")}>Review Files</button>
+          <button type="button" onClick={downloadUnsavedWork}>Download current drafts</button>
+        </SaveToast>
+        <SaveToast active={!!fileActivity.failure} title="Couldn't update Recent" message={fileActivity.failure ? fileActivity.failure.message + (fileActivity.failure.acknowledged ? "" : " Later opens will appear after you retry or dismiss this update.") : undefined} error loading={fileActivity.retrying}>
+          <button type="button" disabled={fileActivity.retrying || !!experimentalMode || profilePending || !saveState.ready} onClick={() => void fileActivity.retry()}>{fileActivity.failure?.acknowledged ? "Retry Recent refresh" : "Retry Recent update"}</button>
+          <button type="button" disabled={fileActivity.retrying} onClick={fileActivity.dismiss}>Dismiss Recent notification</button>
         </SaveToast>
         {!experimentalMode && persistenceStatus === "saved" && !profilePending && <span className="sr-only" role="status">Workspace saved</span>}
         {toast && <div className="toast" role="status"><CheckCircle2 size={17} /> {toast}</div>}
@@ -1293,9 +1414,9 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               style={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
               layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}`}
               reflowKey={String(sidebarCollapsed)}
-              enabled={customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId}
+              enabled={customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog}
               onReorderStart={closeWidgetMenu}
-              onCustomize={!customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId ? () => {
+              onCustomize={!customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog ? () => {
                 closeWidgetMenu();
                 setCustomizing(true);
               } : undefined}
@@ -1422,7 +1543,7 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
                 const courseAssignments = assignments.filter((assignment) => assignment.courseId === course.id && assignment.status !== "done");
                 return <button key={course.id} className="class-card" onClick={() => setSelectedClass(course)}>
                   <div className="class-card-visual" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
-                    {fileStore.files.filter((f) => f.course_id === course.id && f.kind === "class-image" && f.state === "ready").sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 1).map((f) => <PrivateImage key={f.id} file={f} store={fileStore} />)}<span className="course-watermark">{course.initials}</span><span className="course-pill" style={{ color: course.color }}>{course.code}</span><BookOpen size={34} style={{ color: course.color }} />
+                    {fileStore.files.filter((f) => f.course_id === course.id && f.kind === "class-image" && f.state === "ready" && !f.trashed_at).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 1).map((f) => <PrivateImage key={f.id} file={f} store={fileStore} />)}<span className="course-watermark">{course.initials}</span><span className="course-pill" style={{ color: course.color }}>{course.code}</span><BookOpen size={34} style={{ color: course.color }} />
                   </div>
                   <div className="class-card-body"><div><h3>{course.name}</h3><p>{course.instructor} · {course.credits} credits</p></div><div className="class-statuses"><span className="status-overdue"><AlertOctagon size={14} />{courseAssignments.filter((item) => item.status === "overdue").length}<small>overdue</small></span><span className="status-today"><Clock3 size={14} />{courseAssignments.filter((item) => item.status === "today").length}<small>today</small></span><span className="status-later"><Circle size={14} />{courseAssignments.filter((item) => item.status === "later").length}<small>later</small></span></div></div>
                 </button>;
@@ -1481,19 +1602,43 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
 
   function renderFiles() {
     const prefs = extraData.filePreferences;
+    if (filesBrowserEnabled) return <FilesBrowser
+      profileId={initialProfile.id} courses={courses} assignments={storedAssignments} courseDetails={extraData.courseDetails}
+      store={fileStore} layout={prefs.view}
+      preferences={prefs} currentTerm={profile.current_term ?? ""} onFileOpened={handleFileOpened}
+      onPreferencesChange={(filePreferences) => commitAcademic(courses, { filePreferences })}
+      onLayoutChange={(view) => commitAcademic(courses, { filePreferences: { ...prefs, view } })}
+      onOrganizationSaved={handleOrganizationSaved} onOrganizationStateChange={handleOrganizationState}
+      dataRevision={filesDataRevision}
+      onTrashCompleted={handleTrashCompleted}
+      onUpload={(folderId, courseId) => { if (!organizationState && !nativeDocumentDialog) setUploadDialog({ profileId: initialProfile.id, folderId, courseId }); }}
+      onUploadFiles={(files, folderId, courseId) => { if (!organizationState && !nativeDocumentDialog && canWriteFiles && !profilePending) { fileUploads.enqueue(files, { folderId, courseId }); setUploadDialog({ profileId: initialProfile.id, folderId, courseId }); } }}
+      onNewTextFile={(folderId, courseId, name) => { if (canWriteFiles && !profilePending && !nativeDocumentDialog && !organizationState) setNativeDocumentDialog({ create: { id: crypto.randomUUID(), folderId, courseId, name, body: "" } }); }}
+      onOpen={(file, options) => { if (nativeDocumentDialog || organizationState) return; if (file.content_backend === "native-text" && file.state === "ready" && !file.trashed_at) setNativeDocumentDialog({ file, readOnly: options?.readOnly }); else { setFilePreviewReadOnly(!!options?.readOnly); setFilePreview(file); } }}
+      onEdit={(initial) => { if (!organizationState) setFileDialog({ initial }); }}
+      canWrite={canWriteFiles && !profilePending && !nativeDocumentDialog}
+      onAttachSyllabus={(courseId, folderId) => { if (canWriteFiles && !profilePending && !organizationState) setSyllabusAttachment({ courseId, folderId }); }}
+      onSyllabusText={setSyllabusTextCourseId}
+      onOpenSyllabus={(file) => { setSyllabusPreviewFileId(file.id); setFilePreview(file); }}
+    />;
     const visible = fileStore.files.filter((f) => (prefs.filter === "all" || (prefs.filter === "personal" ? !f.course_id : f.course_id === prefs.filter)) && (!fileQuery || (f.name + " " + f.kind + " " + courseFor(courses, f.course_id ?? "").code).toLowerCase().includes(fileQuery.toLowerCase())));
     return <div className={"page files-page file-view-" + prefs.view}>{renderPageHeader("Resources", "Your private files", "Original files are stored privately with your account.", <button className="primary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({})}>Upload file</button>)}
       <div className="files-toolbar"><label>Search files<input aria-label="Search files" value={fileQuery} onChange={(e) => setFileQuery(e.target.value)} /></label><label>File class filter<select value={prefs.filter} onChange={(e) => commitAcademic(courses, { filePreferences: { ...prefs, filter: e.target.value } })}><option value="all">All classes and personal</option><option value="personal">Personal</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select></label><label>File view<select value={prefs.view} onChange={(e) => commitAcademic(courses, { filePreferences: { ...prefs, view: e.target.value as "list" | "grid" } })}><option value="list">List</option><option value="grid">Grid</option></select></label><button className="secondary-button" disabled={fileStore.busy} onClick={() => void fileStore.refresh()}>Refresh files</button></div>
       <p>{fileSize(fileStore.files.filter((f) => f.state === "ready").reduce((sum, f) => sum + Number(f.size_bytes), 0))} in ready files · {fileStore.files.length} / 1,000 files · 25 MiB maximum per file</p>
-      {fileStore.loading && <p>Loading files…</p>}<FileList files={visible} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} canWrite={canWriteFiles} />
+      {fileStore.loading && <p>Loading files…</p>}<FileList files={visible} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} onTrashed={handleLegacyTrashed} canWrite={canWriteFiles} />
     </div>;
   }
 
   function renderSettings() {
+    const accountActionBlocked = profilePending || saveState.dirty || fileStore.busy || fileUploads.dirty || fileUploads.busy || !!nativeDocumentDraft?.dirty || !!organizationState?.dirty || !!organizationState?.busy || undoBusy;
     return <div className="page settings-page">
       {renderPageHeader("Make it yours", "Settings", "Your profile and preferences follow your Google account.")}
       <ProfileEditor initialProfile={profile} onSaved={setProfile} onDraftChange={handleProfileDraft} />
-      <section className="settings-card"><h2>Account & data</h2><div className="data-actions"><a className="secondary-button" aria-disabled={profilePending || saveState.dirty || fileStore.busy} onClick={(e) => { if (profilePending || saveState.dirty || fileStore.busy) e.preventDefault(); }} href={"/api/export?account=" + encodeURIComponent(initialProfile.id)} target="_blank" rel="noopener noreferrer">Export saved account (.zip)</a><button className="secondary-button" onClick={downloadUnsavedWork}>Download current drafts (.json)</button><form action="/auth/signout" method="post"><button className="secondary-button" disabled={profilePending || saveState.dirty || fileStore.busy}>Sign out</button></form></div>{(profilePending || saveState.dirty) && <p className="form-hint">Save or discard pending edits before signing out. Download a draft first if you want to keep a copy.</p>}</section>
+      <section className="settings-card"><h2>Account & data</h2><div className="data-actions">
+        <a className="secondary-button" aria-disabled={accountActionBlocked} onClick={(e) => { if (accountActionBlocked) e.preventDefault(); }} href={"/api/export?account=" + encodeURIComponent(initialProfile.id)} target="_blank" rel="noopener noreferrer">Export saved account (.zip)</a>
+        <button className="secondary-button" onClick={downloadUnsavedWork}>Download current drafts (.json)</button>
+        <form action="/auth/signout" method="post"><button className="secondary-button" disabled={accountActionBlocked}>Sign out</button></form>
+      </div>{accountActionBlocked && <p className="form-hint">Save or discard pending edits before signing out. Download a draft first if you want to keep a copy.</p>}</section>
     </div>;
   }
 
@@ -1510,13 +1655,13 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
     const items = assignments.filter((a) => a.courseId === course.id), details = extraData.courseDetails[course.id] ?? emptyCourseDetails();
     const average = study.grades.find((g) => g.courseId === course.id && g.system === activeGpaSystem && g.term === activeTerm);
     const studySeconds = study.sessions.filter((s) => s.courseId === course.id).reduce((sum, s) => sum + segmentSeconds(s.segments), 0);
-    return <div className="modal-backdrop side-panel-backdrop"><aside className="detail-panel" role="dialog" aria-modal="true" aria-label="Class details"><div className="modal-header"><h2>{course.code} · {course.name}</h2><button className="secondary-button" onClick={() => setSelectedClass(null)}>Close class</button></div><div className="detail-panel-body"><p>{course.credits} credits · {course.room || "No location entered"}</p><h3>Files and images</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id } })}>Add class file</button><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id, kind: "class-image" } })}>Upload class image</button><FileList files={fileStore.files.filter((f) => f.course_id === course.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} canWrite={canWriteFiles} />{details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}<h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((a) => a.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {activeTerm || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades</button><h3>Instructor</h3><p>{course.instructor || "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p><h3>Schedule</h3>{details.meetings.length ? details.meetings.map((m) => <p key={m.id}>{m.days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")} · {m.start}–{m.end} · {m.location || course.room}<br />{dateLabel(m.from)} – {dateLabel(m.until)}</p>) : <p>No recurring meetings entered.</p>}<div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}>Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}>View schedule</button></div><h3>Assignments</h3>{renderAssignmentTable(items, true)}<button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}>Add assignment</button>{details.syllabusText && <details><summary>Saved syllabus source</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}<button className="secondary-button full remove-class-button" onClick={() => removeClass(course)}>Remove class</button></div></aside></div>;
+    return <div className="modal-backdrop side-panel-backdrop"><aside className="detail-panel" role="dialog" aria-modal="true" aria-label="Class details"><div className="modal-header"><h2>{course.code} · {course.name}</h2><button className="secondary-button" onClick={() => setSelectedClass(null)}>Close class</button></div><div className="detail-panel-body"><p>{course.credits} credits · {course.room || "No location entered"}</p><h3>Files and images</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id } })}>Add class file</button><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: course.id, kind: "class-image" } })}>Upload class image</button><FileList files={fileStore.files.filter((f) => f.course_id === course.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} onTrashed={handleLegacyTrashed} canWrite={canWriteFiles} />{details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}<h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((a) => a.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {activeTerm || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades</button><h3>Instructor</h3><p>{course.instructor || "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p><h3>Schedule</h3>{details.meetings.length ? details.meetings.map((m) => <p key={m.id}>{m.days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")} · {m.start}–{m.end} · {m.location || course.room}<br />{dateLabel(m.from)} – {dateLabel(m.until)}</p>) : <p>No recurring meetings entered.</p>}<div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}>Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}>View schedule</button></div><h3>Assignments</h3>{renderAssignmentTable(items, true)}<button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}>Add assignment</button>{details.syllabusText && <details><summary>Saved syllabus source</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}<button className="secondary-button full remove-class-button" onClick={() => removeClass(course)}>Remove class</button></div></aside></div>;
   }
 
   function renderAssignmentDetail(assignment: Assignment) {
     const current = storedAssignments.find((a) => a.id === assignment.id) ?? assignment;
     const course = courseFor(courses, current.courseId);
-    return <div className="modal-backdrop"><section className="assignment-modal academic-editor" role="dialog" aria-modal="true" aria-label="Assignment details"><div className="modal-header"><div><p>{course.code} · {current.type ?? "Assignment"}</p><h2>{current.title}</h2></div><button className="secondary-button" onClick={() => setSelectedAssignment(null)}>Close assignment</button></div><p>Due {dateLabel(current.dateKey)} {current.dueTime ?? ""}</p><StatusBadge status={assignmentStatus(current, today)} /><p>{current.description || "No description entered."}</p><p>Weight: {current.weight || "Not entered"} · Progress: {current.progress}%</p><h3>Attachments</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: current.courseId, assignmentId: current.id, kind: "attachment" } })}>Attach file</button><FileList files={fileStore.files.filter((f) => f.assignment_id === current.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} canWrite={canWriteFiles} /><h3>Notes</h3><p className="syllabus-source">{current.notes || "No notes yet."}</p><ul>{["Review instructions and rubric", "Complete first draft", "Proofread and submit"].map((label, i) => <li key={label}>{current.checklist?.[i] ? "✓" : "○"} {label}</li>)}</ul><div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ assignment: current }); setSelectedAssignment(null); }}>Edit assignment</button><button className="secondary-button" onClick={() => toggleAssignmentComplete(current.id)}>{current.status === "done" ? "Mark incomplete" : "Mark complete"}</button><button className="secondary-button" onClick={() => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== current.id) })) setSelectedAssignment(null); } }}>Delete assignment</button></div></section></div>;
+    return <div className="modal-backdrop"><section className="assignment-modal academic-editor" role="dialog" aria-modal="true" aria-label="Assignment details"><div className="modal-header"><div><p>{course.code} · {current.type ?? "Assignment"}</p><h2>{current.title}</h2></div><button className="secondary-button" onClick={() => setSelectedAssignment(null)}>Close assignment</button></div><p>Due {dateLabel(current.dateKey)} {current.dueTime ?? ""}</p><StatusBadge status={assignmentStatus(current, today)} /><p>{current.description || "No description entered."}</p><p>Weight: {current.weight || "Not entered"} · Progress: {current.progress}%</p><h3>Attachments</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: current.courseId, assignmentId: current.id, kind: "attachment" } })}>Attach file</button><FileList files={fileStore.files.filter((f) => f.assignment_id === current.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} onTrashed={handleLegacyTrashed} canWrite={canWriteFiles} /><h3>Notes</h3><p className="syllabus-source">{current.notes || "No notes yet."}</p><ul>{["Review instructions and rubric", "Complete first draft", "Proofread and submit"].map((label, i) => <li key={label}>{current.checklist?.[i] ? "✓" : "○"} {label}</li>)}</ul><div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ assignment: current }); setSelectedAssignment(null); }}>Edit assignment</button><button className="secondary-button" onClick={() => toggleAssignmentComplete(current.id)}>{current.status === "done" ? "Mark incomplete" : "Mark complete"}</button><button className="secondary-button" onClick={() => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== current.id) })) setSelectedAssignment(null); } }}>Delete assignment</button></div></section></div>;
   }
 
   function renderAddClassDialog() {

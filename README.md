@@ -225,7 +225,9 @@ to the server, and reduced-motion preferences bypass the transition.
   hydration, reduced motion, successful loading, retry, and other routes. Uses synthetic workspace data; set
   PLAYWRIGHT_MODULE and ESBUILD_MODULE when using external tooling bundles.
 - npm test: build, account/API tests with a fake Supabase adapter, and HTTP route
-  integration tests against a temporary local development server.
+  integration tests against a temporary local development server. Test files run
+  serially so the SQL/DOM suites do not cause wall-clock UI assertions to fail
+  under parallel CPU contention; all test cases still run.
 - tests/persistence-foundation.test.mjs additionally executes all app migrations
   in an isolated PGlite PostgreSQL instance and tests constraints, RLS, stale saves,
   rollback, legacy layouts, and two-account isolation. Its auth/storage schemas are
@@ -250,6 +252,13 @@ to the server, and reduced-motion preferences bypass the transition.
   populated metrics, grade CRUD, and old-client protection.
 - node --env-file=.env scripts/verify-database.mjs: read-only live schema, auth
   settings, anonymous-access and named-bucket check. Prints no keys or user records.
+- node --env-file=.env scripts/verify-files-release.mjs: read-only Files schema,
+  optional AI RPC, anonymous denial and private-bucket preflight. Exit 0 means
+  structural metadata passed, 2 means blocked, 1 means unavailable; it never marks
+  hosted release acceptance complete or prints user rows/keys.
+- node scripts/verify-files-accessibility.mjs: Chrome keyboard, dialog focus,
+  selection/save announcements and measured contrast checks at desktop/mobile
+  in normal/high-contrast modes, using real components and deterministic APIs.
 - Set TEST_BASE_URL to an existing local preview origin to reuse that server.
 
 Tests exercise Google-only identity, profile validation, ownership isolation,
@@ -264,3 +273,10 @@ Preserve .openai/hosting.json and configure the same Supabase URL, publishable k
 and secret key in the hosted Worker environment. Never include .env in a deployment
 archive or place secrets in client components. Deploy only after the migrations
 and Google callback allow list are configured for the final app origin.
+
+The Files redesign remains disabled by default. Follow
+[the Files release and recovery runbook](docs/files-release.md) to apply additive
+migrations, deploy compatible APIs and verify two-account/private-storage,
+concurrency, browser and large-ZIP acceptance before enabling
+`FILES_BROWSER_ENABLED`. A successful local test or structural probe does not
+satisfy those hosted gates. Retain the schema and saved data if disabling the UI.

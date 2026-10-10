@@ -97,6 +97,12 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
     await pg.exec(migration);
     await pg.exec(await readFile(new URL("../supabase/migrations/20260907000000_private_files.sql", import.meta.url), "utf8"));
     await pg.exec(await readFile(new URL("../supabase/migrations/20261008000000_onboarding_details.sql", import.meta.url), "utf8"));
+    await pg.exec(await readFile(new URL("../supabase/migrations/20261008010000_file_organization.sql", import.meta.url), "utf8"));
+    await pg.exec(await readFile(new URL("../supabase/migrations/20261008020000_file_content_api.sql", import.meta.url), "utf8"));
+    await pg.exec(await readFile(new URL("../supabase/migrations/20261008040000_managed_course_folders.sql", import.meta.url), "utf8"));
+    for (const file of ["20261008050000_syllabus_replacement.sql", "20261008060000_document_save_requests.sql", "20261008070000_folder_moves.sql", "20261008080000_recursive_trash.sql", "20261008090000_archive_integrity.sql", "20261009100000_selected_file_download.sql", "20261009110000_file_release_integrity.sql", "20261009120000_ai_file_result_fence.sql"]) {
+      await pg.exec(await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), "utf8"));
+    }
 
     await t.test("additive migration preserves existing payloads and revisions", async () => {
       const after = (await sql("select payload, updated_at from dashboard_state where profile_id = $1", [a.id])).rows[0];
@@ -149,14 +155,29 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
     const { defaultPreferences, editableProfile, validateProfile } = await import(profileUrl);
     runtime.profileFor = async () => { const profile = await profileFor(runtime.user); return { ...profile, preferences: { ...defaultPreferences, ...profile.preferences } }; };
     const authUrl = moduleUrl(`
-      export class AuthError extends Error {}
+      export class AuthError extends Error { constructor(message, status = 401) { super(message); this.status = status; } }
       export const requireProfile = () => globalThis.__foundationTest.profileFor();
-      export function requireSameOrigin(r) { if(r.headers.get('origin') !== new URL(r.url).origin) throw new Error('bad origin'); }
-      export const apiError = () => Response.json({error:'Account error'}, {status:503});
+      export function requireSameOrigin(r) { if(r.headers.get('origin') !== new URL(r.url).origin) throw new AuthError('bad origin', 403); }
+      export const apiError = (error) => Response.json({error:'Account error'}, {status:error?.status ?? 503});
     `);
     runtime.rpc = async (name, args) => {
-      if (name === "mutate_account_file" || name === "export_account") {
-        try { const result = name === "mutate_account_file" ? await sql("select mutate_account_file($1,$2,$3,$4,$5,$6) as value", [args.p_profile_id, args.p_auth_user_id, args.p_file_id, args.p_operation, args.p_expected_revision, JSON.stringify(args.p_metadata)]) : await sql("select export_account($1,$2) as value", [args.p_profile_id, args.p_auth_user_id]); return { data: result.rows[0].value, error: null }; }
+      const invoke = {
+        mutate_account_file: () => sql("select mutate_account_file($1,$2,$3,$4,$5,$6) as value", [args.p_profile_id, args.p_auth_user_id, args.p_file_id, args.p_operation, args.p_expected_revision, JSON.stringify(args.p_metadata ?? {})]),
+        mutate_account_folder: () => sql("select mutate_account_folder($1,$2,$3,$4,$5,$6) as value", [args.p_profile_id, args.p_auth_user_id, args.p_operation, args.p_folder_id, args.p_expected_revision, JSON.stringify(args.p_metadata ?? {})]),
+        mutate_account_document: () => sql("select mutate_account_document($1,$2,$3,$4,$5,$6) as value", [args.p_profile_id, args.p_auth_user_id, args.p_file_id, args.p_operation, args.p_expected_content_revision ?? null, JSON.stringify(args.p_document ?? {})]),
+        mutate_account_files_action: () => sql("select mutate_account_files_action($1,$2,$3,$4,$5,$6) as value", [args.p_profile_id, args.p_auth_user_id, args.p_action, JSON.stringify(args.p_items), args.p_destination_id ?? null, args.p_destination_provided ?? false]),
+        begin_account_file_purge: () => sql("select begin_account_file_purge($1,$2,$3,$4,$5) as value", [args.p_profile_id, args.p_auth_user_id, args.p_request_id, JSON.stringify(args.p_items), args.p_empty]),
+        finalize_account_file_purge: () => sql("select finalize_account_file_purge($1,$2,$3) as value", [args.p_profile_id, args.p_auth_user_id, args.p_request_id]),
+        read_account_file_content: () => sql("select read_account_file_content($1,$2,$3,$4) as value", [args.p_profile_id, args.p_file_id, args.p_expected_content_revision ?? null, args.p_allow_trashed ?? false]),
+        read_account_file_browser: () => sql("select read_account_file_browser($1,$2) as value", [args.p_profile_id, args.p_auth_user_id]),
+        export_account: () => sql("select export_account($1,$2) as value", [args.p_profile_id, args.p_auth_user_id]),
+      }[name];
+      if (invoke) {
+        try {
+          const result = await invoke();
+          if (name === "export_account" && runtime.afterExportSnapshot) await runtime.afterExportSnapshot(result.rows[0].value);
+          return { data: result.rows[0].value, error: null };
+        }
         catch (error) { return { data: null, error: { code: error.code, message: error.message } }; }
       }
       assert.equal(name, "save_account_workspace");
@@ -288,6 +309,9 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       const saved = await getWorkspace();
       assert.deepEqual(saved.courses, [clientCourse]); assert.deepEqual(saved.dashboard, dashboard);
       assert.equal(saved.revision, (await response.json()).revision);
+      const approvedFolder = (await sql("select name,course_id,course_code,kind from file_folders where profile_id=$1 and course_id=$2 and kind='course'", [a.id, course.id])).rows[0];
+      assert.deepEqual(approvedFolder, { name: course.name, course_id: course.id, course_code: course.code, kind: "course" },
+        "syllabus review approval creates the managed folder through the workspace persistence path");
       assert.equal((await workspace.PUT(request({ courses: [clientCourse], dashboard, baseRevision: revision }))).status, 409);
       assert.equal((await getWorkspace()).revision, saved.revision);
       for (const bad of [
@@ -349,7 +373,7 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       await insert(a.id, course.id, `${a.id}/${file}`);
       // The current API removes the class and its assignments in one transaction.
       assert.equal((await workspace.PUT(request({ courses: [], dashboard: layout, baseRevision: (await getWorkspace()).revision }))).status, 200);
-      const saved = (await sql("select * from user_files where profile_id = $1", [a.id])).rows[0];
+      const saved = (await sql("select * from user_files where profile_id = $1 and id = $2", [a.id, file])).rows[0];
       assert.equal(saved.course_id, null);
       assert.equal(saved.assignment_id, null);
       assert.equal(saved.name, "Essay.pdf");
@@ -568,6 +592,47 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       runtime.user = userB;
       assert.deepEqual(await getWorkspace(), beforeB, "Today content choices and revision remain isolated to their account");
       runtime.user = userA;
+    });
+
+    await t.test("workspace API maps an at-capacity syllabus-preservation failure to a recoverable 409", async () => {
+      runtime.user = userA;
+      const courseId = "preserve-at-capacity";
+      const syllabusText = "A pasted syllabus must stay committed when the account is full.";
+      const loaded = await getWorkspace();
+      const capacityCourse = { id: courseId, code: "CAP 101", name: "Capacity course", credits: 3, instructor: "Teacher", room: "Room", color: "#123456", soft: "#12345618", initials: "CA" };
+      const capacityDashboard = structuredClone(loaded.dashboard);
+      capacityDashboard.d.courseDetails = { ...capacityDashboard.d.courseDetails, [courseId]: { officeHours: "", meetings: [], syllabusText, syllabusName: "Capacity syllabus" } };
+      const created = await workspace.PUT(request({
+        courses: [...loaded.courses, capacityCourse], dashboard: capacityDashboard, baseRevision: loaded.revision,
+      }));
+      assert.equal(created.status, 200, await created.clone().text());
+      const committed = await getWorkspace();
+      const activeFileCount = (await sql("select count(*)::int as count from user_files where profile_id=$1 and deleted_at is null", [a.id])).rows[0].count;
+      assert.ok(activeFileCount < 1000);
+      await sql(`
+        with account as (select $1::uuid as profile_id),
+          ids as (select gen_random_uuid() as id from generate_series(1,$2::int))
+        insert into user_files(profile_id,id,kind,name,mime_type,size_bytes,object_path)
+        select account.profile_id, ids.id, 'resource', 'Capacity fixture', 'text/plain', 0,
+          account.profile_id::text || '/' || ids.id::text from account cross join ids
+      `, [a.id, 1000 - activeFileCount]);
+
+      const draft = structuredClone(committed.dashboard);
+      delete draft.d.courseDetails[courseId];
+      const response = await workspace.PUT(request({
+        courses: committed.courses.filter((item) => item.id !== courseId),
+        dashboard: draft,
+        baseRevision: committed.revision,
+      }));
+      assert.equal(response.status, 409);
+      const error = await response.json();
+      assert.match(error.error, /could not be deleted because its syllabus could not be preserved/);
+      const afterRejectedDelete = await getWorkspace();
+      assert.equal(afterRejectedDelete.revision, committed.revision);
+      assert.ok(afterRejectedDelete.courses.some((item) => item.id === courseId));
+      assert.equal(afterRejectedDelete.dashboard.d.courseDetails[courseId].syllabusText, syllabusText);
+      assert.ok((await sql("select 1 from file_folders where profile_id=$1 and course_id=$2 and kind='course'", [a.id, courseId])).rows[0]);
+      assert.equal((await sql("select count(*)::int as count from native_file_documents where profile_id=$1 and body=$2", [a.id, syllabusText])).rows[0].count, 0);
     });
   } finally { delete globalThis.__foundationTest; await pg.close(); }
 });

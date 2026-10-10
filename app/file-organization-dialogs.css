@@ -1,0 +1,122 @@
+.reference-ui .file-organization-dialog { width: min(100%, calc(610 * var(--ui-unit))); }
+.reference-ui .file-organization-intro {
+  margin: calc(8 * var(--ui-unit)) 0 calc(13 * var(--ui-unit));
+  color: #a9bfdf;
+  font-size: calc(11 * var(--ui-unit));
+  line-height: 1.5;
+}
+.reference-ui .file-organization-note,
+.reference-ui .file-organization-pending,
+.reference-ui .file-organization-selection-note {
+  margin: calc(8 * var(--ui-unit)) 0;
+  border: 1px solid #29466e;
+  border-radius: calc(6 * var(--ui-unit));
+  background: #122744;
+  padding: calc(8 * var(--ui-unit)) calc(10 * var(--ui-unit));
+  color: #b7c9e8;
+  font-size: calc(10 * var(--ui-unit));
+  line-height: 1.45;
+}
+.reference-ui .file-organization-field { display: grid; gap: calc(5 * var(--ui-unit)); margin: calc(12 * var(--ui-unit)) 0; color: #a9bfdf; font-size: calc(11 * var(--ui-unit)); }
+.reference-ui .file-organization-field input {
+  width: 100%;
+  min-height: calc(38 * var(--ui-unit));
+  border: 1px solid #385780;
+  border-radius: calc(6 * var(--ui-unit));
+  background: #09182b;
+  padding: calc(8 * var(--ui-unit)) calc(10 * var(--ui-unit));
+  color: #edf1ff;
+  font: inherit;
+}
+.reference-ui .file-organization-field input:focus-visible { outline: 2px solid #90a7ff; outline-offset: 2px; }
+.reference-ui .file-organization-field input:disabled { opacity: .6; }
+.reference-ui .file-organization-error {
+  margin: calc(8 * var(--ui-unit)) 0;
+  border: 1px solid #75464d;
+  border-radius: calc(6 * var(--ui-unit));
+  background: #321f2a;
+  padding: calc(8 * var(--ui-unit)) calc(10 * var(--ui-unit));
+  color: #ffc0c7;
+  font-size: calc(10 * var(--ui-unit));
+  line-height: 1.5;
+}
+.reference-ui .file-organization-breadcrumbs {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(5 * var(--ui-unit));
+  border-bottom: 1px solid #203858;
+  padding: 0 0 calc(9 * var(--ui-unit));
+  color: #94add3;
+  font-size: calc(10 * var(--ui-unit));
+}
+.reference-ui .file-organization-breadcrumbs > button,
+.reference-ui .file-organization-breadcrumbs span > button {
+  overflow: hidden;
+  max-width: min(190px, 34vw);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #b9d0fa;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.reference-ui .file-organization-breadcrumbs > span { display: inline-flex; align-items: center; gap: calc(5 * var(--ui-unit)); }
+.reference-ui .file-organization-breadcrumbs button:hover { color: #fff; text-decoration: underline; }
+.reference-ui .file-organization-destination-list {
+  display: grid;
+  max-height: min(42vh, calc(310 * var(--ui-unit)));
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: calc(8 * var(--ui-unit)) 0;
+  border: 1px solid #203858;
+  border-radius: calc(7 * var(--ui-unit));
+  background: #0a192c;
+}
+.reference-ui .file-organization-destination {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: calc(8 * var(--ui-unit));
+  border-bottom: 1px solid #1d3452;
+  padding: calc(7 * var(--ui-unit)) calc(8 * var(--ui-unit));
+}
+.reference-ui .file-organization-destination:last-child { border-bottom: 0; }
+.reference-ui .file-organization-destination.is-selected { background: #172d4b; box-shadow: inset 3px 0 #7584ff; }
+.reference-ui .file-organization-destination.is-disabled { opacity: .77; }
+.reference-ui .file-organization-destination-icon { display: grid; width: calc(26 * var(--ui-unit)); height: calc(26 * var(--ui-unit)); flex: 0 0 auto; place-items: center; color: #9eb9e6; }
+.reference-ui .file-organization-destination-copy { display: grid; min-width: 0; flex: 1 1 auto; gap: calc(2 * var(--ui-unit)); }
+.reference-ui .file-organization-destination-copy strong { overflow: hidden; color: #e2ebff; font-size: calc(10 * var(--ui-unit)); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.reference-ui .file-organization-destination-copy small { overflow: hidden; color: #8ea7cd; font-size: calc(9 * var(--ui-unit)); text-overflow: ellipsis; white-space: nowrap; }
+.reference-ui .file-organization-destination-copy em { color: #f0bd78; font-size: calc(9 * var(--ui-unit)); font-style: normal; line-height: 1.35; }
+.reference-ui .file-organization-open-folder {
+  border: 1px solid #2d4569;
+  border-radius: calc(5 * var(--ui-unit));
+  background: #10223c;
+  padding: calc(5 * var(--ui-unit)) calc(7 * var(--ui-unit));
+  color: #b7c9e8;
+  font-size: calc(9 * var(--ui-unit));
+  cursor: pointer;
+}
+.reference-ui .file-organization-open-folder:hover:not(:disabled) { border-color: #536fa4; background: #1b3355; color: #fff; }
+.reference-ui .file-organization-open-folder:disabled { opacity: .5; cursor: not-allowed; }
+.reference-ui .file-organization-empty { margin: 0; padding: calc(14 * var(--ui-unit)); color: #8ea7cd; font-size: calc(10 * var(--ui-unit)); }
+.reference-ui .file-organization-selection-note { border-style: dashed; background: transparent; }
+.reference-ui .file-organization-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: calc(7 * var(--ui-unit)); margin-top: calc(12 * var(--ui-unit)); border-top: 1px solid #203858; padding-top: calc(10 * var(--ui-unit)); }
+.reference-ui .file-organization-actions button { min-height: calc(33 * var(--ui-unit)); }
+.reference-ui .file-organization-actions button:disabled { opacity: .52; cursor: not-allowed; }
+.reference-ui .file-organization-actions .files-secondary-button { font-size: calc(10 * var(--ui-unit)); }
+.reference-ui .file-organization-actions .files-new-button { font-size: calc(10 * var(--ui-unit)); }
+.reference-ui .file-organization-reselect { display: block; margin: calc(8 * var(--ui-unit)) 0 0 auto; border: 0; background: transparent; padding: calc(4 * var(--ui-unit)); color: #b9d0fa; font-size: calc(10 * var(--ui-unit)); cursor: pointer; }
+.reference-ui .file-organization-reselect:hover { color: #fff; text-decoration: underline; }
+.reference-ui .file-organization-pending { border-color: #625331; background: #2d2a23; color: #ffda82; }
+
+@media (max-width: 540px) {
+  .reference-ui .file-organization-destination { flex-wrap: wrap; }
+  .reference-ui .file-organization-destination-copy { flex-basis: calc(100% - 40px); }
+  .reference-ui .file-organization-open-folder { margin-left: calc(34 * var(--ui-unit)); }
+  .reference-ui .file-organization-actions { justify-content: stretch; }
+  .reference-ui .file-organization-actions button { flex: 1 1 auto; }
+}

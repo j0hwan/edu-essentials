@@ -2,17 +2,47 @@ export const FILE_BUCKET = "eduessentials-private";
 export const MAX_FILE_BYTES = 26_214_400;
 export const fileKinds = ["resource", "syllabus", "class-image", "attachment"] as const;
 export type FileKind = typeof fileKinds[number];
-export type PrivateFile = { id: string; name: string; mime_type: string; size_bytes: number; course_id: string | null; assignment_id: string | null; kind: FileKind; state: "pending" | "ready" | "deleting"; created_at: string; updated_at: string; content_sha256: string | null };
-export type FileMetadata = { name: string; courseId: string; assignmentId: string; kind: FileKind };
+export type PrivateFile = {
+  id: string;
+  name: string;
+  mime_type: string;
+  size_bytes: number;
+  course_id: string | null;
+  assignment_id: string | null;
+  kind: FileKind;
+  state: "pending" | "ready" | "deleting";
+  created_at: string;
+  updated_at: string;
+  content_sha256: string | null;
+  folder_id: string | null;
+  content_backend: "object" | "native-text";
+  metadata_revision: number;
+  content_revision: number;
+  trashed_at: string | null;
+  trash_operation_id: string | null;
+  original_folder_id: string | null;
+  original_location_path?: string | null;
+  deleted_at?: string | null;
+};
+export type FileMetadata = { name: string; courseId: string; assignmentId: string; kind: FileKind; folderId?: string | null };
 export const isFileId = (id: string) => /^[a-f\d]{8}-[a-f\d]{4}-[1-5][a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i.test(id);
+const ownershipFields = new Set(["profile_id", "profileId", "auth_user_id", "authUserId", "owner_id", "ownerId", "user_id", "userId", "account_id", "accountId"]);
+export function rejectOwnershipFields(value: Record<string, unknown>) {
+  if (Object.keys(value).some((key) => ownershipFields.has(key))) throw new Error("Account ownership is determined by the signed-in session.");
+}
 export function fileMetadata(value: unknown): FileMetadata {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid file details.");
   const v = value as Record<string, unknown>;
+  rejectOwnershipFields(v);
   if (typeof v.name !== "string" || !v.name.trim() || v.name.length > 255 || [...v.name].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127 || c === "/" || c === "\\")) throw new Error("Use a file name of 1–255 characters without path separators.");
   for (const key of ["courseId", "assignmentId"]) if (typeof v[key] !== "string" || v[key].length > 500) throw new Error("Invalid file association.");
+  if (v.folderId !== undefined && v.folderId !== null && v.folderId !== "" && (typeof v.folderId !== "string" || !isFileId(v.folderId))) throw new Error("Invalid folder location.");
   if (!fileKinds.includes(v.kind as FileKind)) throw new Error("Invalid file type.");
   if (v.kind === "class-image" && !v.courseId) throw new Error("Choose a class for its image.");
-  return { name: v.name.trim(), courseId: v.courseId as string, assignmentId: v.assignmentId as string, kind: v.kind as FileKind };
+  return {
+    name: v.name.trim(), courseId: v.courseId as string, assignmentId: v.assignmentId as string, kind: v.kind as FileKind,
+    ...(v.folderId === undefined ? {} : { folderId: v.folderId === null || v.folderId === "" ? null : v.folderId as string }),
+  };
 }
 export async function readFileBytes(request: Request): Promise<Uint8Array> {
   if (Number(request.headers.get("content-length")) > MAX_FILE_BYTES) throw new Error("Files must be 25 MiB or smaller.");
@@ -35,3 +65,5 @@ export function detectedMime(bytes: Uint8Array, name: string) {
 }
 export const hashBytes = async (bytes: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as BufferSource))].map((b) => b.toString(16).padStart(2, "0")).join("");
 export const fileSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1048576).toFixed(1)} MiB`;
+export const downloadFileName = (file: Pick<PrivateFile, "name" | "content_backend">) =>
+  file.content_backend === "native-text" && !file.name.toLowerCase().endsWith(".txt") ? `${file.name}.txt` : file.name;

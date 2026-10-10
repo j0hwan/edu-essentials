@@ -1,0 +1,13 @@
+.reference-ui .file-archive-dialog { width: min(100%, calc(500 * var(--ui-unit))); }
+.reference-ui .file-archive-intro { margin: calc(9 * var(--ui-unit)) 0 calc(14 * var(--ui-unit)); color: #a9bddc; font-size: calc(11 * var(--ui-unit)); line-height: 1.5; }
+.reference-ui .file-archive-field { display: grid; gap: calc(5 * var(--ui-unit)); margin: 0 0 calc(12 * var(--ui-unit)); color: #b6c8e6; font-size: calc(10 * var(--ui-unit)); font-weight: 600; }
+.reference-ui .file-archive-field input { width: 100%; min-height: calc(36 * var(--ui-unit)); border: 1px solid #39567e; border-radius: calc(6 * var(--ui-unit)); outline: 0; background: #0b1a2d; padding: 0 calc(9 * var(--ui-unit)); color: #eaf0ff; font: inherit; font-size: calc(12 * var(--ui-unit)); }
+.reference-ui .file-archive-field input:focus-visible { border-color: #9cacff; box-shadow: 0 0 0 2px #788cff55; }
+.reference-ui .file-archive-note { border: 1px solid #304970; border-radius: calc(6 * var(--ui-unit)); background: #132742; padding: calc(8 * var(--ui-unit)) calc(10 * var(--ui-unit)); color: #afc2e3; font-size: calc(10 * var(--ui-unit)); line-height: 1.45; }
+.reference-ui .file-archive-error { border: 1px solid #8b4b5a; border-radius: calc(6 * var(--ui-unit)); background: #382432; padding: calc(8 * var(--ui-unit)) calc(10 * var(--ui-unit)); color: #ffd0d3; font-size: calc(10 * var(--ui-unit)); line-height: 1.45; }
+.reference-ui .file-archive-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: calc(7 * var(--ui-unit)); margin-top: calc(13 * var(--ui-unit)); border-top: 1px solid #203858; padding-top: calc(11 * var(--ui-unit)); }
+.reference-ui .file-archive-pending { margin: calc(10 * var(--ui-unit)) 0 0; border-radius: calc(5 * var(--ui-unit)); background: #1b3152; padding: calc(8 * var(--ui-unit)); color: #d8e4ff; font-size: calc(10 * var(--ui-unit)); line-height: 1.4; }
+@media (max-width: 560px) {
+  .reference-ui .file-archive-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .reference-ui .file-archive-actions > button { justify-content: center; }
+}

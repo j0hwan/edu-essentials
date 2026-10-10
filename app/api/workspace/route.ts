@@ -74,8 +74,15 @@ function validate(courses: unknown, dashboard: unknown) {
 function failure(error: unknown) {
   if (error instanceof AuthError) return apiError(error);
   if (error instanceof PersistenceRequestError) return json({ error: error.message }, error.status);
-  const code = (error as { code?: string })?.code;
+  const databaseError = error as { code?: string; message?: string };
+  const code = databaseError?.code;
   if (code === "40001") return saveConflict();
+  if (code === "P0001" && databaseError.message?.startsWith("PRESERVE_SYLLABUS_REPLACEMENT:")) {
+    return json({ error: "This change could not be saved because the previous syllabus could not be preserved. Restore its course folder if it is in Trash, free file capacity, or shorten the syllabus text, then retry. Your workspace draft has been kept.", code: "syllabus-preservation" }, 409);
+  }
+  if (code === "P0001" && databaseError.message?.startsWith("PRESERVE_COURSE_SYLLABUS:")) {
+    return json({ error: "This course could not be deleted because its syllabus could not be preserved. Free file capacity, keep the course, or shorten its syllabus text before deleting. Your workspace draft has been kept.", code: "syllabus-preservation" }, 409);
+  }
   if (code === "23503" || code === "23514" || code === "22023") return json({ error: "The class or assignment data is inconsistent. Review your changes before retrying." }, 400);
   return json({ error: "Workspace persistence is temporarily unavailable. Your edits have been kept; please retry." }, 503);
 }
