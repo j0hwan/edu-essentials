@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import type { WidgetInstance } from "../lib/workspace-codec";
 import { calculateWidgetUnit } from "./animated-widget-grid";
 import AnimatedWidgetGrid from "./animated-widget-grid";
 import { getWidgetInsertionCandidate, reorderWidgetIds } from "../lib/widget-reorder";
+import { useWidgetShake } from "./use-widget-shake";
 
 type Props = {
   items: readonly WidgetInstance[];
@@ -18,6 +20,7 @@ type Props = {
   renderWidget: (widget: WidgetInstance, index: number, isDragged: boolean) => ReactNode;
   onReorder: (ids: string[], miniBlockChange?: { widgetId: string; startsNewMiniBlock: boolean }) => boolean;
   onReorderStart?: () => void;
+  onCustomize?: () => void;
 };
 
 type DragPhase = "pending" | "active" | "settling";
@@ -53,7 +56,7 @@ type DragSession = {
     pointerMove: (event: PointerEvent) => void;
     pointerUp: (event: PointerEvent) => void;
     pointerCancel: (event: PointerEvent) => void;
-    lostCapture: () => void;
+    lostCapture: (event: PointerEvent) => void;
     blur: () => void;
     keyDown: (event: KeyboardEvent) => void;
     resize: () => void;
@@ -117,6 +120,7 @@ export default function ReorderableWidgetGrid({
   renderWidget,
   onReorder,
   onReorderStart,
+  onCustomize,
 }: Props) {
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null);
   const [previewMiniStart, setPreviewMiniStart] = useState<boolean | null>(null);
@@ -431,12 +435,14 @@ export default function ReorderableWidgetGrid({
     if (session?.phase === "settling") animateDrop(session);
   }, [animateDrop, settleTick]);
 
-  const beginSession = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!enabled || event.button !== 0 || !event.isPrimary) return;
+  const beginSession = useCallback((event: Pick<PointerEvent, "target" | "button" | "isPrimary" | "pointerId" | "clientX" | "clientY">, activePointer?: PointerEvent) => {
+    if (!latestProps.current.enabled || event.button !== 0 || !event.isPrimary) return;
     const target = event.target instanceof Element ? event.target : null;
     const handle = target?.closest<HTMLElement>("[data-widget-reorder-handle]");
-    const source = handle?.closest<HTMLElement>("[data-widget-id]");
-    if (!handle || !source || !host.current?.contains(source)) return;
+    const header = target?.closest<HTMLElement>(".widget-header");
+    const source = (handle ?? header)?.closest<HTMLElement>("[data-widget-id]");
+    if (!source || !host.current?.contains(source)) return;
+    if (!handle && target?.closest("button, a, input, textarea, select, [role='button'], [contenteditable]:not([contenteditable='false'])")) return;
 
     const previousSession = sessionRef.current;
     if (previousSession) cancelSession(previousSession, false);
@@ -469,8 +475,8 @@ export default function ReorderableWidgetGrid({
       previewIndex: items.findIndex((item) => item.instanceId === draggedId),
       startX: event.clientX,
       startY: event.clientY,
-      latestX: event.clientX,
-      latestY: event.clientY,
+      latestX: activePointer?.clientX ?? event.clientX,
+      latestY: activePointer?.clientY ?? event.clientY,
       grabOffsetX: event.clientX - rect.left,
       grabOffsetY: event.clientY - rect.top,
       overlay: null,
@@ -549,7 +555,8 @@ export default function ReorderableWidgetGrid({
     const pointerCancel = (nativeEvent: PointerEvent) => {
       if (nativeEvent.pointerId === session.pointerId) cancelSession(session, true);
     };
-    const lostCapture = () => {
+    const lostCapture = (nativeEvent: PointerEvent) => {
+      if (nativeEvent.target !== captureTarget || nativeEvent.pointerId !== session.pointerId) return;
       if (session.phase !== "settling") cancelSession(session, session.phase === "active");
     };
     const blur = () => cancelSession(session, session.phase === "active");
@@ -572,7 +579,16 @@ export default function ReorderableWidgetGrid({
     window.addEventListener("scroll", scroll, true);
     captureTarget.addEventListener("lostpointercapture", lostCapture);
     try { captureTarget.setPointerCapture(event.pointerId); } catch { /* Document listeners still track the pointer. */ }
-  }, [activateSession, cancelSession, enabled, itemData, items, layoutKey, processPointer, removePointerListeners, restoreBoardScroll, schedulePointer, workspaceId]);
+    if (activePointer) {
+      activateSession(session);
+      if (session.phase === "active") schedulePointer(session);
+    }
+  }, [activateSession, cancelSession, itemData, items, layoutKey, processPointer, removePointerListeners, restoreBoardScroll, schedulePointer, workspaceId]);
+
+  const beginShake = useWidgetShake(`${workspaceId}:${layoutKey}:${itemData}`, !enabled && onCustomize ? (start, current) => {
+    flushSync(() => onCustomize());
+    beginSession(start, current);
+  } : undefined);
 
   useEffect(() => {
     const session = sessionRef.current;
@@ -607,7 +623,10 @@ export default function ReorderableWidgetGrid({
     <div
       ref={host}
       className={`reorderable-widget-grid${enabled ? " is-reorder-enabled" : ""}${invalidDrop ? " is-reorder-invalid" : ""}`}
-      onPointerDownCapture={beginSession}
+      onPointerDownCapture={(event) => {
+        beginShake(event);
+        beginSession(event);
+      }}
     >
       <AnimatedWidgetGrid
         label={label}

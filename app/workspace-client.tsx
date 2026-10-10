@@ -1295,6 +1295,10 @@ export default function EduEssentialsApp({ initialProfile, children }: { initial
               reflowKey={String(sidebarCollapsed)}
               enabled={customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId}
               onReorderStart={closeWidgetMenu}
+              onCustomize={!customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId ? () => {
+                closeWidgetMenu();
+                setCustomizing(true);
+              } : undefined}
               onReorder={(orderedIds, miniBlockChange) => {
                 const currentWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
                 if (!currentWorkspace || currentWorkspace.id !== activeWorkspace.id || orderedIds.length !== currentWorkspace.widgets.length) return false;

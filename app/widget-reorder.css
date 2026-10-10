@@ -2,6 +2,7 @@
   position: relative;
 }
 
+.reorderable-widget-grid.is-reorder-enabled .widget-header,
 .reorderable-widget-grid.is-reorder-enabled .drag-handle {
   cursor: grab;
   touch-action: none;

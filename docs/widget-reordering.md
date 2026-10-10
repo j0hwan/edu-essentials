@@ -36,9 +36,20 @@ sources. The motion and target thresholds here are application design choices.
 ## Planned behavior
 
 1. Customize exposes drag handles and a static dashed outline. Widgets remain
-   still until moved.
-2. Moving a handle beyond a small activation threshold lifts a full-content
-   preview of that widget. The grab position remains anchored to the pointer.
+   still until moved. Alternatively, hold the primary mouse button on a widget
+   title or empty header space and make three swipes back and forth in any
+   direction (horizontal, vertical, or diagonal) to enter Customize. Two direction
+   reversals of at least 18px within 1.2 seconds activate the shortcut; ordinary
+   movement and tiny jitter do not.
+   The gesture immediately lifts that widget under the same held pointer: keep
+   moving to position it, then release to drop, without releasing and grabbing
+   again. Header controls, widget bodies, touch/pen input, and open edit dialogs
+   do not activate this shortcut.
+2. In Customize, grab anywhere in the widget header (title, icon, or empty
+   space), or use its dedicated drag handle. Header buttons and other interactive
+   controls remain usable and do not start dragging. Moving beyond a small
+   activation threshold lifts a full-content preview of that widget. The grab
+   position remains anchored to the pointer.
 3. The board reserves the dragged widget's entire footprint at the projected
    destination. Other widgets move into the layout that will be committed if
    the user releases there.

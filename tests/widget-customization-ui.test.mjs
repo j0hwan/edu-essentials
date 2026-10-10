@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
 const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/" });
-for (const name of ["window", "document", "HTMLElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "KeyboardEvent"]) globalThis[name] = dom.window[name];
+for (const name of ["window", "document", "Element", "HTMLElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "KeyboardEvent"]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom has no layout engine. Model visible controls through offsetParent so the
@@ -457,4 +457,46 @@ test("a rejected Apply keeps the edited draft open for correction", async () => 
   assert.equal(labeledControl("Accent color", appearanceDialog()).value, "#e32655", "the draft remains available for retry");
   assert.match(dialog.querySelector('[role="status"]').textContent, /Unable to apply/);
   assert.equal(calls, 0, "rejected Apply does not close the studio");
+});
+
+test("shaking a held widget title enters Customize and holds the widget without saving the layout", async (context) => {
+  const originalRequestFrame = window.requestAnimationFrame;
+  const originalCancelFrame = window.cancelAnimationFrame;
+  window.requestAnimationFrame = () => 1;
+  window.cancelAnimationFrame = () => {};
+  context.after(() => {
+    window.requestAnimationFrame = originalRequestFrame;
+    window.cancelAnimationFrame = originalCancelFrame;
+  });
+  reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
+  const originalOrder = [...rootNode.querySelectorAll("[data-widget-id]")].map((card) => card.dataset.widgetId);
+  const title = rootNode.querySelector('[data-widget-id="notes"] .widget-header h2');
+  const pointer = async (target, type, clientX, buttons = 1) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX, clientY: 20 });
+    Object.defineProperties(event, {
+      pointerId: { value: 1 }, pointerType: { value: "mouse" }, isPrimary: { value: true },
+    });
+    await act(async () => target.dispatchEvent(event));
+  };
+
+  await click("Widget customization");
+  await pointer(title, "pointerdown", 100);
+  for (const clientX of [125, 75, 125]) await pointer(window, "pointermove", clientX);
+  assert.equal(button("Customize").getAttribute("aria-pressed"), "false", "open dialogs block the shortcut");
+  await click("Cancel", appearanceDialog());
+
+  await openWidgetMenu("notes");
+  await pointer(title, "pointerdown", 100);
+  for (const clientX of [125, 75, 125]) await pointer(window, "pointermove", clientX);
+  assert.equal(button("Done customizing").getAttribute("aria-pressed"), "true");
+  assert.ok(rootNode.querySelector(".reference-ui.is-customizing"));
+  assert.ok(rootNode.querySelector('[data-widget-id="notes"].widget-reorder-placeholder'), "the same widget is already held");
+  assert.ok(rootNode.querySelector(".widget-reorder-overlay"), "the gesture lifts the widget immediately");
+  assert.equal(rootNode.querySelector(".widget-menu"), null, "activation dismisses the widget menu");
+  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  await pointer(window, "pointerup", 125, 0);
+  assert.deepEqual([...rootNode.querySelectorAll("[data-widget-id]")].map((card) => card.dataset.widgetId), originalOrder);
+  assert.equal(server.writes, 0);
+  await click("Done customizing");
+  assert.equal(button("Customize").getAttribute("aria-pressed"), "false", "the normal button still exits Customize");
 });

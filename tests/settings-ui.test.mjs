@@ -1008,6 +1008,97 @@ test("workspace controls persist configurations and independent notes", async (t
     assert.equal(server.writes, writesBeforeHover + 1, "one valid pointer release schedules one workspace save");
   });
 
+  await t.test("widget headers reorder in Customize while body controls and guarded headers do not", async () => {
+    reset();
+    const widgets = [
+      { instanceId: "notes-a", type: "notes", size: "medium", note: "Header drag keeps this note" },
+      { instanceId: "timer-a", type: "pomodoro", size: "small" },
+      { instanceId: "quote-a", type: "quote", size: "mini" },
+    ];
+    const server = installWorkspaceServer(encodeWorkspaceState([{ id: "day", name: "Day", widgets }], "day", ""));
+    await render(Workspace, { initialProfile: baseProfile });
+
+    const frames = installFrameQueue();
+    try {
+      const geometry = installBoardGeometry(rootNode.querySelector(".widget-grid"));
+      let currentWidgets = [...widgets];
+      let currentIds = widgets.map((widget) => widget.instanceId);
+      const startFor = (widgetId) => {
+        const source = cards().find((card) => card.dataset.widgetId === widgetId);
+        assert.ok(source, `Missing source card ${widgetId}`);
+        const rect = source.getBoundingClientRect();
+        return { source, startX: rect.left + 20, startY: rect.top + 18 };
+      };
+      const assertNoDrag = async (target, startX, startY, message) => {
+        assert.ok(target, `Missing pointer target for ${message}`);
+        const writesBefore = server.writes;
+        await act(async () => target.dispatchEvent(pointerEvent("pointerdown", { clientX: startX, clientY: startY })));
+        await act(async () => {
+          document.dispatchEvent(pointerEvent("pointermove", { clientX: startX + 28, clientY: startY + 12, buttons: 1 }));
+          frames.flush();
+        });
+        assert.equal(document.querySelector(".widget-reorder-overlay"), null, message);
+        await act(async () => document.dispatchEvent(pointerEvent("pointerup", { clientX: startX + 28, clientY: startY + 12, buttons: 0 })));
+        assert.deepEqual(cards().map((card) => card.dataset.widgetId), currentIds);
+        assert.equal(server.writes, writesBefore);
+      };
+
+      let disabledHeader = startFor("notes-a");
+      await assertNoDrag(disabledHeader.source.querySelector("h2"), disabledHeader.startX, disabledHeader.startY, "a header cannot start dragging outside Customize");
+      assert.equal(rootNode.querySelector(".workspace-actions button[aria-pressed]")?.getAttribute("aria-pressed"), "false");
+
+      await click("Customize");
+      for (const { widgetId, selector, destinationIndex } of [
+        { widgetId: "notes-a", selector: "h2", destinationIndex: 2 },
+        { widgetId: "notes-a", selector: ".widget-icon", destinationIndex: 0 },
+        { widgetId: "timer-a", selector: ".widget-header", destinationIndex: 2 },
+      ]) {
+        const { source, startX, startY } = startFor(widgetId);
+        const target = source.querySelector(selector);
+        assert.ok(target, `Missing header region ${selector}`);
+        const { order, x, y } = destinationPointer(currentWidgets, widgetId, destinationIndex, geometry, 20, 18);
+        const writesBefore = server.writes;
+        await act(async () => target.dispatchEvent(pointerEvent("pointerdown", { clientX: startX, clientY: startY })));
+        await act(async () => {
+          document.dispatchEvent(pointerEvent("pointermove", { clientX: x, clientY: y }));
+          frames.flush();
+        });
+        assert.ok(document.querySelector(".widget-reorder-overlay"), `${selector} starts a header drag`);
+        assert.ok(source.classList.contains("widget-reorder-placeholder"));
+        await act(async () => document.dispatchEvent(pointerEvent("pointerup", { clientX: x, clientY: y })));
+        assert.deepEqual(cards().map((card) => card.dataset.widgetId), order);
+        await waitForWorkspaceSave(server, writesBefore);
+        const persistedWidgets = decodeWorkspaceState(server.dashboard).workspaces[0].widgets;
+        assert.deepEqual(persistedWidgets.map((widget) => widget.instanceId), order);
+        assert.deepEqual([...new Set(persistedWidgets.map((widget) => widget.instanceId))].sort(), [...currentIds].sort());
+        assert.equal(persistedWidgets.find((widget) => widget.instanceId === "notes-a").note, "Header drag keeps this note");
+        currentIds = order;
+        currentWidgets = order.map((id) => currentWidgets.find((widget) => widget.instanceId === id));
+        geometry.updateCards();
+      }
+
+      let notesCard = cards().find((card) => card.dataset.widgetId === "notes-a");
+      let notesStart = startFor("notes-a");
+      await assertNoDrag(notesCard.querySelector(".widget-body textarea"), notesStart.startX, notesStart.startY, "editable widget body content cannot start dragging");
+      await assertNoDrag(notesCard.querySelector(".widget-header .menu-wrap > button"), notesStart.startX, notesStart.startY, "the widget menu button cannot start dragging");
+
+      await clickAria("Quick notes options", notesCard);
+      await assertNoDrag(notesCard.querySelector(".widget-menu button"), notesStart.startX, notesStart.startY, "a widget menu control cannot start dragging");
+      await clickAria("Quick notes options", notesCard);
+
+      await click("Widget customization");
+      assert.ok(rootNode.querySelector('[role="dialog"]'), "the customization dialog is open");
+      notesCard = cards().find((card) => card.dataset.widgetId === "notes-a");
+      notesStart = startFor("notes-a");
+      await assertNoDrag(notesCard.querySelector(".widget-header"), notesStart.startX, notesStart.startY, "an open customization dialog disables header dragging");
+      assert.equal(server.writes, 3, "only the three committed header reorders save");
+      await saveAndReload();
+      assert.deepEqual(cards().map((card) => card.dataset.widgetId), currentIds);
+      assert.equal(cards().find((card) => card.dataset.widgetId === "notes-a").querySelector("textarea").value, "Header drag keeps this note");
+      assert.equal(server.writes, 3, "reloading does not create another workspace write");
+    } finally { frames.restore(); }
+  });
+
   await t.test("widget reorder cancels cleanly before activation, on Escape, pointercancel, outside release, blur, and workspace change", async () => {
     reset();
     const widgets = [
@@ -1090,6 +1181,176 @@ test("workspace controls persist configurations and independent notes", async (t
       assert.deepEqual(cards().map((card) => card.dataset.widgetId), origin);
       assert.equal(server.writes, 0);
     } finally { frames.restore(); }
+  });
+
+  await t.test("a mouse header shake hands off directly to reorder and invalidates stale gestures", async (t) => {
+    reset();
+    const widgets = [
+      { instanceId: "notes-a", type: "notes", size: "medium", note: "Shake keeps this note" },
+      { instanceId: "timer-a", type: "pomodoro", size: "small" },
+      { instanceId: "calendar-a", type: "mini-calendar", size: "mini" },
+      { instanceId: "quote-a", type: "quote", size: "mini" },
+    ];
+    const otherWidgets = widgets.map((widget) => ({ ...widget, instanceId: `other-${widget.instanceId}` }));
+    const dashboard = encodeWorkspaceState([
+      { id: "day", name: "Day", widgets },
+      { id: "other", name: "Other", widgets: otherWidgets },
+    ], "day", "");
+    const server = installWorkspaceServer(dashboard);
+    await render(Workspace, { initialProfile: baseProfile });
+
+    const frames = installFrameQueue();
+    t.after(() => frames.restore());
+    const geometry = installBoardGeometry(rootNode.querySelector(".widget-grid"));
+    const pointerId = 23;
+    const customizePressed = () => rootNode.querySelector(".workspace-actions button[aria-pressed]")?.getAttribute("aria-pressed");
+    const orderNow = () => cards().map((card) => card.dataset.widgetId);
+    const beginShake = async (widgetId = "notes-a", strokeCount = 3) => {
+      geometry.updateCards();
+      const source = cards().find((card) => card.dataset.widgetId === widgetId);
+      assert.ok(source, `Missing source card ${widgetId}`);
+      const header = source.querySelector(".widget-header");
+      assert.ok(header);
+      const rect = source.getBoundingClientRect();
+      const startX = rect.left + 36;
+      const startY = rect.top + 22;
+      const strokeXs = [startX + 20, startX, startX + 20];
+      await act(async () => header.dispatchEvent(pointerEvent("pointerdown", {
+        pointerId, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, clientX: startX, clientY: startY,
+      })));
+      const drag = { source, header, startX, startY, grabOffsetX: 36, grabOffsetY: 22, strokeXs };
+      await continueShake(drag, 0, strokeCount);
+      return drag;
+    };
+    const continueShake = async (drag, from, to = drag.strokeXs.length) => {
+      for (const clientX of drag.strokeXs.slice(from, to)) {
+        await act(async () => document.dispatchEvent(pointerEvent("pointermove", {
+          pointerId, pointerType: "mouse", buttons: 1, clientX, clientY: drag.startY,
+        })));
+      }
+    };
+    const assertHandoff = (drag) => {
+      assert.equal(customizePressed(), "true", "the shake enables Customize");
+      const overlay = document.querySelector(".widget-reorder-overlay");
+      assert.ok(overlay, "the same pointer immediately lifts the original widget");
+      assert.ok(drag.source.classList.contains("widget-reorder-placeholder"));
+      assert.equal(overlay.style.left, `${drag.startX + 20 - drag.grabOffsetX}px`, "the original horizontal grab offset is preserved");
+      assert.equal(overlay.style.top, `${drag.startY - drag.grabOffsetY}px`, "the original vertical grab offset is preserved");
+      assert.equal(overlay.querySelector("textarea")?.value, "Shake keeps this note", "the inert clone retains the notes content");
+      return overlay;
+    };
+    const previewTo = async (drag, model, destinationIndex) => {
+      const target = destinationPointer(model, "notes-a", destinationIndex, geometry, drag.grabOffsetX, drag.grabOffsetY);
+      await act(async () => {
+        document.dispatchEvent(pointerEvent("pointermove", {
+          pointerId, pointerType: "mouse", buttons: 1, clientX: target.x, clientY: target.y,
+        }));
+        frames.flush();
+      });
+      return target;
+    };
+
+    const startingOrder = widgets.map((widget) => widget.instanceId);
+    const writesBeforeDrag = server.writes;
+    assert.equal(customizePressed(), "false", "the shake starts outside Customize");
+    const drag = await beginShake();
+    const overlay = assertHandoff(drag);
+    const host = rootNode.querySelector(".reorderable-widget-grid");
+    await act(async () => host.dispatchEvent(pointerEvent("lostpointercapture", {
+      pointerId: pointerId + 1, pointerType: "mouse", buttons: 0,
+    })));
+    assert.equal(document.querySelector(".widget-reorder-overlay"), overlay, "capture loss from another pointer is ignored");
+    await act(async () => drag.header.dispatchEvent(pointerEvent("lostpointercapture", {
+      pointerId, pointerType: "mouse", buttons: 0,
+    })));
+    assert.equal(document.querySelector(".widget-reorder-overlay"), overlay, "the old header's bubbling capture loss does not cancel the handed-off drag");
+    assert.deepEqual(orderNow(), startingOrder);
+
+    const destination = await previewTo(drag, widgets, 2);
+    assert.deepEqual(orderNow(), destination.order, "a later move previews a destination without another pointerdown");
+    assert.equal(server.writes, writesBeforeDrag, "previewing the handoff does not save the order");
+    assert.deepEqual(decodeWorkspaceState(server.dashboard).workspaces[0].widgets.map((widget) => widget.instanceId), startingOrder);
+    await waitForMilliseconds(760);
+    assert.equal(server.writes, writesBeforeDrag, "hovering beyond the autosave delay still does not save");
+    await act(async () => {
+      document.dispatchEvent(pointerEvent("pointerup", {
+        pointerId, pointerType: "mouse", buttons: 0, clientX: destination.x, clientY: destination.y,
+      }));
+      frames.flush();
+    });
+    await waitForWorkspaceSave(server, writesBeforeDrag);
+    assert.deepEqual(orderNow(), destination.order);
+    let persisted = decodeWorkspaceState(server.dashboard).workspaces[0].widgets;
+    assert.deepEqual(persisted.map((widget) => widget.instanceId), destination.order);
+    assert.equal(persisted.find((widget) => widget.instanceId === "notes-a").note, "Shake keeps this note", "the same notes identity and content survive the reorder");
+    assert.equal(server.writes, writesBeforeDrag + 1, "one release commits exactly one workspace write");
+
+    let currentWidgets = destination.order.map((id) => widgets.find((widget) => widget.instanceId === id));
+    let currentOrder = [...destination.order];
+    const cancelHandoff = async (reason) => {
+      await click("Done customizing");
+      const cancelledDrag = await beginShake();
+      assertHandoff(cancelledDrag);
+      const cancelledDestination = await previewTo(cancelledDrag, currentWidgets, 0);
+      assert.notDeepEqual(orderNow(), currentOrder, "the cancellation case first previews a different order");
+      const writesBeforeCancel = server.writes;
+      if (reason === "Escape") {
+        await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      } else if (reason === "pointercancel") {
+        await act(async () => document.dispatchEvent(pointerEvent("pointercancel", { pointerId, pointerType: "mouse", buttons: 0 })));
+      } else if (reason === "blur") {
+        await act(async () => window.dispatchEvent(new window.Event("blur")));
+      } else {
+        const host = rootNode.querySelector(".reorderable-widget-grid");
+        await act(async () => host.dispatchEvent(pointerEvent("lostpointercapture", { pointerId, pointerType: "mouse", buttons: 0 })));
+      }
+      assert.equal(document.querySelector(".widget-reorder-overlay"), null, `${reason} removes the lifted preview`);
+      assert.deepEqual(orderNow(), currentOrder, `${reason} restores the original order`);
+      assert.equal(customizePressed(), "true", `${reason} leaves Customize enabled`);
+      assert.equal(server.writes, writesBeforeCancel, `${reason} does not persist a preview`);
+      assert.notDeepEqual(cancelledDestination.order, currentOrder);
+    };
+    for (const reason of ["Escape", "pointercancel", "blur", "host capture loss"]) await cancelHandoff(reason);
+
+    await click("Done customizing");
+    const noDestinationDrag = await beginShake();
+    assertHandoff(noDestinationDrag);
+    const writesBeforeNoDestination = server.writes;
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", {
+      pointerId, pointerType: "mouse", buttons: 0, clientX: noDestinationDrag.startX + 20, clientY: noDestinationDrag.startY,
+    })));
+    await waitForMilliseconds(760);
+    assert.deepEqual(orderNow(), currentOrder, "releasing without a destination change leaves the order intact");
+    assert.equal(customizePressed(), "true");
+    assert.equal(server.writes, writesBeforeNoDestination, "releasing without a destination change does not save");
+
+    await click("Done customizing");
+    const contextShake = await beginShake("notes-a", 1);
+    await click("Other");
+    await continueShake(contextShake, 1);
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", {
+      pointerId, pointerType: "mouse", buttons: 0, clientX: contextShake.strokeXs.at(-1), clientY: contextShake.startY,
+    })));
+    assert.equal(customizePressed(), "false", "changing workspace invalidates the pending shake");
+    assert.deepEqual(orderNow(), otherWidgets.map((widget) => widget.instanceId));
+    assert.equal(document.querySelector(".widget-reorder-overlay"), null);
+
+    await click("Day");
+    geometry.updateCards();
+    const dialogShake = await beginShake("notes-a", 1);
+    await click("Widget customization");
+    await continueShake(dialogShake, 1);
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", {
+      pointerId, pointerType: "mouse", buttons: 0, clientX: dialogShake.strokeXs.at(-1), clientY: dialogShake.startY,
+    })));
+    assert.ok(rootNode.querySelector('[role="dialog"]'), "the appearance dialog remains open");
+    assert.equal(customizePressed(), "false", "opening a dialog invalidates the pending shake");
+    assert.deepEqual(orderNow(), currentOrder);
+    assert.equal(document.querySelector(".widget-reorder-overlay"), null);
+    assert.equal(server.writes, writesBeforeDrag + 1, "cancelled and invalidated handoffs do not add writes");
+    await clickAria("Close appearance studio");
+    assert.deepEqual(decodeWorkspaceState(server.dashboard).workspaces[0].widgets.map((widget) => widget.instanceId), currentOrder);
+    assert.equal(persisted.find((widget) => widget.instanceId === "notes-a").note, "Shake keeps this note");
   });
 
   await t.test("note copies edit, clear and delete independently; search opens the exact note", async () => {
