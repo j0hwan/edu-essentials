@@ -106,7 +106,7 @@ import "./home-skeleton.css";
 import "./widget-appearance.css";
 import "./widget-block-layout.css";
 import "./widget-reorder.css";
-import { widgetSizeOptions } from "../lib/widget-layout";
+import { widgetSizeOptions, type WidgetResizePriority } from "../lib/widget-layout";
 import { getWidgetKeyboardResizeSize } from "../lib/widget-resize";
 import {
   decodeWorkspaceState,
@@ -839,6 +839,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
 
   // Validate the entire candidate before accepting a change that cannot be saved.
   const commitWorkspaces = (next: Workspace[], active = activeWorkspaceId, recoveredNotes = notes, appearance = extraData.widgetAppearance) => {
+    next = next.map((workspace) => ({ ...workspace, resizePriorities: workspace.resizePriorities?.filter((priority) => workspace.widgets.some((widget) => widget.instanceId === priority.widgetId)) }));
     const ids = new Set(next.flatMap((workspace) => workspace.widgets.map((widget) => widget.instanceId)));
     const cleanedAppearance = appearance && { ...appearance, overrides: Object.fromEntries(Object.entries(appearance.overrides).filter(([id]) => ids.has(id))) };
     try { academicSnapshot(courses, encodeWorkspaceState(next, active, recoveredNotes, { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData, widgetAppearance: cleanedAppearance })); }
@@ -848,8 +849,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return true;
   };
 
-  const updateWorkspaceWidgets = (updater: (widgets: WidgetInstance[]) => WidgetInstance[]) => {
-    return commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: updater(workspace.widgets) } : workspace));
+  const updateWorkspaceWidgets = (updater: (widgets: WidgetInstance[]) => WidgetInstance[], resetPlacement = false) => {
+    return commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: updater(workspace.widgets), resizePriorities: resetPlacement ? undefined : workspace.resizePriorities } : workspace));
   };
 
   const addWidget = (type: WidgetType) => {
@@ -864,17 +865,32 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
       return next;
-    });
+    }, true);
     closeWidgetMenu();
   };
 
-  const resizeWidget = (instanceId: string, size: WidgetSize) => {
-    const accepted = updateWorkspaceWidgets((widgets) => widgets.map((widget) => {
-      if (widget.instanceId !== instanceId) return widget;
-      const next = { ...widget, size };
-      if (size !== "mini") delete next.startsNewMiniBlock;
-      return next;
-    }));
+  const resizeWidget = (instanceId: string, size: WidgetSize, priority?: WidgetResizePriority) => {
+    if (activeWorkspace.widgets.find((widget) => widget.instanceId === instanceId)?.size === size) {
+      closeWidgetMenu();
+      return true;
+    }
+    if (!priority) {
+      const card = Array.from(document.querySelectorAll<HTMLElement>("[data-widget-id]")).find((candidate) => candidate.dataset.widgetId === instanceId);
+      const grid = card?.closest<HTMLElement>(".widget-grid");
+      if (card && grid) {
+        const columns = Number.parseInt(window.getComputedStyle(grid).getPropertyValue("--widget-columns"), 10) === 2 ? 2 : 4;
+        priority = { widgetId: instanceId, columns, column: Number.parseInt(card.style.gridColumn, 10) || 1, row: Math.floor(((Number.parseInt(card.style.gridRow, 10) || 1) - 1) / 2) * 2 + 1 };
+      }
+    }
+    const nextPriority = priority;
+    const accepted = commitWorkspaces(workspaces.map((workspace) => workspace.id !== activeWorkspaceId ? workspace : { ...workspace,
+      resizePriorities: nextPriority ? [...(workspace.resizePriorities ?? []).filter((candidate) => candidate.columns !== nextPriority.columns), nextPriority] : workspace.resizePriorities,
+      widgets: workspace.widgets.map((widget) => {
+        if (widget.instanceId !== instanceId) return widget;
+        const next = { ...widget, size };
+        if (size !== "mini") delete next.startsNewMiniBlock;
+        return next;
+      }) }));
     closeWidgetMenu();
     return accepted;
   };
@@ -900,6 +916,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const duplicateWorkspace = () => {
     const id = uid("workspace");
     const copy: Workspace = { ...activeWorkspace, id, name: `${activeWorkspace.name.slice(0, 75)} copy`, widgets: activeWorkspace.widgets.map((widget) => ({ ...widget, instanceId: uid("widget") })) };
+    copy.resizePriorities = activeWorkspace.resizePriorities?.map((priority) => ({ ...priority, widgetId: copy.widgets[activeWorkspace.widgets.findIndex((widget) => widget.instanceId === priority.widgetId)].instanceId }));
     const appearance = extraData.widgetAppearance && { ...extraData.widgetAppearance, overrides: { ...extraData.widgetAppearance.overrides } };
     if (appearance) copy.widgets.forEach((widget, index) => {
       const original = appearance.overrides[activeWorkspace.widgets[index].instanceId];
@@ -1419,6 +1436,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
               reflowKey={String(sidebarCollapsed)}
               enabled={widgetEditingEnabled}
               onResize={resizeWidget}
+              resizePriorities={activeWorkspace.resizePriorities}
               onReorderStart={closeWidgetMenu}
               onCustomize={!customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusId && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog ? () => {
                 closeWidgetMenu();
@@ -1437,7 +1455,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
                   delete next.startsNewMiniBlock;
                   if (miniBlockChange.startsNewMiniBlock) next.startsNewMiniBlock = true;
                   return next;
-                }));
+                }), true);
               }}
               renderWidget={(widget, index, isDragged, isResizing) => renderWidget(widget, index, isDragged, isResizing)}
               addTile={<button className="add-widget-tile" onClick={() => setWidgetPickerOpen(true)}><Plus size={22} /><span>Add widget</span></button>}

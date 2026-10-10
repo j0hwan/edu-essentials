@@ -1,7 +1,7 @@
 import { validateCourseDetails, validateDraft, type CourseDetails, type SyllabusDraft } from "./academics";
 import { validateStudy, type StudyData } from "./study";
 import { validateWidgetAppearanceState, type WidgetAppearanceState } from "./widget-appearance";
-import { widgetSizes, type WidgetSize } from "./widget-layout";
+import { widgetSizes, type WidgetResizePriority, type WidgetSize } from "./widget-layout";
 import { validateTodaySections, type TodaySectionId } from "./today-sections";
 import type { FilesBrowserPreferences } from "./files-browser";
 export { widgetSizes };
@@ -44,10 +44,12 @@ export type Workspace = {
   widgets: WidgetInstance[];
   todayHidden?: boolean;
   todaySections?: TodaySectionId[];
+  resizePriorities?: WidgetResizePriority[];
 };
 
 type CompactWidget = [type: number, size: number, instanceId: string, noteIndex?: number];
 type CompactWorkspace = [id: string, name: string, widgets: CompactWidget[]];
+type CompactResizePriority = [workspaceId: string, widgetId: string, columns: 2 | 4, column: number, row: number];
 
 export type CompactWorkspaceState = {
   v: 2;
@@ -56,6 +58,7 @@ export type CompactWorkspaceState = {
   b?: string[];
   h?: string[];
   ts?: [workspaceId: string, sections: TodaySectionId[]][];
+  rp?: CompactResizePriority[];
   n?: string;
   t?: string[];
   d?: WorkspaceData;
@@ -100,6 +103,8 @@ export const MAX_WORKSPACE_BYTES = 1_000_000;
  * restores every section and distinguishes updated writers from older clients.
  * ts stores per-workspace Today content choices. An empty list uses the defaults
  * everywhere and distinguishes updated writers from older clients.
+ * rp stores per-workspace widget placement priorities. An empty list
+ * distinguishes updated writers from older clients.
  */
 export function encodeWorkspaceState(
   workspaces: Workspace[],
@@ -116,6 +121,7 @@ export function encodeWorkspaceState(
   const miniBlockStarts: string[] = [];
   const hiddenTodayWorkspaces: string[] = [];
   const todaySections: [string, TodaySectionId[]][] = [];
+  const resizePriorities: CompactResizePriority[] = [];
   const compactWorkspaces: CompactWorkspace[] = workspaces.map((workspace) => {
     if (!workspace.id || workspace.id.length > 120) {
       throw new Error("Invalid workspace ID.");
@@ -146,6 +152,29 @@ export function encodeWorkspaceState(
     return [workspace.id, workspace.name.trim(), widgets];
   });
 
+  const widgetWorkspaces = new Map<string, string>();
+  for (const [workspaceId, , widgets] of compactWorkspaces) {
+    for (const widget of widgets) {
+      if (widgetWorkspaces.has(widget[2])) throw new Error("Invalid or duplicate widget ID.");
+      widgetWorkspaces.set(widget[2], workspaceId);
+    }
+  }
+  for (const workspace of workspaces) {
+    if (workspace.resizePriorities === undefined) continue;
+    if (!Array.isArray(workspace.resizePriorities) || workspace.resizePriorities.length > 2) throw new Error("Invalid widget resize priority.");
+    const breakpoints = new Set<number>();
+    for (const priority of workspace.resizePriorities) {
+      if (!isRecord(priority) || typeof priority.widgetId !== "string" || !priority.widgetId.trim() || priority.widgetId.length > 120
+        || (priority.columns !== 2 && priority.columns !== 4) || typeof priority.column !== "number" || !Number.isInteger(priority.column) || priority.column < 1 || priority.column > priority.columns
+        || typeof priority.row !== "number" || !Number.isInteger(priority.row) || priority.row < 1 || priority.row > 399 || priority.row % 2 !== 1) throw new Error("Invalid widget resize priority.");
+      if (breakpoints.has(priority.columns)) throw new Error("Invalid widget resize priority.");
+      breakpoints.add(priority.columns);
+      const owner = widgetWorkspaces.get(priority.widgetId);
+      if (owner !== undefined && owner !== workspace.id) throw new Error("Invalid widget resize priority.");
+      if (owner === workspace.id) resizePriorities.push([workspace.id, priority.widgetId, priority.columns, priority.column, priority.row]);
+    }
+  }
+
   if (notes.length > MAX_NOTES_LENGTH) {
     throw new Error("Quick notes cannot exceed 20,000 characters.");
   }
@@ -161,6 +190,7 @@ export function encodeWorkspaceState(
     b: miniBlockStarts,
     h: hiddenTodayWorkspaces,
     ts: todaySections,
+    rp: resizePriorities,
     ...(texts.length ? { t: texts } : {}),
     ...(notes ? { n: notes } : {}),
     ...(data ? { d: validateWorkspaceData(data) } : {}),
@@ -261,11 +291,37 @@ export function decodeWorkspaceState(value: unknown): DecodedWorkspaceState {
   if ([...todaySections.keys()].some((id) => !workspaceIds.has(id))) throw new Error("Invalid Today section choices.");
   if ([...miniBlockStartIds].some((id) => !miniIds.has(id))) throw new Error("Invalid mini block placement.");
 
+  const resizePrioritiesByWorkspace = new Map<string, WidgetResizePriority[]>();
+  if (value.rp !== undefined) {
+    if (value.v !== 2 || !Array.isArray(value.rp) || value.rp.length > 40) throw new Error("Invalid widget resize priority.");
+    const widgetIdsByWorkspace = new Map(workspaces.map((workspace) => [workspace.id, new Set(workspace.widgets.map((widget) => widget.instanceId))]));
+    const breakpoints = new Set<string>();
+    for (const entry of value.rp) {
+      if (!Array.isArray(entry) || entry.length !== 5) throw new Error("Invalid widget resize priority.");
+      const [workspaceId, widgetId, columns, column, row] = entry;
+      if (typeof workspaceId !== "string" || !workspaceId.trim() || workspaceId.length > 120
+        || typeof widgetId !== "string" || !widgetId.trim() || widgetId.length > 120
+        || (columns !== 2 && columns !== 4) || !Number.isInteger(column) || column < 1 || column > columns
+        || !Number.isInteger(row) || row < 1 || row > 399 || row % 2 !== 1) throw new Error("Invalid widget resize priority.");
+      const widgetIds = widgetIdsByWorkspace.get(workspaceId);
+      if (!widgetIds?.has(widgetId)) throw new Error("Invalid widget resize priority.");
+      const breakpoint = `${workspaceId}\u0000${columns}`;
+      if (breakpoints.has(breakpoint)) throw new Error("Invalid widget resize priority.");
+      breakpoints.add(breakpoint);
+      const priorities = resizePrioritiesByWorkspace.get(workspaceId) ?? [];
+      priorities.push({ widgetId, columns, column, row });
+      resizePrioritiesByWorkspace.set(workspaceId, priorities);
+    }
+  }
+
   return {
     activeWorkspaceId: workspaces.some((workspace) => workspace.id === value.a)
       ? value.a
       : workspaces[0].id,
-    workspaces,
+    workspaces: workspaces.map((workspace) => ({
+      ...workspace,
+      ...(resizePrioritiesByWorkspace.has(workspace.id) ? { resizePriorities: resizePrioritiesByWorkspace.get(workspace.id)! } : {}),
+    })),
     notes: value.v === 1 && workspaces.some((workspace) => workspace.widgets.some((widget) => widget.type === "notes")) ? "" : notes,
     ...(value.d !== undefined ? { data: validateWorkspaceData(value.d) } : {}),
   };

@@ -33,6 +33,13 @@ const adjacentMiniWidgets = [
   { instanceId: "mini-c", type: "weekly-goal" as const, size: "mini" as const },
   { instanceId: "small-b", type: "red-alerts" as const, size: "small" as const },
 ];
+const resizePriorityWidgets = [
+  { instanceId: "mini-before", type: "quote" as const, size: "mini" as const },
+  { instanceId: "mini-resize", type: "notes" as const, size: "mini" as const, note: "Keep my row while resizing" },
+  { instanceId: "small-before", type: "pomodoro" as const, size: "small" as const },
+  { instanceId: "large-neighbor", type: "upcoming" as const, size: "large" as const },
+  { instanceId: "mini-after", type: "quote" as const, size: "mini" as const },
+];
 const longWidgets = Array.from({ length: 18 }, (_, index) => ({
   ...compactWidgets[index % compactWidgets.length],
   instanceId: `${compactWidgets[index % compactWidgets.length].instanceId}-${index}`,
@@ -40,11 +47,12 @@ const longWidgets = Array.from({ length: 18 }, (_, index) => ({
 const miniPairScenario = new URLSearchParams(location.search).has("mini-pair");
 const freshMiniScenario = new URLSearchParams(location.search).has("fresh-mini");
 const adjacentMiniScenario = new URLSearchParams(location.search).has("mini-adjacent");
-const miniScenario = miniPairScenario || freshMiniScenario || adjacentMiniScenario;
-const widgets = miniPairScenario ? miniPairWidgets : freshMiniScenario ? freshMiniWidgets : adjacentMiniScenario ? adjacentMiniWidgets : location.search.includes("long=1") ? longWidgets : compactWidgets;
+const resizePriorityScenario = new URLSearchParams(location.search).has("resize-priority");
+const miniScenario = miniPairScenario || freshMiniScenario || adjacentMiniScenario || resizePriorityScenario;
+const widgets = resizePriorityScenario ? resizePriorityWidgets : miniPairScenario ? miniPairWidgets : freshMiniScenario ? freshMiniWidgets : adjacentMiniScenario ? adjacentMiniWidgets : location.search.includes("long=1") ? longWidgets : compactWidgets;
 const initialDashboard = encodeWorkspaceState([{ id: "fixture-day", name: "Fixture day", widgets }], "fixture-day", "");
 const updatedAt = "2026-10-06T00:00:00.000Z";
-const persistedFixtureKey = miniPairScenario ? "widget-reorder-browser-mini-pair" : freshMiniScenario ? "widget-reorder-browser-fresh-mini" : "widget-reorder-browser-adjacent-mini";
+const persistedFixtureKey = resizePriorityScenario ? "widget-resize-browser-priority" : miniPairScenario ? "widget-reorder-browser-mini-pair" : freshMiniScenario ? "widget-reorder-browser-fresh-mini" : "widget-reorder-browser-adjacent-mini";
 const profile = {
   ...validateProfile({ display_name: "Browser fixture" }),
   id: "browser-fixture-profile",

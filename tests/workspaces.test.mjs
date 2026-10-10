@@ -159,6 +159,81 @@ test("Today content choice arrays are defensively copied", () => {
   assert.deepEqual(compact.ts[0][1], ["schedule", "study-goal"], "decoded state does not share its choice array with the payload");
 });
 
+test("resize priorities round-trip per workspace and updated writers always emit rp", () => {
+  const workspaces = [
+    { id: "day", name: "My day", widgets: [
+      { instanceId: "goal", type: "daily-goal", size: "small" },
+      { instanceId: "timer", type: "pomodoro", size: "medium" },
+    ], resizePriorities: [
+      { widgetId: "goal", columns: 2, column: 2, row: 399 },
+      { widgetId: "timer", columns: 4, column: 3, row: 7 },
+    ] },
+    { id: "study", name: "Study", widgets: [
+      { instanceId: "note", type: "notes", size: "large", note: "Keep this" },
+    ], resizePriorities: [{ widgetId: "note", columns: 2, column: 1, row: 1 }] },
+  ];
+  const compact = encode(workspaces, "day", "");
+  assert.deepEqual(compact.rp, [
+    ["day", "goal", 2, 2, 399],
+    ["day", "timer", 4, 3, 7],
+    ["study", "note", 2, 1, 1],
+  ]);
+  assert.deepEqual(decode(compact).workspaces, workspaces);
+  assert.deepEqual(encode([{ id: "empty", name: "Empty", widgets: [] }], "empty", "").rp, []);
+
+  const oldV1 = decode(legacy);
+  assert.ok(oldV1.workspaces.every((workspace) => workspace.resizePriorities === undefined));
+  const oldV2 = { ...compact };
+  delete oldV2.rp;
+  assert.ok(decode(oldV2).workspaces.every((workspace) => workspace.resizePriorities === undefined));
+
+  const stale = encode([{ id: "day", name: "My day", widgets: [], resizePriorities: [
+    { widgetId: "deleted-widget", columns: 2, column: 1, row: 1 },
+  ] }], "day", "");
+  assert.deepEqual(stale.rp, [], "deleted widget IDs are not persisted");
+});
+
+test("resize priority codec rejects malformed, duplicate, and foreign references", () => {
+  const workspaces = [
+    { id: "day", name: "Day", widgets: [{ instanceId: "first", type: "daily-goal", size: "small" }] },
+    { id: "study", name: "Study", widgets: [{ instanceId: "second", type: "pomodoro", size: "small" }] },
+  ];
+  const compact = encode(workspaces, "day", "");
+  for (const rp of [null, {}, "day", [1], Array(41).fill(["day", "first", 2, 1, 1])]) {
+    assert.throws(() => decode({ ...compact, rp }), /widget resize priority/);
+  }
+  const invalidEntries = [
+    ["missing", "first", 2, 1, 1], ["day", "second", 2, 1, 1], ["day", "missing", 2, 1, 1],
+    ["day", "first", 3, 1, 1], ["day", "first", 2, 0, 1], ["day", "first", 2, 3, 1],
+    ["day", "first", 2, 1.5, 1], ["day", "first", 2, 1, 0], ["day", "first", 2, 1, 2],
+    ["day", "first", 2, 1, 400], ["day", "first", 2, 1, "1"], ["day", "first", 2, 1],
+  ];
+  for (const entry of invalidEntries) assert.throws(() => decode({ ...compact, rp: [entry] }), /widget resize priority/);
+  assert.throws(() => decode({ ...compact, rp: [["day", "first", 2, 1, 1], ["day", "first", 2, 2, 3]] }), /widget resize priority/);
+  assert.throws(() => decode({ ...legacy, rp: [] }), /widget resize priority/);
+
+  for (const resizePriorities of [
+    [{ widgetId: "first", columns: 2, column: 0, row: 1 }],
+    [{ widgetId: "first", columns: 2, column: 1, row: 2 }],
+    [{ widgetId: "first", columns: 2, column: 3, row: 1 }],
+    [{ widgetId: "first", columns: 2, column: 1, row: 400 }],
+    [{ widgetId: "first", columns: 2, column: 1, row: 1 }, { widgetId: "first", columns: 2, column: 1, row: 3 }],
+  ]) {
+    assert.throws(() => encode([{ ...workspaces[0], resizePriorities }], "day", ""), /widget resize priority/);
+  }
+  assert.throws(() => encode([
+    { ...workspaces[0], resizePriorities: [{ widgetId: "second", columns: 2, column: 1, row: 1 }] },
+    workspaces[1],
+  ], "day", ""), /widget resize priority/);
+
+  const maximum = Array.from({ length: 20 }, (_, index) => ({
+    id: `workspace-${index}`, name: `Workspace ${index}`,
+    widgets: [2, 4].map((columns) => ({ instanceId: `widget-${index}-${columns}`, type: "spacer", size: "small" })),
+    resizePriorities: [2, 4].map((columns) => ({ widgetId: `widget-${index}-${columns}`, columns, column: 1, row: 399 })),
+  }));
+  assert.equal(encode(maximum, "workspace-0", "").rp.length, 40);
+});
+
 test("v1 migration preserves every layout and note, with deterministic persistent identities", () => {
   const source = structuredClone(legacy), loaded = decode(source);
   const upgraded = pack(loaded);

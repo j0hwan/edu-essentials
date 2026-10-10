@@ -2,17 +2,27 @@
 
 import { useCallback, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import type { WidgetInstance } from "../lib/workspace-codec";
-import { getWidgetSizeFootprint, type WidgetSize } from "../lib/widget-layout";
-import { getWidgetResizeSize } from "../lib/widget-resize";
+import { getWidgetSizeFootprint, type WidgetResizePriority, type WidgetSize } from "../lib/widget-layout";
+import { getWidgetPointerResizeGeometry, getWidgetResizeSize, type WidgetResizeGeometry } from "../lib/widget-resize";
 
-type WidgetResizePreview = { widgetId: string; size: WidgetSize };
+export type WidgetResizePreview = WidgetResizeGeometry & {
+  widgetId: string;
+  size: WidgetSize;
+  priority?: WidgetResizePriority;
+  sourceColumn: number;
+  sourceRow: number;
+  sourceOffsetX?: number;
+  sourceOffsetY?: number;
+  unit: number;
+  gap: number;
+};
 
 type UseWidgetResizeOptions = {
   host: RefObject<HTMLDivElement | null>;
   items: readonly WidgetInstance[];
   enabled: boolean;
   contextKey: string;
-  onResize?: (id: string, size: WidgetSize) => boolean;
+  onResize?: (id: string, size: WidgetSize, priority?: WidgetResizePriority) => boolean;
   onResizeStart?: () => void;
 };
 
@@ -31,7 +41,12 @@ type ResizeSession = {
   height: number;
   unit: number;
   gap: number;
+  sourceColumn: number;
+  sourceRow: number;
+  sourceOffsetX: number;
+  sourceOffsetY: number;
   activated: boolean;
+  priority: WidgetResizePriority;
   finish: (resetPreview?: boolean) => void;
 };
 
@@ -55,7 +70,7 @@ function measureGridUnit(grid: HTMLElement) {
   const unit = configuredUnit > 0
     ? configuredUnit
     : Math.max(0, (gridWidth - gap * (columns - 1)) / columns);
-  return { unit, gap };
+  return { unit, gap, columns };
 }
 
 function releasePointerCapture(target: HTMLDivElement, pointerId: number) {
@@ -121,9 +136,13 @@ export function useWidgetResize({
     const grid = captureTarget.querySelector<HTMLElement>(".widget-grid");
     if (!widgetId || !item || !grid) return true;
 
-    const { unit, gap } = measureGridUnit(grid);
+    const { unit, gap, columns } = measureGridUnit(grid);
     if (unit <= 0) return true;
     const footprint = getWidgetSizeFootprint(item.size);
+    const interruptedBounds = source.dataset.widgetResizeSettling === "true" ? source.getBoundingClientRect() : undefined;
+    const sourceColumn = Number.parseInt(source.style.gridColumn, 10) || 1;
+    const sourceRow = Number.parseInt(source.style.gridRow, 10) || 1;
+    const gridBounds = grid.getBoundingClientRect();
 
     activeSessionRef.current?.finish();
     clickCleanupRef.current?.();
@@ -169,11 +188,21 @@ export function useWidgetResize({
       currentSize: item.size,
       startX: event.clientX,
       startY: event.clientY,
-      width: footprint.width * unit + (footprint.width - 1) * gap,
-      height: footprint.height * unit + (footprint.height - 1) * gap,
+      width: interruptedBounds?.width || footprint.width * unit + (footprint.width - 1) * gap,
+      height: interruptedBounds?.height || footprint.height * unit + (footprint.height - 1) * gap,
       unit,
       gap,
+      sourceColumn,
+      sourceRow,
+      sourceOffsetX: interruptedBounds ? interruptedBounds.left - gridBounds.left - (sourceColumn - 1) * (unit + gap) : 0,
+      sourceOffsetY: interruptedBounds ? interruptedBounds.top - gridBounds.top - (sourceRow - 1) * (unit + gap) / 2 : 0,
       activated: false,
+      priority: {
+        widgetId,
+        columns,
+        column: Number.parseInt(source.style.gridColumn, 10) || 1,
+        row: Math.floor(((Number.parseInt(source.style.gridRow, 10) || 1) - 1) / 2) * 2 + 1,
+      },
       finish: () => undefined,
     };
 
@@ -190,26 +219,40 @@ export function useWidgetResize({
           && candidate.size === session.originalSize);
     };
 
-    const updateSize = (pointerEvent: PointerEvent, preventDefault: boolean) => {
+    const updateSize = (pointerEvent: PointerEvent, preventDefault: boolean, releasing = false) => {
       const deltaX = pointerEvent.clientX - session.startX;
       const deltaY = pointerEvent.clientY - session.startY;
       if (!session.activated) {
         if (Math.hypot(deltaX, deltaY) < 5) return;
         session.activated = true;
-        setPreview({ widgetId: session.widgetId, size: session.originalSize });
       }
       if (preventDefault && pointerEvent.cancelable) pointerEvent.preventDefault();
 
-      const nextSize = getWidgetResizeSize({
-        width: session.width + deltaX,
-        height: session.height + deltaY,
+      const input = {
+        width: session.width,
+        height: session.height,
+        deltaX,
+        deltaY,
         unit: session.unit,
         gap: session.gap,
         previousSize: session.currentSize,
-      });
-      if (nextSize === session.currentSize) return;
+        hysteresisPx: releasing ? 0 : undefined,
+      };
+      const geometry = getWidgetPointerResizeGeometry(input);
+      const nextSize = getWidgetResizeSize({ ...input, width: geometry.width, height: geometry.height });
       session.currentSize = nextSize;
-      setPreview({ widgetId: session.widgetId, size: nextSize });
+      setPreview({
+        ...geometry,
+        widgetId: session.widgetId,
+        size: nextSize,
+        priority: nextSize === session.originalSize ? undefined : session.priority,
+        sourceColumn: session.sourceColumn,
+        sourceRow: session.sourceRow,
+        sourceOffsetX: session.sourceOffsetX,
+        sourceOffsetY: session.sourceOffsetY,
+        unit: session.unit,
+        gap: session.gap,
+      });
     };
 
     const removeListeners = () => {
@@ -230,7 +273,7 @@ export function useWidgetResize({
       const finalSize = session.currentSize;
       removeListeners();
       if (resetPreview) setPreview(null);
-      if (valid) latestRef.current.onResize?.(session.widgetId, finalSize);
+      if (valid) latestRef.current.onResize?.(session.widgetId, finalSize, session.priority);
     };
     session.finish = (resetPreview = true) => finish(false, resetPreview);
 
@@ -248,7 +291,7 @@ export function useWidgetResize({
         finish();
         return;
       }
-      updateSize(pointerEvent, false);
+      updateSize(pointerEvent, false, true);
       const openSizeChoices = !session.activated;
       finish(true);
       if (openSizeChoices && handle.isConnected) handle.click();
@@ -283,6 +326,21 @@ export function useWidgetResize({
     window.addEventListener("resize", onWindowResize, true);
     captureTarget.addEventListener("lostpointercapture", onLostPointerCapture, true);
     setPointerCapture(captureTarget, session.pointerId);
+    if (interruptedBounds) {
+      setPreview({
+        widgetId,
+        size: item.size,
+        width: session.width,
+        height: session.height,
+        blurPx: 0,
+        sourceColumn,
+        sourceRow,
+        sourceOffsetX: session.sourceOffsetX,
+        sourceOffsetY: session.sourceOffsetY,
+        unit,
+        gap,
+      });
+    }
     return true;
   };
 

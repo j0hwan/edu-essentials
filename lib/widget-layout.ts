@@ -14,6 +14,13 @@ export type WidgetPlacement = {
   rowSpan: number;
 };
 
+export type WidgetResizePriority = {
+  widgetId: string;
+  columns: 2 | 4;
+  column: number;
+  row: number;
+};
+
 const widgetSizeFootprints: Record<WidgetSize, WidgetSizeFootprint> = {
   small: { width: 1, height: 1 },
   medium: { width: 2, height: 1 },
@@ -43,6 +50,7 @@ export function calculateWidgetPlacements(
   sizes: readonly string[],
   columns: 2 | 4,
   startsNewMiniBlocks: readonly boolean[] = [],
+  priority?: { index: number; column: number; row: number },
 ): WidgetPlacement[] {
   const widgetCellFootprints: Record<string, { width: number; height: number }> = {
     small: { width: 1, height: 1 },
@@ -77,7 +85,23 @@ export function calculateWidgetPlacements(
     }
   };
 
+  let priorityPlacement: WidgetPlacement | undefined;
+  if (priority && Number.isInteger(priority.index) && priority.index >= 0 && priority.index < sizes.length
+    && Number.isInteger(priority.column) && Number.isInteger(priority.row) && priority.row >= 1 && priority.row <= 399) {
+    const size = sizes[priority.index];
+    const footprint = widgetCellFootprints[size] ?? widgetCellFootprints.small;
+    const column = Math.max(0, Math.min(columns - footprint.width, priority.column - 1));
+    const row = Math.floor((priority.row - 1) / 2);
+    reserve(column, row, footprint.width, footprint.height);
+    priorityPlacement = { column: column + 1, columnSpan: footprint.width, row: row * 2 + 1, rowSpan: size === "mini" ? 1 : footprint.height * 2 };
+    if (size === "mini" && !startsNewMiniBlocks[priority.index]) pendingMini = { column, row };
+  }
+
   return sizes.map((size, index) => {
+    if (index === priority?.index && priorityPlacement) {
+      if (size === "mini" && startsNewMiniBlocks[index]) pendingMini = { column: priorityPlacement.column - 1, row: (priorityPlacement.row - 1) / 2 };
+      return priorityPlacement;
+    }
     if (size === "mini") {
       if (pendingMini && !startsNewMiniBlocks[index]) {
         const placement = {

@@ -9,7 +9,14 @@ type WidgetResizeInput = {
   hysteresisPx?: number;
 };
 
+export type WidgetResizeGeometry = { width: number; height: number; blurPx: number };
+
 const widgetSizeSet = new Set<string>(widgetSizes);
+
+export function getWidgetResizeContentFilter(blurPx: number): string {
+  const amount = Number.isFinite(blurPx) ? Math.min(8, Math.max(0, blurPx)) : 0;
+  return `blur(${amount}px) saturate(${1 + amount * 0.03}) brightness(${1 + amount * 0.0125})`;
+}
 
 function isWidgetSize(size: string): size is WidgetSize {
   return widgetSizeSet.has(size);
@@ -58,6 +65,77 @@ export function getWidgetResizeSize({
   }
 
   return previousDistance <= bestDistance + Math.max(0, hysteresisPx) ? previousSize : bestSize;
+}
+
+export function getWidgetPointerResizeSize({
+  width,
+  height,
+  deltaX,
+  deltaY,
+  ...input
+}: WidgetResizeInput & { deltaX: number; deltaY: number }): WidgetSize {
+  return getWidgetResizeSize({
+    ...input,
+    width: width + deltaX,
+    height: height + deltaY,
+  });
+}
+
+function getRubberBandedDimension(
+  original: number,
+  delta: number,
+  minimum: number,
+  maximum: number,
+  unit: number,
+) {
+  const effectiveMinimum = Math.min(minimum, original);
+  const effectiveMaximum = Math.max(maximum, original);
+  const maximumResistance = unit * 0.15;
+  const requested = original + delta;
+  if (!Number.isFinite(requested)) {
+    return delta < 0 ? effectiveMinimum - Math.min(maximumResistance, effectiveMinimum) : effectiveMaximum + maximumResistance;
+  }
+  if (requested < effectiveMinimum) {
+    const resistance = Math.min(maximumResistance, effectiveMinimum);
+    const overshoot = effectiveMinimum - requested;
+    return effectiveMinimum - Math.min(resistance, resistance * -Math.expm1(-overshoot / resistance));
+  }
+  if (requested > effectiveMaximum) {
+    const overshoot = requested - effectiveMaximum;
+    return effectiveMaximum + Math.min(maximumResistance, maximumResistance * -Math.expm1(-overshoot / maximumResistance));
+  }
+  return requested;
+}
+
+export function getWidgetPointerResizeGeometry({
+  width,
+  height,
+  deltaX,
+  deltaY,
+  unit,
+  gap,
+  previousSize,
+  hysteresisPx = 14,
+}: WidgetResizeInput & { deltaX: number; deltaY: number }): WidgetResizeGeometry {
+  const original = { width, height, blurPx: 0 };
+  if (!isWidgetSize(previousSize)
+    || ![width, height, deltaX, deltaY, unit, gap, hysteresisPx].every(Number.isFinite)
+    || width <= 0
+    || height <= 0
+    || unit <= 0
+    || gap < 0
+    || gap >= unit) return original;
+
+  const minimumHeight = (unit - gap) / 2;
+  const maximumDimension = unit * 2 + gap;
+  const maximumResistance = unit * 0.15;
+  if (![minimumHeight, maximumDimension, maximumDimension + maximumResistance].every(Number.isFinite)) return original;
+
+  const nextWidth = getRubberBandedDimension(width, deltaX, unit, maximumDimension, unit);
+  const nextHeight = getRubberBandedDimension(height, deltaY, minimumHeight, maximumDimension, unit);
+  const blurPx = Math.min(8, Math.hypot(nextWidth - width, nextHeight - height) / unit * 8);
+  if (![nextWidth, nextHeight, blurPx].every(Number.isFinite)) return original;
+  return { width: nextWidth, height: nextHeight, blurPx };
 }
 
 export function getWidgetKeyboardResizeSize(size: WidgetSize, key: string): WidgetSize {

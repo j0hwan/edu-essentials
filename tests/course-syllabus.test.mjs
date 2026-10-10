@@ -321,7 +321,7 @@ test("workspace API maps syllabus preservation failures to a recoverable 409", a
     "../../../lib/supabase-server": database,
     "../../../lib/persistence-request": requestModule,
   }));
-  const dashboardBody = { v: 2, b: [], h: [], ts: [], d: { assignments: [], manualEvents: [], study: {}, filePreferences: {}, widgetAppearance: {} } };
+  const dashboardBody = { v: 2, b: [], h: [], ts: [], rp: [], d: { assignments: [], manualEvents: [], study: {}, filePreferences: {}, widgetAppearance: {} } };
   const request = () => new Request("https://edu.example/api/workspace", {
     method: "PUT", headers: { origin: "https://edu.example", "content-type": "application/json" },
     body: JSON.stringify({ baseRevision: "2026-10-08T00:00:00.000Z", courses: [], dashboard: dashboardBody }),

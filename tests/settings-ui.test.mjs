@@ -1649,6 +1649,287 @@ test("workspace controls persist configurations and independent notes", async (t
     }
   });
 
+  await t.test("continuous resize geometry stays unsaved until release chooses a new size", async () => {
+    reset();
+    const widgets = [{ instanceId: "continuous-resize", type: "notes", size: "medium", note: "Keep this note" }];
+    const server = installWorkspaceServer(encodeWorkspaceState([{ id: "day", name: "Day", widgets }], "day", ""));
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Customize");
+    const geometry = installBoardGeometry(rootNode.querySelector(".widget-grid"));
+    const source = cards()[0];
+    const writesBefore = server.writes;
+    const startRect = source.getBoundingClientRect();
+    const startX = startRect.right - 4;
+    const startY = startRect.bottom - 4;
+
+    await act(async () => source.querySelector("[data-widget-resize-handle]").dispatchEvent(pointerEvent("pointerdown", {
+      pointerId: 240, buttons: 1, clientX: startX, clientY: startY,
+    })));
+    await act(async () => document.dispatchEvent(pointerEvent("pointermove", {
+      pointerId: 240, buttons: 1, clientX: startX + 6, clientY: startY + 6,
+    })));
+    const firstWidth = source.style.width;
+    const firstHeight = source.style.height;
+    assert.equal(source.dataset.size, "medium");
+    const expectedWidth = 216 + 15 * (1 - Math.exp(-6 / 15));
+    assert.ok(Math.abs(Number.parseFloat(firstWidth) - expectedWidth) < 1e-9);
+    assert.equal(firstHeight, "106px");
+    assert.equal(server.writes, writesBefore);
+    assert.equal(unloadBlocked(), false);
+
+    await act(async () => document.dispatchEvent(pointerEvent("pointermove", {
+      pointerId: 240, buttons: 1, clientX: startX + 9, clientY: startY + 9,
+    })));
+    assert.equal(source.dataset.size, "medium", "continuous geometry can change before the nearest-size boundary");
+    assert.notEqual(source.style.width, firstWidth);
+    assert.notEqual(source.style.height, firstHeight);
+    assert.equal(server.writes, writesBefore, "a held preview never reaches workspace persistence");
+    assert.equal(unloadBlocked(), false);
+
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", {
+      pointerId: 240, buttons: 0, clientX: startX + 9, clientY: startY + 9,
+    })));
+    assert.equal(source.dataset.size, "medium");
+    assert.equal(source.dataset.widgetResizeLive, undefined);
+    assert.equal(server.writes, writesBefore, "releasing the unchanged nearest size does not save");
+    await waitForMilliseconds(760);
+    assert.equal(server.writes, writesBefore);
+
+    geometry.updateCards();
+    const nextRect = source.getBoundingClientRect();
+    const nextStartX = nextRect.right - 4;
+    const nextStartY = nextRect.bottom - 4;
+    await act(async () => source.querySelector("[data-widget-resize-handle]").dispatchEvent(pointerEvent("pointerdown", {
+      pointerId: 241, buttons: 1, clientX: nextStartX, clientY: nextStartY,
+    })));
+    await act(async () => document.dispatchEvent(pointerEvent("pointermove", {
+      pointerId: 241, buttons: 1, clientX: nextStartX, clientY: nextStartY + 63,
+    })));
+    assert.equal(source.dataset.size, "medium");
+    assert.equal(server.writes, writesBefore);
+    await act(async () => document.dispatchEvent(pointerEvent("pointerup", {
+      pointerId: 241, buttons: 0, clientX: nextStartX, clientY: nextStartY + 63,
+    })));
+    assert.equal(source.dataset.size, "large");
+    assert.equal(server.writes, writesBefore, "the release schedules persistence after the final size is chosen");
+    await waitForWorkspaceSave(server, writesBefore);
+    assert.equal(decodeWorkspaceState(server.dashboard).workspaces[0].widgets[0].size, "large");
+    assert.equal(server.writes, writesBefore + 1);
+  });
+
+  await t.test("regrabbing a settling resize starts from its visible dimensions", async () => {
+    reset();
+    const widgets = [{ instanceId: "settling-resize", type: "notes", size: "small", note: "Keep this note" }];
+    const server = installWorkspaceServer(encodeWorkspaceState([{ id: "day", name: "Day", widgets }], "day", ""));
+    const animateDescriptor = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "animate");
+    const animations = [];
+    Object.defineProperty(window.HTMLElement.prototype, "animate", {
+      configurable: true,
+      writable: true,
+      value(frames, options) {
+        const animation = { cancelled: false, onfinish: null, oncancel: null, cancel() { this.cancelled = true; this.oncancel?.(); } };
+        animations.push({ element: this, frames, options, animation });
+        return animation;
+      },
+    });
+    let source, originalRect;
+    try {
+      await render(Workspace, { initialProfile: baseProfile });
+      await click("Customize");
+      installBoardGeometry(rootNode.querySelector(".widget-grid"));
+      source = cards()[0];
+      const writesBefore = server.writes;
+      let rect = source.getBoundingClientRect();
+      let startX = rect.right - 4;
+      let startY = rect.bottom - 4;
+      await act(async () => source.querySelector("[data-widget-resize-handle]").dispatchEvent(pointerEvent("pointerdown", {
+        pointerId: 242, buttons: 1, clientX: startX, clientY: startY,
+      })));
+      await act(async () => document.dispatchEvent(pointerEvent("pointermove", {
+        pointerId: 242, buttons: 1, clientX: startX + 10, clientY: startY + 10,
+      })));
+      assert.equal(source.dataset.size, "small");
+      assert.equal(server.writes, writesBefore);
+      await act(async () => document.dispatchEvent(pointerEvent("pointerup", {
+        pointerId: 242, buttons: 0, clientX: startX + 116, clientY: startY + 116,
+      })));
+      await waitForWorkspaceSave(server, writesBefore);
+      assert.equal(source.dataset.size, "large");
+      assert.equal(source.dataset.widgetResizeSettling, "true");
+      assert.ok(animations.some(({ element }) => element === source));
+
+      originalRect = source.getBoundingClientRect;
+      const layoutRect = originalRect();
+      source.getBoundingClientRect = () => ({
+        left: layoutRect.left,
+        top: layoutRect.top,
+        right: layoutRect.left + 180,
+        bottom: layoutRect.top + 170,
+        width: 180,
+        height: 170,
+        toJSON() { return this; },
+      });
+      rect = source.getBoundingClientRect();
+      startX = rect.right - 4;
+      startY = rect.bottom - 4;
+      const writesAfterSave = server.writes;
+      await act(async () => source.querySelector("[data-widget-resize-handle]").dispatchEvent(pointerEvent("pointerdown", {
+        pointerId: 243, buttons: 1, clientX: startX, clientY: startY,
+      })));
+      assert.equal(source.dataset.widgetResizeLive, "true");
+      assert.equal(source.style.width, "180px", "pointer-down captures the visible spring width immediately");
+      assert.equal(source.style.height, "170px", "pointer-down captures the visible spring height immediately");
+
+      await act(async () => document.dispatchEvent(pointerEvent("pointermove", {
+        pointerId: 243, buttons: 1, clientX: startX, clientY: startY + 12,
+      })));
+      assert.equal(source.dataset.size, "large");
+      assert.equal(source.style.width, "180px");
+      assert.equal(source.style.height, "182px", "the next move tracks the pointer from the visible height");
+      assert.equal(server.writes, writesAfterSave);
+      await act(async () => document.dispatchEvent(pointerEvent("pointercancel", {
+        pointerId: 243, buttons: 0, clientX: startX, clientY: startY + 12,
+      })));
+      assert.equal(source.dataset.widgetResizeLive, undefined);
+      assert.equal(server.writes, writesAfterSave);
+    } finally {
+      if (source && originalRect) source.getBoundingClientRect = originalRect;
+      if (animateDescriptor) Object.defineProperty(window.HTMLElement.prototype, "animate", animateDescriptor);
+      else delete window.HTMLElement.prototype.animate;
+    }
+  });
+
+  await t.test("resizing a paired mini reserves its row and saves displaced neighbors", async (t) => {
+    for (const columns of [4, 2]) {
+      await t.test(`${columns}-column board`, async () => {
+        reset();
+        const widgets = [
+          { instanceId: "mini-before", type: "quote", size: "mini" },
+          { instanceId: "mini-priority", type: "notes", size: "mini", note: "Keep this content" },
+          { instanceId: "small-before", type: "pomodoro", size: "small" },
+          { instanceId: "large-neighbor", type: "upcoming", size: "large" },
+          { instanceId: "mini-after", type: "quote", size: "mini" },
+        ];
+        const server = installWorkspaceServer(encodeWorkspaceState([{ id: "day", name: "Day", widgets }], "day", ""));
+        await render(Workspace, { initialProfile: baseProfile });
+        await click("Customize");
+        const frames = installFrameQueue();
+        installBoardGeometry(rootNode.querySelector(".widget-grid"), { columns });
+        await act(async () => { window.dispatchEvent(new window.Event("resize")); frames.flush(); });
+        const getCard = (id) => cards().find((card) => card.dataset.widgetId === id);
+        const source = getCard("mini-priority");
+        const sourceCellRow = Math.floor((Number.parseInt(source.style.gridRow, 10) - 1) / 2) * 2 + 1;
+        const originalLargeRow = Number.parseInt(getCard("large-neighbor").style.gridRow, 10);
+        const sourceInput = source.querySelector("textarea");
+        const bounds = source.getBoundingClientRect();
+        const pointerId = 170 + columns;
+        const start = { pointerId, buttons: 1, clientX: bounds.right - 4, clientY: bounds.bottom - 4 };
+        const end = { ...start, clientY: start.clientY + 58 };
+        const writesBefore = server.writes;
+        try {
+          await act(async () => source.querySelector("[data-widget-resize-handle]").dispatchEvent(pointerEvent("pointerdown", start)));
+          await act(async () => document.dispatchEvent(pointerEvent("pointermove", end)));
+          assert.equal(source.dataset.size, "small");
+          assert.equal(Number.parseInt(source.style.gridRow, 10), sourceCellRow, "the resized mini keeps its original small-cell row");
+          assert.ok(Number.parseInt(getCard("large-neighbor").style.gridRow, 10) > originalLargeRow, "the large neighbor moves down instead");
+          assert.equal(server.writes, writesBefore, "priority remains a preview until release");
+          assert.equal(source.querySelector("textarea"), sourceInput, "content keeps its mounted identity");
+          const previewPositions = cards().map((card) => [card.dataset.widgetId, card.style.gridColumn, card.style.gridRow]);
+          await act(async () => document.dispatchEvent(pointerEvent("pointerup", { ...end, buttons: 0 })));
+          assert.deepEqual(cards().map((card) => [card.dataset.widgetId, card.style.gridColumn, card.style.gridRow]), previewPositions, "release keeps the preview layout");
+          await waitForWorkspaceSave(server, writesBefore);
+          const saved = decodeWorkspaceState(server.dashboard).workspaces[0];
+          assert.deepEqual(saved.resizePriorities, [{ widgetId: "mini-priority", columns, column: 1, row: sourceCellRow }]);
+          await saveAndReload();
+          const grid = rootNode.querySelector(".widget-grid");
+          installBoardGeometry(grid, { columns });
+          await act(async () => { window.dispatchEvent(new window.Event("resize")); frames.flush(); });
+          assert.deepEqual(cards().map((card) => [card.dataset.widgetId, card.style.gridColumn, card.style.gridRow]), previewPositions, "reload reproduces the saved priority layout");
+          assert.equal(getCard("mini-priority").querySelector("textarea").value, "Keep this content");
+          await click("Customize");
+          const savedPositions = cards().map((card) => [card.dataset.widgetId, card.style.gridColumn, card.style.gridRow]);
+          const savedWrites = server.writes;
+          const resizedCard = getCard("mini-priority");
+          const resizedBounds = resizedCard.getBoundingClientRect();
+          const nextStart = { pointerId: pointerId + 10, buttons: 1, clientX: resizedBounds.right - 4, clientY: resizedBounds.bottom - 4 };
+          await act(async () => resizedCard.querySelector("[data-widget-resize-handle]").dispatchEvent(pointerEvent("pointerdown", nextStart)));
+          await act(async () => document.dispatchEvent(pointerEvent("pointermove", { ...nextStart, clientX: nextStart.clientX + 116, clientY: nextStart.clientY + 116 })));
+          assert.equal(resizedCard.dataset.size, "large");
+          await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+          assert.deepEqual(cards().map((card) => [card.dataset.widgetId, card.style.gridColumn, card.style.gridRow]), savedPositions, "cancellation restores the previous priority layout");
+          assert.equal(server.writes, savedWrites);
+          const savedWidgets = decodeWorkspaceState(server.dashboard).workspaces[0].widgets;
+          for (const destinationIndex of [1, savedWidgets.length - 1]) {
+            const dragGeometry = installBoardGeometry(grid, { columns });
+            const dragBounds = resizedCard.getBoundingClientRect();
+            const dragStart = { pointerId: pointerId + 20 + destinationIndex, buttons: 1, clientX: dragBounds.left + 20, clientY: dragBounds.top + 18 };
+            const dragDestination = destinationPointer(savedWidgets, "mini-priority", destinationIndex, dragGeometry, 20, 18);
+            await act(async () => resizedCard.querySelector("[data-widget-reorder-handle]").dispatchEvent(pointerEvent("pointerdown", dragStart)));
+            await act(async () => {
+              document.dispatchEvent(pointerEvent("pointermove", { ...dragStart, clientX: dragDestination.x, clientY: dragDestination.y }));
+              frames.flush();
+            });
+            const overlay = document.querySelector(".widget-reorder-overlay");
+            assert.ok(overlay);
+            for (const card of cards()) {
+              for (const [property, dimension] of [["offsetWidth", "width"], ["offsetHeight", "height"]]) {
+                Object.defineProperty(card, property, { configurable: true, get: () => card.getBoundingClientRect()[dimension] });
+              }
+            }
+            let finishDrop;
+            let dropCancelled = false;
+            overlay.animate = () => ({
+              finished: new Promise((resolve) => { finishDrop = resolve; }),
+              cancel() { dropCancelled = true; finishDrop?.(); },
+            });
+            await act(async () => document.dispatchEvent(pointerEvent("pointerup", { ...dragStart, clientX: dragDestination.x, clientY: dragDestination.y, buttons: 0 })));
+            assert.equal(document.querySelector(".widget-reorder-overlay"), overlay, "clearing resize priority does not cancel the reorder drop animation");
+            assert.equal(dropCancelled, false);
+            assert.equal(typeof finishDrop, "function");
+            if (destinationIndex === 1) {
+              assert.deepEqual(cards().map((card) => [card.dataset.widgetId, card.style.gridColumn, card.style.gridRow]), savedPositions, "a no-op reorder settles back into its saved priority layout");
+              assert.equal(server.writes, savedWrites);
+            }
+            await act(async () => finishDrop());
+            assert.equal(document.querySelector(".widget-reorder-overlay"), null);
+            if (destinationIndex === 1) assert.deepEqual(cards().map((card) => [card.dataset.widgetId, card.style.gridColumn, card.style.gridRow]), savedPositions, "finishing a no-op drop does not move the anchored widgets again");
+          }
+          await waitForWorkspaceSave(server, server.writes);
+          assert.equal(decodeWorkspaceState(server.dashboard).workspaces[0].resizePriorities, undefined, "explicit reordering removes the resize anchor");
+        } finally {
+          frames.restore();
+          if (root) await unmount();
+        }
+      });
+    }
+  });
+
+  await t.test("resize priority survives note edits and remaps when a workspace is copied", async () => {
+    reset();
+    const resizePriorities = [{ widgetId: "anchored-note", columns: 4, column: 2, row: 3 }, { widgetId: "anchored-note", columns: 2, column: 1, row: 3 }];
+    const server = installWorkspaceServer(encodeWorkspaceState([{ id: "day", name: "Day", widgets: [{ instanceId: "anchored-note", type: "notes", size: "small", note: "Original" }], resizePriorities }], "day", ""));
+    await render(Workspace, { initialProfile: baseProfile });
+    await editNotes("Updated without moving");
+    await waitForWorkspaceSave(server, 0);
+    assert.deepEqual(decodeWorkspaceState(server.dashboard).workspaces[0].resizePriorities, resizePriorities);
+    await clickAria("Workspace options");
+    const writesBeforeCopy = server.writes;
+    await clickIn(rootNode.querySelector(".workspace-menu"), "Duplicate");
+    await waitForWorkspaceSave(server, writesBeforeCopy);
+    let saved = decodeWorkspaceState(server.dashboard).workspaces;
+    const copiedId = saved[1].widgets[0].instanceId;
+    assert.notEqual(copiedId, "anchored-note");
+    assert.deepEqual(saved[1].resizePriorities, resizePriorities.map((priority) => ({ ...priority, widgetId: copiedId })));
+    assert.equal(saved[1].widgets[0].note, "Updated without moving");
+    await clickAria("Quick notes options");
+    const writesBeforeRemove = server.writes;
+    await clickIn(rootNode.querySelector(".widget-menu"), "Remove");
+    await waitForWorkspaceSave(server, writesBeforeRemove);
+    saved = decodeWorkspaceState(server.dashboard).workspaces;
+    assert.equal(saved[1].resizePriorities, undefined, "removing the priority widget removes its anchor");
+    assert.deepEqual(saved[0].resizePriorities, resizePriorities, "the original workspace keeps its own anchors");
+  });
+
   await t.test("corner resize no-op and interruptions never save", async (t) => {
     reset();
     const workspaces = [

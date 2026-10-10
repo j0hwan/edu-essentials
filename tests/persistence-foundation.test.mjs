@@ -593,6 +593,41 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       assert.deepEqual(await getWorkspace(), beforeB, "Today content choices and revision remain isolated to their account");
       runtime.user = userA;
     });
+    await t.test("resize priorities round-trip and guard older workspace clients", async () => {
+      const original = await getWorkspace();
+      const decoded = decodeWorkspaceState(original.dashboard);
+      const widget = decoded.workspaces.find((item) => item.id === decoded.activeWorkspaceId).widgets[0];
+      const prioritized = decoded.workspaces.map((item) => item.id === decoded.activeWorkspaceId
+        ? { ...item, resizePriorities: [{ widgetId: widget.instanceId, columns: 2, column: 2, row: 7 }] }
+        : item);
+      const dashboard = encodeWorkspaceState(prioritized, decoded.activeWorkspaceId, decoded.notes, decoded.data);
+      assert.deepEqual(dashboard.rp, [[decoded.activeWorkspaceId, widget.instanceId, 2, 2, 7]]);
+      assert.equal((await workspace.PUT(request({ courses: original.courses, dashboard, baseRevision: original.revision }))).status, 200);
+
+      const saved = await getWorkspace();
+      assert.deepEqual(decodeWorkspaceState(saved.dashboard).workspaces, prioritized);
+      const malformed = { ...saved.dashboard, rp: [[decoded.activeWorkspaceId, "missing-widget", 2, 1, 1]] };
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: malformed, baseRevision: saved.revision }))).status, 400);
+
+      const olderClient = structuredClone(saved.dashboard);
+      delete olderClient.rp;
+      olderClient.n = "Older client must not erase resize priorities";
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: olderClient, baseRevision: saved.revision }))).status, 426);
+      const unchanged = await getWorkspace();
+      assert.equal(unchanged.revision, saved.revision, "rejected legacy writes do not advance the revision");
+      assert.deepEqual(unchanged.dashboard, saved.dashboard, "rejected legacy writes preserve saved priorities");
+
+      const clearPriorities = { ...saved.dashboard, rp: [] };
+      assert.equal((await workspace.PUT(request({ courses: saved.courses, dashboard: clearPriorities, baseRevision: saved.revision }))).status, 200);
+      const cleared = await getWorkspace();
+      assert.deepEqual(cleared.dashboard.rp, []);
+      const legacyWithoutPriorities = structuredClone(cleared.dashboard);
+      delete legacyWithoutPriorities.rp;
+      legacyWithoutPriorities.n = "Legacy save accepted without resize priorities";
+      assert.equal((await workspace.PUT(request({ courses: cleared.courses, dashboard: legacyWithoutPriorities, baseRevision: cleared.revision }))).status, 200,
+        "legacy writes remain valid after priorities are cleared");
+      assert.equal((await getWorkspace()).dashboard.n, legacyWithoutPriorities.n);
+    });
 
     await t.test("workspace API maps an at-capacity syllabus-preservation failure to a recoverable 409", async () => {
       runtime.user = userA;
