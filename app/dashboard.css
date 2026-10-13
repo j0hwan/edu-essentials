@@ -34,10 +34,14 @@
 @keyframes dashboard-study-caret-blink { 50% { opacity: 0; } }
 .dashboard-study-footer { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: auto; padding-top: 16px; }
 .dashboard-study-ask { display: flex; align-items: center; flex: 1 1 auto; gap: 4px; width: 100%; min-width: 0; height: 44px; padding: 4px; border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--surface) 82%, var(--surface-2)); transition: border-color 150ms ease, box-shadow 150ms ease; }
-.dashboard-study-ask:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent); }
-.dashboard-study-ask-input { flex: 1 1 auto; width: 100%; min-width: 0; height: 100%; padding: 0 10px; border: 0; border-radius: 8px; outline: 0; color: var(--ink); background: transparent; font-size: 13px; }
+.dashboard-study-ask-field { position: relative; flex: 1 1 auto; width: 100%; min-width: 0; height: 100%; }
+.dashboard-study-ask-input { display: block; width: 100%; min-width: 0; height: 100%; padding: 0 10px; border: 0; border-radius: 8px; outline: 0; color: var(--ink); background: transparent; font-size: 13px; }
 .dashboard-study-ask-input:focus-visible { box-shadow: none; }
 .dashboard-study-ask-input::placeholder { color: var(--muted); opacity: 1; }
+.dashboard-study-ask-input--suggestion::placeholder { color: transparent; }
+.dashboard-study-ask-suggestion { position: absolute; inset: 0; display: flex; align-items: center; min-width: 0; overflow: hidden; padding: 0 10px; pointer-events: none; color: var(--muted); font: inherit; font-size: 13px; line-height: inherit; white-space: nowrap; }
+.dashboard-study-ask-suggestion-text { min-width: 0; overflow: hidden; text-overflow: clip; white-space: nowrap; }
+.dashboard-study-ask-caret { width: 1px; height: 1em; flex: 0 0 1px; margin-left: 1px; background: currentColor; animation: dashboard-study-caret-blink 850ms step-end infinite; }
 .dashboard-study-ask-submit { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border: 0; border-radius: 9px; color: var(--brand-dark); background: color-mix(in srgb, var(--brand-soft) 82%, var(--surface)); transition: color 150ms ease, background 150ms ease; }
 .dashboard-study-ask-submit:hover:not(:disabled) { color: var(--surface); background: var(--brand); }
 .dashboard-study-open { display: grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 12px; color: var(--brand-dark); background: color-mix(in srgb, var(--surface-2) 65%, transparent); transition: border-color 150ms ease, background 150ms ease, color 150ms ease; }

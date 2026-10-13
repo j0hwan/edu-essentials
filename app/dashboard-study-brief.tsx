@@ -2,6 +2,7 @@ import { ArrowRight, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, MessageSq
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { SavedAssignment } from "../lib/workspace-codec";
+import { useAskSuggestions } from "./use-ask-suggestions";
 
 const STUDY_SUMMARY = "I’d start with the work that needs your attention most, then give you a head start on the next deadline. Your week looks manageable—let’s take it one priority at a time.";
 const STUDY_SUMMARY_TYPING_DURATION_MS = 2500;
@@ -67,6 +68,7 @@ export default function DashboardStudyBrief({
   reducedMotion = false,
 }: Props) {
   const [question, setQuestion] = useState("");
+  const [askFocused, setAskFocused] = useState(false);
   const systemReducedMotion = useSyncExternalStore(subscribeToReducedMotion, getSystemReducedMotion, () => false);
   const shouldReduceMotion = reducedMotion || systemReducedMotion;
   const [visibleCharacters, setVisibleCharacters] = useState(() => shouldReduceMotion ? STUDY_SUMMARY.length : 0);
@@ -101,6 +103,15 @@ export default function DashboardStudyBrief({
   }, [shouldReduceMotion]);
 
   const summaryCharacters = shouldReduceMotion ? STUDY_SUMMARY.length : visibleCharacters;
+  const askPlaceholder = useAskSuggestions({
+    active: summaryCharacters === STUDY_SUMMARY.length,
+    paused: askFocused || question.length > 0,
+    reducedMotion: shouldReduceMotion,
+  });
+  const showAskSuggestion = summaryCharacters === STUDY_SUMMARY.length
+    && !askFocused
+    && question.length === 0
+    && !shouldReduceMotion;
   const assignmentSequence = JSON.stringify(focusAssignments.map((assignment) => assignment.id));
   const [priorityState, setPriorityState] = useState({ sequence: assignmentSequence, page: 0 });
   const priorityPage = priorityState.sequence === assignmentSequence ? priorityState.page : 0;
@@ -202,15 +213,25 @@ export default function DashboardStudyBrief({
         </p>
         <div className="dashboard-study-footer">
           <form className="dashboard-study-ask" onSubmit={handleAskSubmit}>
-            <input
-              className="dashboard-study-ask-input"
-              type="text"
-              aria-label="Ask Edu AI"
-              placeholder="Ask Edu AI…"
-              maxLength={8000}
-              value={question}
-              onChange={(event) => setQuestion(event.currentTarget.value)}
-            />
+            <div className="dashboard-study-ask-field">
+              <input
+                className={`dashboard-study-ask-input${showAskSuggestion ? " dashboard-study-ask-input--suggestion" : ""}`}
+                type="text"
+                aria-label="Ask Edu AI"
+                placeholder={askPlaceholder}
+                maxLength={8000}
+                value={question}
+                onChange={(event) => setQuestion(event.currentTarget.value)}
+                onFocus={() => setAskFocused(true)}
+                onBlur={() => setAskFocused(false)}
+              />
+              {showAskSuggestion && (
+                <span className="dashboard-study-ask-suggestion" aria-hidden="true">
+                  <span className="dashboard-study-ask-suggestion-text">{askPlaceholder}</span>
+                  <span className="dashboard-study-ask-caret" />
+                </span>
+              )}
+            </div>
             <button className="dashboard-study-ask-submit" type="submit" aria-label="Send question" disabled={!question.trim()}>
               <ArrowUp size={17} aria-hidden="true" />
             </button>

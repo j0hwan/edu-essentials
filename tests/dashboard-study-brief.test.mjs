@@ -40,6 +40,73 @@ async function wait(milliseconds) {
   await act(async () => new Promise((resolve) => setTimeout(resolve, milliseconds)));
 }
 
+function installFakeWindowTimers() {
+  const original = {
+    setTimeout: window.setTimeout,
+    clearTimeout: window.clearTimeout,
+    setInterval: window.setInterval,
+    clearInterval: window.clearInterval,
+    performanceNow: window.performance.now,
+  };
+  let now = 0;
+  let nextId = 1;
+  let summaryInterval;
+  const timeouts = new Map();
+  const intervals = new Map();
+
+  window.performance.now = () => now;
+  window.setTimeout = (callback, delay = 0) => {
+    const id = nextId++;
+    timeouts.set(id, { callback, at: now + Number(delay) });
+    return id;
+  };
+  window.clearTimeout = (id) => timeouts.delete(id);
+  window.setInterval = (callback) => {
+    const id = nextId++;
+    intervals.set(id, callback);
+    summaryInterval = id;
+    return id;
+  };
+  window.clearInterval = (id) => {
+    intervals.delete(id);
+    if (summaryInterval === id) summaryInterval = undefined;
+  };
+
+  return {
+    get pendingTimeoutCount() { return timeouts.size; },
+    get pendingIntervalCount() { return intervals.size; },
+    async tickSummary(elapsed) {
+      now = elapsed;
+      const callback = intervals.get(summaryInterval);
+      assert.equal(typeof callback, "function");
+      await act(async () => callback());
+    },
+    async advance(milliseconds) {
+      const target = now + milliseconds;
+      let callbacks = 0;
+      while (true) {
+        const next = [...timeouts.entries()]
+          .filter(([, timeout]) => timeout.at <= target)
+          .sort((left, right) => left[1].at - right[1].at)[0];
+        if (!next) break;
+        if (++callbacks > 1000) throw new Error("Fake timer callback limit exceeded");
+        const [id, timeout] = next;
+        timeouts.delete(id);
+        now = timeout.at;
+        await act(async () => timeout.callback());
+      }
+      now = target;
+    },
+    restore() {
+      window.setTimeout = original.setTimeout;
+      window.clearTimeout = original.clearTimeout;
+      window.setInterval = original.setInterval;
+      window.clearInterval = original.clearInterval;
+      window.performance.now = original.performanceNow;
+    },
+  };
+}
+
 async function unmount() {
   if (root) await act(async () => root.unmount());
   root = null;
@@ -162,6 +229,115 @@ test("system reduced-motion preference skips typing and completes if enabled dur
     await unmount();
     if (originalMatchMedia) window.matchMedia = originalMatchMedia;
     else delete window.matchMedia;
+  }
+});
+
+test("starts Ask Edu suggestions after the summary, pauses for input, then types, deletes, and loops five suggestions", async () => {
+  const timers = installFakeWindowTimers();
+  const suggestions = [
+    "Help me plan my week.",
+    "What should I work on next?",
+    "Break down this assignment.",
+    "Make me a study schedule.",
+    "Help me prepare for an exam.",
+  ];
+  try {
+    await mount();
+    const input = node.querySelector('[aria-label="Ask Edu AI"]');
+    assert.equal(input.placeholder, "Ask Edu AI…");
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion"), null);
+
+    await timers.tickSummary(2499);
+    assert.ok(animatedCopy().textContent.length < SUMMARY.length);
+    assert.equal(input.placeholder, "Ask Edu AI…");
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion"), null);
+    assert.equal(timers.pendingTimeoutCount, 0);
+
+    await timers.tickSummary(2500);
+    assert.equal(animatedCopy().textContent, SUMMARY);
+    assert.equal(input.placeholder, "");
+    const suggestion = node.querySelector(".dashboard-study-ask-suggestion");
+    assert.ok(suggestion);
+    assert.equal(suggestion.getAttribute("aria-hidden"), "true");
+    assert.equal(suggestion.textContent, "");
+    assert.ok(suggestion.querySelector(".dashboard-study-ask-caret"));
+    assert.ok(input.classList.contains("dashboard-study-ask-input--suggestion"));
+    assert.equal(timers.pendingTimeoutCount, 1);
+
+    await timers.advance(45);
+    assert.equal(input.placeholder, "H");
+    assert.equal(suggestion.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
+    await rerender({ overdueCount: 1 });
+    await timers.advance(45);
+    assert.equal(input.placeholder, "He");
+    assert.equal(suggestion.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
+
+    await act(async () => input.focus());
+    assert.equal(input.placeholder, "Ask Edu AI…");
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion"), null);
+    assert.equal(input.classList.contains("dashboard-study-ask-input--suggestion"), false);
+    assert.equal(timers.pendingTimeoutCount, 0);
+    await timers.advance(1200);
+    assert.equal(input.placeholder, "Ask Edu AI…");
+
+    await setInputValue(input, " \t ");
+    await act(async () => input.blur());
+    assert.equal(input.value, " \t ");
+    assert.equal(input.placeholder, "Ask Edu AI…");
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion"), null);
+    assert.equal(timers.pendingTimeoutCount, 0);
+
+    await act(async () => input.focus());
+    await setInputValue(input, "Keep this actual question");
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion"), null);
+    await act(async () => input.blur());
+    assert.equal(input.value, "Keep this actual question");
+    assert.equal(input.placeholder, "Ask Edu AI…");
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion"), null);
+    assert.equal(node.querySelector('[aria-label="Send question"]').disabled, false);
+    await timers.advance(1000);
+    assert.equal(input.value, "Keep this actual question");
+    assert.equal(input.placeholder, "Ask Edu AI…");
+
+    await act(async () => input.focus());
+    await setInputValue(input, "");
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion"), null);
+    await act(async () => input.blur());
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
+    assert.equal(input.placeholder, "He");
+    while (input.placeholder !== suggestions[0]) await timers.advance(45);
+
+    for (let index = 0; index < suggestions.length; index += 1) {
+      assert.equal(input.placeholder, suggestions[index]);
+      assert.equal(node.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
+      const next = suggestions[(index + 1) % suggestions.length];
+      await timers.advance(1400 + (suggestions[index].length * 25) + 350 + (next.length * 45));
+      assert.equal(input.placeholder, next);
+    }
+    assert.equal(timers.pendingTimeoutCount, 1);
+
+    await unmount();
+    assert.equal(timers.pendingTimeoutCount, 0);
+    assert.equal(timers.pendingIntervalCount, 0);
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("reduced motion keeps the Ask Edu placeholder static", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ reducedMotion: true });
+    const input = node.querySelector('[aria-label="Ask Edu AI"]');
+    assert.equal(input.placeholder, "Ask Edu AI…");
+    assert.equal(node.querySelector(".dashboard-study-ask-suggestion"), null);
+    await timers.advance(30000);
+    assert.equal(input.placeholder, "Ask Edu AI…");
+    assert.equal(timers.pendingTimeoutCount, 0);
+  } finally {
+    await unmount();
+    timers.restore();
   }
 });
 
