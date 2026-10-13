@@ -255,20 +255,31 @@ test("starts Ask Edu suggestions after the summary, pauses for input, then types
 
     await timers.tickSummary(2500);
     assert.equal(animatedCopy().textContent, SUMMARY);
-    assert.equal(input.placeholder, "");
+    assert.equal(input.placeholder, "Ask Edu AI…");
     const suggestion = node.querySelector(".dashboard-study-ask-suggestion");
     assert.ok(suggestion);
     assert.equal(suggestion.getAttribute("aria-hidden"), "true");
-    assert.equal(suggestion.textContent, "");
+    assert.equal(suggestion.textContent, "Ask Edu AI…");
     assert.ok(suggestion.querySelector(".dashboard-study-ask-caret"));
     assert.ok(input.classList.contains("dashboard-study-ask-input--suggestion"));
     assert.equal(timers.pendingTimeoutCount, 1);
 
-    await timers.advance(45);
+    const initialPlaceholder = "Ask Edu AI…";
+    for (let length = initialPlaceholder.length - 1; length >= 0; length -= 1) {
+      await timers.advance(35);
+      assert.equal(input.placeholder, initialPlaceholder.slice(0, length));
+      assert.equal(suggestion.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
+      assert.equal(input.value, "");
+      assert.equal(node.querySelector('[aria-label="Send question"]').disabled, true);
+    }
+    await timers.advance(350);
+    assert.equal(input.placeholder, "");
+
+    await timers.advance(80);
     assert.equal(input.placeholder, "H");
     assert.equal(suggestion.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
     await rerender({ overdueCount: 1 });
-    await timers.advance(45);
+    await timers.advance(80);
     assert.equal(input.placeholder, "He");
     assert.equal(suggestion.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
 
@@ -305,13 +316,13 @@ test("starts Ask Edu suggestions after the summary, pauses for input, then types
     await act(async () => input.blur());
     assert.equal(node.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
     assert.equal(input.placeholder, "He");
-    while (input.placeholder !== suggestions[0]) await timers.advance(45);
+    while (input.placeholder !== suggestions[0]) await timers.advance(80);
 
     for (let index = 0; index < suggestions.length; index += 1) {
       assert.equal(input.placeholder, suggestions[index]);
       assert.equal(node.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
       const next = suggestions[(index + 1) % suggestions.length];
-      await timers.advance(1400 + (suggestions[index].length * 25) + 350 + (next.length * 45));
+      await timers.advance(1400 + (suggestions[index].length * 35) + 350 + (next.length * 80));
       assert.equal(input.placeholder, next);
     }
     assert.equal(timers.pendingTimeoutCount, 1);

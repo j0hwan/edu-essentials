@@ -8,15 +8,16 @@ export const ASK_SUGGESTIONS = [
   "Help me prepare for an exam.",
 ] as const;
 
-const TYPE_DELAY_MS = 45;
+const TYPE_DELAY_MS = 80;
 const HOLD_DELAY_MS = 1400;
-const DELETE_DELAY_MS = 25;
+const DELETE_DELAY_MS = 35;
 const NEXT_SUGGESTION_DELAY_MS = 350;
+const INITIAL_PLACEHOLDER = "Ask Edu AI…";
 
 type AnimationState = {
   suggestionIndex: number;
   visibleCharacters: number;
-  phase: "typing" | "deleting";
+  phase: "intro" | "typing" | "deleting";
 };
 
 export function useAskSuggestions({
@@ -30,14 +31,16 @@ export function useAskSuggestions({
 }) {
   const [animation, setAnimation] = useState<AnimationState>({
     suggestionIndex: 0,
-    visibleCharacters: 0,
-    phase: "typing",
+    visibleCharacters: INITIAL_PLACEHOLDER.length,
+    phase: "intro",
   });
 
   useEffect(() => {
     if (!active || paused || reducedMotion || typeof window === "undefined") return;
 
-    const suggestion = ASK_SUGGESTIONS[animation.suggestionIndex];
+    const suggestion = animation.phase === "intro"
+      ? INITIAL_PLACEHOLDER
+      : ASK_SUGGESTIONS[animation.suggestionIndex];
     const atEnd = animation.visibleCharacters >= suggestion.length;
     const timeout = window.setTimeout(() => {
       if (animation.phase === "typing") {
@@ -55,7 +58,7 @@ export function useAskSuggestions({
       }
 
       setAnimation((current) => ({
-        suggestionIndex: (current.suggestionIndex + 1) % ASK_SUGGESTIONS.length,
+        suggestionIndex: current.phase === "intro" ? 0 : (current.suggestionIndex + 1) % ASK_SUGGESTIONS.length,
         visibleCharacters: 0,
         phase: "typing",
       }));
@@ -68,6 +71,7 @@ export function useAskSuggestions({
     return () => window.clearTimeout(timeout);
   }, [active, animation, paused, reducedMotion]);
 
-  if (!active || paused || reducedMotion) return "Ask Edu AI…";
-  return ASK_SUGGESTIONS[animation.suggestionIndex].slice(0, animation.visibleCharacters);
+  if (!active || paused || reducedMotion) return INITIAL_PLACEHOLDER;
+  const text = animation.phase === "intro" ? INITIAL_PLACEHOLDER : ASK_SUGGESTIONS[animation.suggestionIndex];
+  return text.slice(0, animation.visibleCharacters);
 }
