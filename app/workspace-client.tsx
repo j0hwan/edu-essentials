@@ -104,6 +104,7 @@ import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspac
 import ProfileEditor from "./profile-editor";
 import AcademicAssistant, { type AssistantPrompt } from "./academic-assistant";
 import DashboardStudyBrief from "./dashboard-study-brief";
+import CoursesSkeleton from "./courses-skeleton";
 import ClassCardExpansion from "./class-card-expansion";
 import { dashboardFocus } from "../lib/dashboard-focus";
 import SaveToast from "./save-toast";
@@ -112,6 +113,7 @@ import "./auth.css";
 import "./reference-ui.css";
 import "./dashboard.css";
 import "./home-skeleton.css";
+import "./courses-skeleton.css";
 import "./widget-appearance.css";
 import "./widget-block-layout.css";
 import "./widget-reorder.css";
@@ -1215,12 +1217,14 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             {saveState.ready ? renderHome() : null}
           </HomeLoadTransition>
         )}
-        {!saveState.ready && (persistenceStatus === "loading" ? (page !== "home" && (
-          <section className="workspace-loading is-pending" role="status" aria-live="polite">
-            <span className="workspace-loading-spinner" aria-hidden="true" />
-            <h1>Loading your workspace...</h1>
-          </section>
-        )) : (
+        {!saveState.ready && (persistenceStatus === "loading" ? (
+          page === "dashboard" ? <CoursesSkeleton reducedMotion={profile.preferences.reducedMotion} /> : page !== "home" && (
+            <section className="workspace-loading is-pending" role="status" aria-live="polite">
+              <span className="workspace-loading-spinner" aria-hidden="true" />
+              <h1>Loading your workspace...</h1>
+            </section>
+          )
+        ) : (
           <section className="workspace-loading"><h1>Your workspace could not be loaded</h1><p>Your saved work will be available here when the connection is restored.</p></section>
         ))}
         {saveState.ready && page === "dashboard" && renderDashboard()}
