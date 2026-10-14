@@ -1,5 +1,8 @@
 import { ArrowRight, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, MessageSquare, Sparkles } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createCourseExpansionProgressFrames, COURSE_EXPANSION_MOTION_DURATION_MS, COURSE_EXPANSION_MOTION_EASING } from "../lib/course-expansion-motion";
+import type { Answer, Citation } from "../lib/ai/contracts";
+import { dashboardSummaryShape } from "../lib/dashboard-summary-shape";
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { SavedAssignment } from "../lib/workspace-codec";
 import { useAskSuggestions } from "./use-ask-suggestions";
@@ -41,8 +44,10 @@ type Props = {
   onSelectAssignment: (assignment: SavedAssignment) => void;
   onAddAssignment: () => void;
   onAddClass: () => void;
-  onOpenAssistant: (draft?: string) => void;
+  onOpenAssistant: (draft?: string, conversationId?: string, proposalId?: string) => void;
   onAskAssistant: (question: string) => boolean | void;
+  chatMessages?: { id: string; question: string; status: string; conversationId?: string; error?: string; result?: { answer: Answer; citations: Citation[]; proposalId: string | null } }[];
+  chatBusy?: boolean;
   reducedMotion?: boolean;
 };
 
@@ -65,12 +70,84 @@ export default function DashboardStudyBrief({
   onAddClass,
   onOpenAssistant,
   onAskAssistant,
+  chatMessages = [],
+  chatBusy = false,
   reducedMotion = false,
 }: Props) {
   const [question, setQuestion] = useState("");
   const [askFocused, setAskFocused] = useState(false);
   const systemReducedMotion = useSyncExternalStore(subscribeToReducedMotion, getSystemReducedMotion, () => false);
   const shouldReduceMotion = reducedMotion || systemReducedMotion;
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatExpanded = chatOpen || chatMessages.length > 0;
+  const chatRegion = useRef<HTMLDivElement>(null);
+  const chatLog = useRef<HTMLDivElement>(null);
+  const chatAnimation = useRef<Animation | null>(null);
+  const shell = useRef<HTMLElement>(null);
+  const outline = useRef<SVGPathElement>(null);
+
+  useLayoutEffect(() => {
+    const section = shell.current;
+    const path = outline.current;
+    if (!section || !path) return;
+    const summary = section.querySelector<HTMLElement>(".dashboard-study-summary")!;
+    const priorities = section.querySelector<HTMLElement>(".dashboard-focus")!;
+    const lead = section.querySelector<HTMLElement>(".dashboard-study-lead")!;
+    const footer = section.querySelector<HTMLElement>(".dashboard-study-footer")!;
+    const updateShape = () => {
+      const bounds = section.getBoundingClientRect();
+      if (bounds.width <= 1 || bounds.height <= 1) return;
+      const focusBounds = priorities.getBoundingClientRect();
+      const summaryBounds = summary.getBoundingClientRect();
+      const styles = window.getComputedStyle(section);
+      const stacked = focusBounds.left < summaryBounds.right;
+      const bottomPadding = Number.parseFloat(styles.paddingBottom) + 1;
+      const collapsedBottom = Math.max(
+        focusBounds.bottom,
+        lead.getBoundingClientRect().bottom + footer.getBoundingClientRect().height,
+      ) - bounds.top + bottomPadding;
+      const shape = dashboardSummaryShape({
+        width: bounds.width,
+        height: bounds.height,
+        split: stacked ? bounds.width : focusBounds.left - bounds.left,
+        baseHeight: stacked ? bounds.height : collapsedBottom,
+        radius: Number.parseFloat(styles.borderTopLeftRadius),
+      });
+      path.setAttribute("d", shape);
+      section.style.setProperty("--summary-shell-path", `path("${shape}")`);
+      section.dataset.shaped = "true";
+    };
+    updateShape();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(updateShape) : null;
+    for (const element of [section, summary, priorities, lead, footer]) observer?.observe(element);
+    window.addEventListener("resize", updateShape);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateShape);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const region = chatRegion.current;
+    if (!region) return;
+    const fromHeight = region.getBoundingClientRect().height;
+    chatAnimation.current?.cancel();
+    region.style.height = chatExpanded ? "280px" : "0px";
+    if (shouldReduceMotion || typeof region.animate !== "function") return;
+    const toHeight = chatExpanded ? 280 : 0;
+    if (fromHeight === toHeight) return;
+    const animation = region.animate(createCourseExpansionProgressFrames().map(({ offset, progress }) => ({
+      offset,
+      height: `${Math.max(0, fromHeight + (toHeight - fromHeight) * progress)}px`,
+    })), { duration: COURSE_EXPANSION_MOTION_DURATION_MS, easing: COURSE_EXPANSION_MOTION_EASING });
+    chatAnimation.current = animation;
+    return () => animation.cancel();
+  }, [chatExpanded, shouldReduceMotion]);
+
+  useEffect(() => {
+    const log = chatLog.current;
+    if (log) log.scrollTop = log.scrollHeight;
+  }, [chatMessages, chatBusy]);
   const [visibleCharacters, setVisibleCharacters] = useState(() => shouldReduceMotion ? STUDY_SUMMARY.length : 0);
   if (shouldReduceMotion && visibleCharacters < STUDY_SUMMARY.length) {
     setVisibleCharacters(STUDY_SUMMARY.length);
@@ -188,14 +265,16 @@ export default function DashboardStudyBrief({
   function handleAskSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedQuestion = question.trim();
-    if (!submittedQuestion) return;
+    if (!submittedQuestion || chatBusy) return;
 
     if (onAskAssistant(submittedQuestion) === false) return;
+    setChatOpen(true);
     setQuestion("");
   }
 
   return (
-    <section className="dashboard-summary dashboard-study-brief" aria-labelledby="dashboard-summary-title">
+    <section ref={shell} className="dashboard-summary dashboard-study-brief" aria-labelledby="dashboard-summary-title">
+      <svg className="dashboard-study-outline" aria-hidden="true"><path ref={outline} /></svg>
       <div className="dashboard-study-summary">
         <div className="dashboard-study-heading">
           <span className="dashboard-study-sparkle"><Sparkles size={18} aria-hidden="true" /></span>
@@ -211,6 +290,23 @@ export default function DashboardStudyBrief({
           </span>
           <span className="dashboard-study-screen-reader-copy">{STUDY_SUMMARY}</span>
         </p>
+        <div ref={chatRegion} className="dashboard-study-chat-region" inert={!chatExpanded} aria-hidden={!chatExpanded}>
+          <div ref={chatLog} className="dashboard-study-chat-log" role="log" aria-label="Conversation with Edu AI" aria-live="polite">
+            {chatMessages.map((message) => (
+              <div className="dashboard-study-chat-turn" key={message.id}>
+                <div className="dashboard-study-chat-message dashboard-study-chat-user"><span className="sr-only">You: </span>{message.question}</div>
+                <div className="dashboard-study-chat-message dashboard-study-chat-assistant">
+                  <span className="dashboard-study-chat-label">Edu AI</span>
+                  {message.result ? <>
+                    {message.result.answer.blocks.map((block, index) => <p key={index}>{block.text}</p>)}
+                    {message.result.citations.length > 0 && <details><summary>Sources</summary>{message.result.citations.map((citation) => <p key={citation.id}><strong>{citation.label}</strong><br />{citation.text}</p>)}</details>}
+                    {message.result.proposalId && <button type="button" className="text-button" onClick={() => onOpenAssistant(undefined, message.conversationId, message.result?.proposalId ?? undefined)}>Review proposed changes in assistant</button>}
+                  </> : message.error ? <p role="alert">{message.error}</p> : <p className="dashboard-study-chat-thinking">Thinking…</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="dashboard-study-footer">
           <form className="dashboard-study-ask" onSubmit={handleAskSubmit}>
             <div className="dashboard-study-ask-field">
@@ -232,7 +328,7 @@ export default function DashboardStudyBrief({
                 </span>
               )}
             </div>
-            <button className="dashboard-study-ask-submit" type="submit" aria-label="Send question" disabled={!question.trim()}>
+            <button className="dashboard-study-ask-submit" type="submit" aria-label="Send question" disabled={!question.trim() || chatBusy}>
               <ArrowUp size={17} aria-hidden="true" />
             </button>
           </form>

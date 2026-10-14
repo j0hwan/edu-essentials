@@ -104,6 +104,7 @@ import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspac
 import ProfileEditor from "./profile-editor";
 import AcademicAssistant, { type AssistantPrompt } from "./academic-assistant";
 import DashboardStudyBrief from "./dashboard-study-brief";
+import { useDashboardChat } from "./use-dashboard-chat";
 import CoursesSkeleton from "./courses-skeleton";
 import ClassCardExpansion from "./class-card-expansion";
 import { dashboardFocus } from "../lib/dashboard-focus";
@@ -673,6 +674,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       autosave.loading(); setReloadAttempt((n) => n + 1);
     } finally { aiApplyLock.current = false; setAiApplying(false); }
   };
+
+  const dashboardChat = useDashboardChat({ profileId: initialProfile.id, prepare: prepareAssistant, experimental: !!experimentalMode });
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
   const homeSkeletonBaseLayout = useMemo(
@@ -1689,6 +1692,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return (
       <div className="page dashboard-page">
         <DashboardStudyBrief
+          key={initialProfile.id}
+          chatMessages={dashboardChat.messages}
+          chatBusy={dashboardChat.busy}
           focusAssignments={focusAssignments}
           overdueCount={overdueAssignments.length}
           dueTodayCount={todayAssignments.length}
@@ -1699,15 +1705,13 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           onSelectAssignment={setSelectedAssignment}
           onAddAssignment={newAssignment}
           onAddClass={() => setAddClassOpen(true)}
-          onOpenAssistant={(question) => {
+          onOpenAssistant={(question, conversationId, proposalId) => {
             if (nativeDocumentDialog) { navigate("assistant"); return; }
-            setAssistantPrompt(question?.trim() ? { id: uid("assistant-prompt"), profileId: initialProfile.id, question: question.trim(), send: false } : null);
+            setAssistantPrompt(question?.trim() || conversationId || proposalId ? { id: uid("assistant-prompt"), profileId: initialProfile.id, question: question?.trim() ?? "", send: false, conversationId, proposalId } : null);
             navigate("assistant");
           }}
           onAskAssistant={(question) => {
-            if (nativeDocumentDialog) { navigate("assistant"); return false; }
-            setAssistantPrompt({ id: uid("assistant-prompt"), profileId: initialProfile.id, question, send: true });
-            navigate("assistant");
+            return dashboardChat.send(question);
           }}
           reducedMotion={profile.preferences.reducedMotion}
         />

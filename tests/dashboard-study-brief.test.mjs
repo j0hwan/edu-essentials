@@ -426,6 +426,81 @@ test("keeps the question when navigation to the assistant is blocked", async () 
   } finally { await unmount(); }
 });
 
+test("expands inline above the same composer and renders both sides of the conversation", async () => {
+  try {
+    await mount({ reducedMotion: true });
+    const region = node.querySelector(".dashboard-study-chat-region");
+    const input = node.querySelector('[aria-label="Ask Edu AI"]');
+    assert.equal(region.style.height, "0px");
+    assert.equal(region.getAttribute("aria-hidden"), "true");
+    await setInputValue(input, "What should I do first?");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.equal(region.style.height, "280px");
+    assert.equal(region.getAttribute("aria-hidden"), "false");
+    assert.equal(node.querySelector('[aria-label="Ask Edu AI"]'), input);
+    assert.equal(region.nextElementSibling.className, "dashboard-study-footer");
+    await rerender({ reducedMotion: true, chatMessages: [{
+      id: "reply-1", question: "What should I do first?", status: "complete",
+      result: { answer: { blocks: [{ kind: "recommendation", text: "Start with your overdue work.", citations: [] }] }, citations: [], proposalId: null },
+    }] });
+    assert.match(node.querySelector(".dashboard-study-chat-user").textContent, /What should I do first/);
+    assert.match(node.querySelector(".dashboard-study-chat-assistant").textContent, /Start with your overdue work/);
+    assert.equal(node.querySelector('[role="log"]').getAttribute("aria-label"), "Conversation with Edu AI");
+  } finally { await unmount(); }
+});
+
+test("uses the course spring to expand chat, cancels on unmount, and skips motion when requested", async () => {
+  const originalAnimate = window.HTMLElement.prototype.animate;
+  const animations = [];
+  window.HTMLElement.prototype.animate = function (frames, options) {
+    const animation = { frames, options, cancelled: false, cancel() { this.cancelled = true; } };
+    animations.push(animation);
+    return animation;
+  };
+  try {
+    await mount();
+    await setInputValue(node.querySelector('[aria-label="Ask Edu AI"]'), "Plan my week");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.equal(animations.length, 1);
+    assert.equal(animations[0].options.duration, 420);
+    assert.equal(animations[0].frames[0].height, "0px");
+    assert.equal(animations[0].frames.at(-1).height, "280px");
+    assert.ok(animations[0].frames.some((frame) => Number.parseFloat(frame.height) > 280));
+    await rerender({ reducedMotion: true });
+    assert.equal(animations[0].cancelled, true);
+    assert.equal(animations.length, 1);
+    assert.equal(node.querySelector(".dashboard-study-chat-region").style.height, "280px");
+  } finally {
+    await unmount();
+    if (originalAnimate) window.HTMLElement.prototype.animate = originalAnimate;
+    else delete window.HTMLElement.prototype.animate;
+  }
+});
+
+test("keeps inline errors visible and prevents sending while a reply is running", async () => {
+  let sendCount = 0;
+  try {
+    await mount({ reducedMotion: true, chatBusy: true, onAskAssistant: () => { sendCount += 1; }, chatMessages: [{ id: "failed", question: "Help", status: "failed", error: "Enable the assistant first." }] });
+    assert.equal(node.querySelector('[role="alert"]').textContent, "Enable the assistant first.");
+    await setInputValue(node.querySelector('[aria-label="Ask Edu AI"]'), "Another question");
+    assert.equal(node.querySelector('[aria-label="Send question"]').disabled, true);
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.equal(sendCount, 0);
+  } finally { await unmount(); }
+});
+
+test("passes the conversation and proposal when opening an inline change preview", async () => {
+  let opened;
+  try {
+    await mount({ reducedMotion: true, onOpenAssistant: (...args) => { opened = args; }, chatMessages: [{
+      id: "proposal-message", question: "Plan study time", status: "complete", conversationId: "conversation-one",
+      result: { answer: { blocks: [{ kind: "general", text: "Review this plan.", citations: [] }] }, citations: [], proposalId: "proposal-one" },
+    }] });
+    await click(node.querySelector(".dashboard-study-chat-assistant button"));
+    assert.deepEqual(opened, [undefined, "conversation-one", "proposal-one"]);
+  } finally { await unmount(); }
+});
+
 test("shows two priorities per page with global numbering, working boundaries, and an unpaired final assignment", async () => {
   const focusAssignments = assignments(5);
   const selected = [];

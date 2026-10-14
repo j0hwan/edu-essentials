@@ -11,7 +11,7 @@ type Message = { id: string; question: string; status: string; error?: string; c
 type Source = { id: string; label: string; enabled: boolean; state: string; error: string | null };
 type Proposal = { id: string; status: string; preview: { changes: Change[]; warnings: string[]; timezone: string; courseLabels?: Record<string, string> }; receipt?: { appliedAt: string }; expires_at: string };
 type Access = { eligible: boolean; enabled?: boolean; mode: string };
-export type AssistantPrompt = { id: string; question: string; send: boolean };
+export type AssistantPrompt = { id: string; question: string; send: boolean; conversationId?: string; proposalId?: string };
 type Props = { profileId: string; prepare: () => Promise<void>; apply: (id: string) => Promise<void>; experimental: boolean; initialPrompt?: AssistantPrompt | null; onPromptConsumed?: (id: string) => void };
 
 function changeSummary(value: Change["after"], labels: Record<string, string> = {}) {
@@ -67,11 +67,21 @@ export default function AcademicAssistant({ profileId, prepare, apply, experimen
   }, [action, draft, experimental, access, busy, running, prepare, conversationId, api, loadConversations, loadMessages]);
   useEffect(() => {
     if (!initialPrompt || consumedPrompt.current === initialPrompt.id) return;
-    if (initialPrompt.send && (!access?.eligible || !access.enabled || experimental || busy || running)) return;
+    if ((initialPrompt.send || initialPrompt.conversationId || initialPrompt.proposalId) && (!access?.eligible || !access.enabled || experimental || busy || running)) return;
     consumedPrompt.current = initialPrompt.id;
     onPromptConsumed?.(initialPrompt.id);
     if (initialPrompt.send) void send(initialPrompt.question);
-  }, [initialPrompt, onPromptConsumed, access, experimental, busy, running, send]);
+    else if (initialPrompt.conversationId || initialPrompt.proposalId) void action(async () => {
+      if (initialPrompt.conversationId) {
+        setConversationId(initialPrompt.conversationId);
+        await loadMessages(initialPrompt.conversationId);
+      }
+      if (initialPrompt.proposalId) {
+        const preview = await api<Proposal>(`proposals?id=${encodeURIComponent(initialPrompt.proposalId)}`);
+        if (mounted.current) setProposal(preview);
+      }
+    });
+  }, [initialPrompt, onPromptConsumed, access, experimental, busy, running, send, action, loadMessages, api]);
   const openProposal = (id: string) => action(async () => { setProposal(await api<Proposal>(`proposals?id=${id}`)); });
 
   return <div className="page assistant-page">
