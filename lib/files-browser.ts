@@ -16,6 +16,8 @@ export type FilesBrowserPreferences = {
   sortDirection?: FilesBrowserSortDirection;
   fileType?: FilesBrowserFileType;
   includeArchived?: boolean;
+  // Preserve this preference from older writers when loading and saving a workspace.
+  confirmUploads?: boolean;
   appearanceVersion?: 2;
 };
 
