@@ -6,6 +6,7 @@ import { clientModule } from "./helpers/client-modules.mjs";
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
   url: "https://edu.example/home",
   runScripts: "dangerously",
+  pretendToBeVisual: true,
 });
 for (const name of [
   "window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement",
@@ -18,7 +19,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import("react");
 const { act, createElement } = React;
 const { renderToString } = await import("react-dom/server");
-const { hydrateRoot } = await import("react-dom/client");
+const { createRoot, hydrateRoot } = await import("react-dom/client");
 const { default: Workspace } = await import(await clientModule("app/workspace-client.tsx"));
 const { validateProfile } = await import(await clientModule("lib/profile.ts"));
 const {
@@ -91,6 +92,49 @@ test("the before-interactive bootstrap applies only valid saved values and toler
     assert.equal(document.documentElement.hasAttribute("data-sidebar-collapsed"), false);
   } finally {
     Object.defineProperty(window, "localStorage", storageDescriptor);
+  }
+});
+
+test("the real Experimental portal supports keyboard focus and closes when resized into a closed drawer", async () => {
+  resetDocument();
+  const originalMatchMedia = window.matchMedia;
+  const widthDescriptor = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  window.matchMedia = (query) => ({
+    ...media,
+    matches: query.includes("max-width: 820px") ? window.innerWidth <= 820
+      : query.includes("min-width: 821px") ? window.innerWidth >= 821 : false,
+  });
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
+  const rootNode = document.getElementById("root");
+  const root = createRoot(rootNode);
+  try {
+    await act(async () => {
+      root.render(createElement(Workspace, { initialProfile: profile }));
+      await Promise.resolve();
+    });
+    const trigger = rootNode.querySelector('button[aria-label="Experimental mode"]');
+    assert.ok(trigger);
+    trigger.focus();
+    await act(async () => trigger.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    const menu = rootNode.querySelector(".experimental-menu");
+    assert.ok(menu, "keyboard activation opens the actual React menu");
+    assert.ok(!menu.closest(".sidebar-scroll-region"), "the portal escapes the scrolling sidebar");
+    const firstOption = menu.querySelector("button:not(:disabled)");
+    assert.ok(firstOption);
+    assert.ok(document.activeElement === firstOption, "focus reaches an option without traversing the main page");
+    await act(async () => firstOption.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    assert.ok(!rootNode.querySelector(".experimental-menu"), "Escape dismisses the portal");
+    assert.ok(document.activeElement === trigger, "Escape restores trigger focus");
+
+    await act(async () => trigger.click());
+    assert.ok(rootNode.querySelector(".experimental-menu"));
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    await act(async () => window.dispatchEvent(new window.Event("resize")));
+    assert.ok(!rootNode.querySelector(".experimental-menu"), "a closed mobile drawer cannot leave an orphaned portal");
+  } finally {
+    await act(async () => root.unmount());
+    window.matchMedia = originalMatchMedia;
+    Object.defineProperty(window, "innerWidth", widthDescriptor);
   }
 });
 

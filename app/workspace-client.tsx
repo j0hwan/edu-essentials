@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import {
   AlertOctagon,
   ArrowLeft,
@@ -329,6 +330,76 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     catch { /* Keep the preference for this session even if it cannot be stored. */ }
   };
   const [experimentalMenuOpen, setExperimentalMenuOpen] = useState(false);
+  const [appShellElement, setAppShellElement] = useState<HTMLDivElement | null>(null);
+  const experimentalControlRef = useRef<HTMLDivElement>(null);
+  const experimentalTriggerRef = useRef<HTMLButtonElement>(null);
+  const experimentalMenuRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!experimentalMenuOpen) return;
+
+    const positionMenu = () => {
+      const trigger = experimentalTriggerRef.current;
+      const control = experimentalControlRef.current;
+      const menu = experimentalMenuRef.current;
+      if (!trigger || !control || !menu) return;
+      if (!sidebarOpen && window.matchMedia("(max-width: 820px)").matches) {
+        setExperimentalMenuOpen(false);
+        return;
+      }
+
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+      const gap = 8;
+      const triggerRect = trigger.getBoundingClientRect();
+      const controlRect = control.getBoundingClientRect();
+      // Re-measure the authored width on each resize before applying the viewport clamp.
+      menu.style.width = "";
+      menu.style.maxHeight = "";
+      const naturalMenuRect = menu.getBoundingClientRect();
+      const menuWidth = Math.min(naturalMenuRect.width, Math.max(0, viewportWidth - gap * 2));
+      const collapsedRail = sidebarCollapsed && window.matchMedia("(min-width: 821px)").matches;
+      let left = collapsedRail ? triggerRect.right + gap : controlRect.left;
+      if (collapsedRail && left + menuWidth > viewportWidth - gap) left = triggerRect.left - menuWidth - gap;
+      left = Math.max(gap, Math.min(left, viewportWidth - menuWidth - gap));
+
+      const maxHeight = Math.max(0, viewportHeight - gap * 2);
+      menu.style.width = `${menuWidth}px`;
+      menu.style.maxHeight = `${maxHeight}px`;
+      const menuHeight = menu.getBoundingClientRect().height;
+      let top = triggerRect.bottom + gap;
+      if (top + menuHeight > viewportHeight - gap) top = triggerRect.top - menuHeight - gap;
+      top = Math.max(gap, Math.min(top, viewportHeight - Math.min(menuHeight, maxHeight) - gap));
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+      menu.style.maxHeight = `${maxHeight}px`;
+      menu.style.visibility = "visible";
+    };
+
+    positionMenu();
+    const firstOption = experimentalMenuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)");
+    (firstOption ?? experimentalMenuRef.current)?.focus({ preventScroll: true });
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(positionMenu);
+    if (resizeObserver) {
+      if (experimentalTriggerRef.current) resizeObserver.observe(experimentalTriggerRef.current);
+      if (experimentalControlRef.current) resizeObserver.observe(experimentalControlRef.current);
+      if (experimentalMenuRef.current) resizeObserver.observe(experimentalMenuRef.current);
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setExperimentalMenuOpen(false);
+      experimentalTriggerRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener("resize", positionMenu);
+    window.addEventListener("scroll", positionMenu, true);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", positionMenu);
+      window.removeEventListener("scroll", positionMenu, true);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [experimentalMenuOpen, sidebarCollapsed, sidebarOpen]);
   const [onboardingTest, setOnboardingTest] = useState(false);
   const [experimentalMode, setExperimentalMode] = useState<ExperimentalDensity | null>(null);
   const [experimentalRestoring, setExperimentalRestoring] = useState(false);
@@ -1098,30 +1169,32 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }} />;
 
   return (
-    <div className={`app-shell reference-ui ${page === "files" && filesBrowserEnabled ? "files-workspace" : ""} ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div ref={setAppShellElement} className={`app-shell reference-ui ${page === "files" && filesBrowserEnabled ? "files-workspace" : ""} ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <div className="mountain-backdrop" aria-hidden="true" />
 
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside id="workspace-sidebar" className={`sidebar ${sidebarOpen ? "open" : ""}`} aria-label="Primary navigation">
+        <div className="sidebar-scroll-region">
         <div className="brand-row">
           <div className="brand-copy"><strong>EduEssentials</strong></div>
           <button className="icon-button sidebar-toggle" onClick={toggleSidebar} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} aria-controls="workspace-sidebar">{sidebarCollapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}</button>
-          <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close navigation"><X size={20} /></button>
+          <button className="icon-button sidebar-close" onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label="Close navigation"><X size={20} /></button>
         </div>
 
         <nav className="main-nav">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <Link key={item.id} href={`/${item.id}`} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setSidebarOpen(false)} aria-label={item.label} title={item.label} aria-current={page === item.id ? "page" : undefined}>
+              <Link key={item.id} href={`/${item.id}`} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label={item.label} title={item.label} aria-current={page === item.id ? "page" : undefined}>
                 <Icon size={19} strokeWidth={2.1} />
                 <span>{item.label}</span>
                 {item.id === "dashboard" && <span className="nav-count">{courses.length}</span>}
               </Link>
             );
           })}
-          <div className="experimental-control">
+          <div className="experimental-control" ref={experimentalControlRef}>
             <button
+              ref={experimentalTriggerRef}
               className={`nav-item experimental-trigger ${experimentalMode ? "active" : ""}`}
               type="button"
               aria-label="Experimental mode"
@@ -1129,28 +1202,17 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
               aria-expanded={experimentalMenuOpen}
               aria-controls="experimental-options"
               onClick={() => setExperimentalMenuOpen((open) => !open)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setExperimentalMenuOpen(true);
+                }
+              }}
             >
               <FlaskConical size={19} strokeWidth={2.1} />
               <span>Experimental mode</span>
               <span className="experimental-badge">TEMP</span>
             </button>
-            {experimentalMenuOpen && <div className="experimental-menu" id="experimental-options">
-              <p>Fake preview data</p>
-              {([
-                ["clear", "Clear", "0 classes · 0 tasks"],
-                ["light", "Light", "2 classes · 6 tasks"],
-                ["medium", "Medium", "4 classes · 14 tasks"],
-                ["packed", "Packed", "6 classes · 28 tasks"],
-              ] as const).map(([value, label, detail]) => <button key={value} type="button" aria-label={`Load ${label} experimental data`} className={experimentalMode === value ? "selected" : ""} disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring} onClick={() => applyExperimentalData(value)}><span><strong>{label}</strong><small>{detail}</small></span>{experimentalMode === value && <CheckCircle2 size={15} />}</button>)}
-              <button type="button" disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying} onClick={() => {
-                const current = autosave.getSnapshot();
-                if (!current.ready || current.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying) return;
-                autosave.stop();
-                setExperimentalMenuOpen(false); setSidebarOpen(false); setOnboardingTest(true);
-              }}><strong>Onboard test</strong></button>
-              {experimentalMode && <button className="experimental-exit" type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit experimental mode"}</button>}
-              <small>Your saved workspace stays untouched.</small>
-            </div>}
           </div>
         </nav>
 
@@ -1161,10 +1223,11 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           <p>{study.dailyMinutes ? `${durationLabel(Math.max(0, study.dailyMinutes * 60 - stats.dailySeconds))} left toward today’s target.` : "Set your study targets."}</p>
           <button disabled={!saveState.ready} onClick={() => setStudyOpen(true)}>Study & grades <ArrowRight size={14} /></button>
         </div>
+        </div>
 
         <div className="sidebar-bottom">
-          <Link href="/settings" className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => setSidebarOpen(false)} aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
-          <Link href="/settings" className="profile-card" onClick={() => setSidebarOpen(false)} aria-label={`${studentName} — profile settings`} title={`${studentName} — profile settings`}>
+          <Link href="/settings" className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
+          <Link href="/settings" className="profile-card" onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label={`${studentName} — profile settings`} title={`${studentName} — profile settings`}>
             <span className="avatar">{studentName.slice(0, 1).toUpperCase()}</span>
             <span><strong>{studentName}</strong><small>{profileMajor || "Student workspace"}</small></span>
             <MoreHorizontal size={18} />
@@ -1172,7 +1235,30 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         </div>
       </aside>
 
-      {sidebarOpen && <button className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close navigation overlay" />}
+      {experimentalMenuOpen && appShellElement && createPortal(<div
+        ref={experimentalMenuRef}
+        className="experimental-menu"
+        id="experimental-options"
+        tabIndex={-1}
+        style={{ position: "fixed", left: 0, top: 0, visibility: "hidden" }}
+      >
+        <p>Fake preview data</p>
+        {([
+          ["clear", "Clear", "0 classes · 0 tasks"],
+          ["light", "Light", "2 classes · 6 tasks"],
+          ["medium", "Medium", "4 classes · 14 tasks"],
+          ["packed", "Packed", "6 classes · 28 tasks"],
+        ] as const).map(([value, label, detail]) => <button key={value} type="button" aria-label={`Load ${label} experimental data`} className={experimentalMode === value ? "selected" : ""} disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring} onClick={() => applyExperimentalData(value)}><span><strong>{label}</strong><small>{detail}</small></span>{experimentalMode === value && <CheckCircle2 size={15} />}</button>)}
+        <button type="button" disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying} onClick={() => {
+          const current = autosave.getSnapshot();
+          if (!current.ready || current.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying) return;
+          autosave.stop();
+          setExperimentalMenuOpen(false); setSidebarOpen(false); setOnboardingTest(true);
+        }}><strong>Onboard test</strong></button>
+        {experimentalMode && <button className="experimental-exit" type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit experimental mode"}</button>}
+        <small>Your saved workspace stays untouched.</small>
+      </div>, appShellElement)}
+      {sidebarOpen && <button className="sidebar-scrim" onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label="Close navigation overlay" />}
 
       <header className="desktop-topbar">
         <form className="topbar-search" role="search" onSubmit={(event) => { event.preventDefault(); navigate("search"); }}>
