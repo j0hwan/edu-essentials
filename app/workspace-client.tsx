@@ -1713,6 +1713,11 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           onAskAssistant={(question) => {
             return dashboardChat.send(question);
           }}
+          onContinueAssistant={(question, conversationId) => {
+            if (nativeDocumentDialog) return false;
+            setAssistantPrompt({ id: uid("assistant-prompt"), profileId: initialProfile.id, question, send: true, conversationId });
+            navigate("assistant");
+          }}
           reducedMotion={profile.preferences.reducedMotion}
         />
         <section className="dashboard-classes" aria-labelledby="dashboard-classes-title">

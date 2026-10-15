@@ -1,4 +1,4 @@
-import { ArrowRight, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, MessageSquare, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, ChevronUp, MessageSquare, Sparkles } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createCourseExpansionProgressFrames, COURSE_EXPANSION_MOTION_DURATION_MS, COURSE_EXPANSION_MOTION_EASING } from "../lib/course-expansion-motion";
 import type { Answer, Citation } from "../lib/ai/contracts";
@@ -46,6 +46,7 @@ type Props = {
   onAddClass: () => void;
   onOpenAssistant: (draft?: string, conversationId?: string, proposalId?: string) => void;
   onAskAssistant: (question: string) => boolean | void;
+  onContinueAssistant?: (question: string, conversationId?: string) => boolean | void;
   chatMessages?: { id: string; question: string; status: string; conversationId?: string; error?: string; result?: { answer: Answer; citations: Citation[]; proposalId: string | null } }[];
   chatBusy?: boolean;
   reducedMotion?: boolean;
@@ -70,6 +71,7 @@ export default function DashboardStudyBrief({
   onAddClass,
   onOpenAssistant,
   onAskAssistant,
+  onContinueAssistant,
   chatMessages = [],
   chatBusy = false,
   reducedMotion = false,
@@ -78,11 +80,13 @@ export default function DashboardStudyBrief({
   const [askFocused, setAskFocused] = useState(false);
   const systemReducedMotion = useSyncExternalStore(subscribeToReducedMotion, getSystemReducedMotion, () => false);
   const shouldReduceMotion = reducedMotion || systemReducedMotion;
-  const [chatOpen, setChatOpen] = useState(false);
-  const chatExpanded = chatOpen || chatMessages.length > 0;
+  const [chatOpen, setChatOpen] = useState<boolean | null>(null);
+  const chatExpanded = chatOpen ?? (chatMessages.length > 0);
+  const showChatToggle = chatOpen !== null || chatMessages.length > 0;
   const chatRegion = useRef<HTMLDivElement>(null);
   const chatLog = useRef<HTMLDivElement>(null);
   const chatAnimation = useRef<Animation | null>(null);
+  const shellAnimation = useRef<Animation | null>(null);
   const shell = useRef<HTMLElement>(null);
   const outline = useRef<SVGPathElement>(null);
 
@@ -119,7 +123,7 @@ export default function DashboardStudyBrief({
     };
     updateShape();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(updateShape) : null;
-    for (const element of [section, summary, priorities, lead, footer]) observer?.observe(element);
+    for (const element of [section, summary, priorities, lead, footer]) observer?.observe(element, { box: "border-box" });
     window.addEventListener("resize", updateShape);
     return () => {
       observer?.disconnect();
@@ -129,20 +133,39 @@ export default function DashboardStudyBrief({
 
   useLayoutEffect(() => {
     const region = chatRegion.current;
-    if (!region) return;
+    const section = shell.current;
+    if (!region || !section) return;
     const fromHeight = region.getBoundingClientRect().height;
+    const fromPadding = Number.parseFloat(window.getComputedStyle(section).paddingBottom) || 0;
     chatAnimation.current?.cancel();
+    chatAnimation.current = null;
+    shellAnimation.current?.cancel();
+    shellAnimation.current = null;
+    const basePadding = Number.parseFloat(window.getComputedStyle(section).paddingBottom) || 0;
     region.style.height = chatExpanded ? "280px" : "0px";
     if (shouldReduceMotion || typeof region.animate !== "function") return;
     const toHeight = chatExpanded ? 280 : 0;
-    if (fromHeight === toHeight) return;
-    const animation = region.animate(createCourseExpansionProgressFrames().map(({ offset, progress }) => ({
+    if (fromHeight === toHeight && fromPadding === basePadding) return;
+    const frames = createCourseExpansionProgressFrames();
+    const options = { duration: COURSE_EXPANSION_MOTION_DURATION_MS, easing: COURSE_EXPANSION_MOTION_EASING };
+    const animation = region.animate(frames.map(({ offset, progress }) => ({
       offset,
       height: `${Math.max(0, fromHeight + (toHeight - fromHeight) * progress)}px`,
-    })), { duration: COURSE_EXPANSION_MOTION_DURATION_MS, easing: COURSE_EXPANSION_MOTION_EASING });
+    })), options);
     chatAnimation.current = animation;
-    return () => animation.cancel();
+    if (!chatExpanded || fromPadding !== basePadding) {
+      shellAnimation.current = section.animate(frames.map(({ offset, progress }) => ({
+        offset,
+        paddingBottom: `${Math.max(0, fromPadding + (basePadding - fromPadding) * progress
+          + (chatExpanded ? 0 : Math.min(0, fromHeight * (1 - progress))))}px`,
+      })), options);
+    }
   }, [chatExpanded, shouldReduceMotion]);
+
+  useLayoutEffect(() => () => {
+    chatAnimation.current?.cancel();
+    shellAnimation.current?.cancel();
+  }, []);
 
   useEffect(() => {
     const log = chatLog.current;
@@ -267,7 +290,11 @@ export default function DashboardStudyBrief({
     const submittedQuestion = question.trim();
     if (!submittedQuestion || chatBusy) return;
 
-    if (onAskAssistant(submittedQuestion) === false) return;
+    const conversationId = chatMessages.find((message) => message.conversationId)?.conversationId;
+    const accepted = chatMessages.length > 0 && onContinueAssistant
+      ? onContinueAssistant(submittedQuestion, conversationId)
+      : onAskAssistant(submittedQuestion);
+    if (accepted === false) return;
     setChatOpen(true);
     setQuestion("");
   }
@@ -290,7 +317,7 @@ export default function DashboardStudyBrief({
           </span>
           <span className="dashboard-study-screen-reader-copy">{STUDY_SUMMARY}</span>
         </p>
-        <div ref={chatRegion} className="dashboard-study-chat-region" inert={!chatExpanded} aria-hidden={!chatExpanded}>
+        <div ref={chatRegion} id="dashboard-study-chat" className="dashboard-study-chat-region" inert={!chatExpanded} aria-hidden={!chatExpanded}>
           <div ref={chatLog} className="dashboard-study-chat-log" role="log" aria-label="Conversation with Edu AI" aria-live="polite">
             {chatMessages.map((message) => (
               <div className="dashboard-study-chat-turn" key={message.id}>
@@ -342,6 +369,16 @@ export default function DashboardStudyBrief({
             <MessageSquare size={18} aria-hidden="true" />
           </button>
         </div>
+        {showChatToggle && <button
+          className="dashboard-study-chat-toggle"
+          type="button"
+          aria-label={chatExpanded ? "Collapse chat" : "Expand chat"}
+          title={chatExpanded ? "Collapse chat" : "Expand chat"}
+          aria-expanded={chatExpanded}
+          aria-controls="dashboard-study-chat"
+          data-reduced-motion={shouldReduceMotion}
+          onClick={() => setChatOpen(!chatExpanded)}
+        ><ChevronUp size={17} aria-hidden="true" /></button>}
       </div>
 
       <aside className="dashboard-focus" aria-labelledby="dashboard-priorities-title">

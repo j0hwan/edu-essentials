@@ -449,6 +449,66 @@ test("expands inline above the same composer and renders both sides of the conve
   } finally { await unmount(); }
 });
 
+test("collapses and reopens chat without replacing the composer or losing its draft, and hands off follow-ups", async () => {
+  const inline = [];
+  const continued = [];
+  const callbacks = {
+    reducedMotion: true,
+    onAskAssistant: (question) => { inline.push(question); },
+    onContinueAssistant: (...args) => { continued.push(args); },
+  };
+  try {
+    await mount(callbacks);
+    const input = node.querySelector('[aria-label="Ask Edu AI"]');
+    await setInputValue(input, "First question");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    await rerender({ ...callbacks, chatMessages: [{ id: "first", question: "First question", status: "complete", conversationId: "conversation-one" }] });
+
+    const region = node.querySelector("#dashboard-study-chat");
+    const collapse = node.querySelector('[aria-label="Collapse chat"]');
+    assert.ok(region);
+    assert.equal(collapse.getAttribute("aria-expanded"), "true");
+    assert.equal(collapse.getAttribute("aria-controls"), "dashboard-study-chat");
+    assert.equal(region.id, "dashboard-study-chat");
+    assert.equal(collapse.compareDocumentPosition(region) & window.Node.DOCUMENT_POSITION_PRECEDING, window.Node.DOCUMENT_POSITION_PRECEDING);
+
+    await setInputValue(input, "Keep this draft");
+    await click(collapse);
+    const expand = node.querySelector('[aria-label="Expand chat"]');
+    assert.ok(expand);
+    assert.equal(expand.getAttribute("aria-expanded"), "false");
+    assert.equal(expand.getAttribute("aria-controls"), region.id);
+    assert.equal(region.style.height, "0px");
+    assert.equal(region.getAttribute("aria-hidden"), "true");
+    assert.equal(region.hasAttribute("inert"), true);
+    assert.equal(node.querySelector('[aria-label="Ask Edu AI"]'), input);
+    assert.equal(input.value, "Keep this draft");
+    assert.match(region.textContent, /First question/);
+    assert.deepEqual(inline, ["First question"]);
+    assert.deepEqual(continued, []);
+
+    await click(expand);
+    assert.equal(node.querySelector('[aria-label="Collapse chat"]').getAttribute("aria-expanded"), "true");
+    assert.equal(region.style.height, "280px");
+    assert.equal(region.getAttribute("aria-hidden"), "false");
+    assert.equal(region.hasAttribute("inert"), false);
+    assert.equal(input.value, "Keep this draft");
+
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.deepEqual(inline, ["First question"]);
+    assert.deepEqual(continued, [["Keep this draft", "conversation-one"]]);
+    assert.equal(input.value, "");
+    await rerender({ ...callbacks, chatMessages: [{ id: "first", question: "First question", status: "complete", conversationId: "conversation-one" }] });
+    await click(node.querySelector('[aria-label="Collapse chat"]'));
+    await rerender({ ...callbacks, chatMessages: [
+      { id: "first", question: "First question", status: "complete", conversationId: "conversation-one" },
+      { id: "reply", question: "Keep this draft", status: "complete", conversationId: "conversation-one" },
+    ] });
+    assert.equal(node.querySelector('[aria-label="Expand chat"]').getAttribute("aria-expanded"), "false");
+    assert.equal(region.style.height, "0px");
+  } finally { await unmount(); }
+});
+
 test("uses the course spring to expand chat, cancels on unmount, and skips motion when requested", async () => {
   const originalAnimate = window.HTMLElement.prototype.animate;
   const animations = [];
@@ -477,6 +537,180 @@ test("uses the course spring to expand chat, cancels on unmount, and skips motio
   }
 });
 
+test("retargets chat height animations from the rendered height and cancels the active animation on unmount", async () => {
+  const prototype = window.HTMLElement.prototype;
+  const originalAnimate = prototype.animate;
+  const originalRect = prototype.getBoundingClientRect;
+  const animations = [];
+  let renderedHeight = 0;
+  prototype.getBoundingClientRect = function () {
+    if (this.id === "dashboard-study-chat") return { height: renderedHeight, top: 0, bottom: renderedHeight, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON() {} };
+    return originalRect.call(this);
+  };
+  prototype.animate = function (frames, options) {
+    const animation = { frames, options, cancelled: false, cancel() { this.cancelled = true; } };
+    if (this.id === "dashboard-study-chat") animations.push(animation);
+    return animation;
+  };
+  try {
+    await mount();
+    const input = node.querySelector('[aria-label="Ask Edu AI"]');
+    await setInputValue(input, "First question");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.equal(animations[0].frames[0].height, "0px");
+    assert.equal(animations[0].frames.at(-1).height, "280px");
+
+    renderedHeight = 137;
+    await click(node.querySelector('[aria-label="Collapse chat"]'));
+    assert.equal(animations[0].cancelled, true);
+    assert.equal(animations[1].frames[0].height, "137px");
+    assert.equal(animations[1].frames.at(-1).height, "0px");
+
+    renderedHeight = 91;
+    await click(node.querySelector('[aria-label="Expand chat"]'));
+    assert.equal(animations[1].cancelled, true);
+    assert.equal(animations[2].frames[0].height, "91px");
+    assert.equal(animations[2].frames.at(-1).height, "280px");
+    await unmount();
+    assert.equal(animations[2].cancelled, true);
+  } finally {
+    await unmount();
+    if (originalAnimate) prototype.animate = originalAnimate;
+    else delete prototype.animate;
+    prototype.getBoundingClientRect = originalRect;
+  }
+});
+
+test("bounces the whole shell bottom on collapse and retargets its padding when reopened", async () => {
+  const prototype = window.HTMLElement.prototype;
+  const originalAnimate = prototype.animate;
+  const originalRect = prototype.getBoundingClientRect;
+  const originalComputedStyle = window.getComputedStyle;
+  const shellAnimations = [];
+  let renderedHeight = 280;
+  let renderedPadding = 20;
+  prototype.getBoundingClientRect = function () {
+    if (this.id === "dashboard-study-chat") return { height: renderedHeight };
+    return originalRect.call(this);
+  };
+  prototype.animate = function (frames, options) {
+    const animation = { frames, options, cancelled: false, cancel() { this.cancelled = true; } };
+    if (this.classList.contains("dashboard-study-brief")) shellAnimations.push(animation);
+    return animation;
+  };
+  window.getComputedStyle = function (element) {
+    if (element.classList.contains("dashboard-study-brief")) {
+      const active = shellAnimations.at(-1);
+      return { paddingBottom: `${active && !active.cancelled ? renderedPadding : 20}px` };
+    }
+    return originalComputedStyle.call(this, element);
+  };
+  const chatMessages = [{ id: "first", question: "First question", status: "complete" }];
+  try {
+    await mount({ chatMessages });
+    assert.equal(shellAnimations.length, 0);
+    await click(node.querySelector('[aria-label="Collapse chat"]'));
+    const closing = shellAnimations[0];
+    assert.equal(closing.options.duration, 420);
+    assert.equal(closing.frames[0].paddingBottom, "20px");
+    assert.equal(closing.frames.at(-1).paddingBottom, "20px");
+    assert.ok(closing.frames.some((frame) => Number.parseFloat(frame.paddingBottom) < 20));
+    assert.ok(closing.frames.every((frame) => Number.parseFloat(frame.paddingBottom) >= 0));
+
+    renderedHeight = 0;
+    renderedPadding = 14;
+    await click(node.querySelector('[aria-label="Expand chat"]'));
+    assert.equal(closing.cancelled, true);
+    const reopening = shellAnimations[1];
+    assert.equal(reopening.frames[0].paddingBottom, "14px");
+    assert.equal(reopening.frames.at(-1).paddingBottom, "20px");
+
+    await rerender({ chatMessages, reducedMotion: true });
+    assert.equal(reopening.cancelled, true);
+    assert.equal(shellAnimations.length, 2);
+    await click(node.querySelector('[aria-label="Collapse chat"]'));
+    assert.equal(shellAnimations.length, 2);
+    assert.equal(node.querySelector("#dashboard-study-chat").style.height, "0px");
+
+    await rerender({ chatMessages });
+    renderedHeight = 280;
+    await click(node.querySelector('[aria-label="Expand chat"]'));
+    await click(node.querySelector('[aria-label="Collapse chat"]'));
+    const lastAnimation = shellAnimations.at(-1);
+    await unmount();
+    assert.equal(lastAnimation.cancelled, true);
+  } finally {
+    await unmount();
+    if (originalAnimate) prototype.animate = originalAnimate;
+    else delete prototype.animate;
+    prototype.getBoundingClientRect = originalRect;
+    window.getComputedStyle = originalComputedStyle;
+  }
+});
+
+test("observes the summary shell border box and keeps its outline paths in sync with shell height", async () => {
+  const originalResizeObserver = globalThis.ResizeObserver;
+  const prototype = window.HTMLElement.prototype;
+  const originalRect = prototype.getBoundingClientRect;
+  const originalComputedStyle = window.getComputedStyle;
+  const observations = [];
+  let observerCallback;
+  let disconnected = false;
+  let shellHeight = 300;
+  globalThis.ResizeObserver = class {
+    constructor(callback) { observerCallback = callback; }
+    observe(target, options) { observations.push({ target, options }); }
+    disconnect() { disconnected = true; }
+  };
+  prototype.getBoundingClientRect = function () {
+    if (this.classList?.contains("dashboard-study-brief")) {
+      return { width: 600, height: shellHeight, top: 0, bottom: shellHeight, left: 0, right: 600 };
+    }
+    if (this.classList?.contains("dashboard-study-summary")) {
+      return { width: 300, height: 100, top: 20, bottom: 120, left: 20, right: 320 };
+    }
+    if (this.classList?.contains("dashboard-focus")) {
+      return { width: 240, height: 100, top: 140, bottom: 240, left: 340, right: 580 };
+    }
+    if (this.classList?.contains("dashboard-study-lead")) return { width: 200, height: 20, top: 20, bottom: 40, left: 0, right: 200 };
+    if (this.classList?.contains("dashboard-study-footer")) return { width: 200, height: 30, top: 250, bottom: 280, left: 0, right: 200 };
+    return originalRect.call(this);
+  };
+  window.getComputedStyle = new Proxy(originalComputedStyle, {
+    apply(target, thisArg, args) {
+      const style = Reflect.apply(target, thisArg, args);
+      if (args[0]?.classList?.contains("dashboard-study-brief")) {
+        return { ...style, paddingBottom: "20px", borderTopLeftRadius: "16px" };
+      }
+      return style;
+    },
+  });
+  try {
+    await mount();
+    const shell = node.querySelector(".dashboard-study-brief");
+    const shellObservation = observations.find(({ target }) => target === shell);
+    assert.deepEqual(shellObservation?.options, { box: "border-box" });
+
+    const outline = node.querySelector(".dashboard-study-outline path");
+    const initialPath = outline.getAttribute("d");
+    assert.ok(initialPath);
+    shellHeight = 340;
+    await act(async () => observerCallback([{ target: shell }]));
+    const updatedPath = outline.getAttribute("d");
+    assert.notEqual(updatedPath, initialPath);
+    assert.equal(shell.style.getPropertyValue("--summary-shell-path"), `path("${updatedPath}")`);
+
+    await unmount();
+    assert.equal(disconnected, true);
+  } finally {
+    await unmount();
+    prototype.getBoundingClientRect = originalRect;
+    window.getComputedStyle = originalComputedStyle;
+    if (originalResizeObserver === undefined) delete globalThis.ResizeObserver;
+    else globalThis.ResizeObserver = originalResizeObserver;
+  }
+});
+
 test("keeps inline errors visible and prevents sending while a reply is running", async () => {
   let sendCount = 0;
   try {
@@ -498,6 +732,50 @@ test("passes the conversation and proposal when opening an inline change preview
     }] });
     await click(node.querySelector(".dashboard-study-chat-assistant button"));
     assert.deepEqual(opened, [undefined, "conversation-one", "proposal-one"]);
+  } finally { await unmount(); }
+});
+
+test("keeps the first send inline and hands the second send to the same assistant conversation", async () => {
+  const inline = [];
+  const continued = [];
+  const callbacks = {
+    reducedMotion: true,
+    onAskAssistant: (question) => { inline.push(question); },
+    onContinueAssistant: (...args) => { continued.push(args); },
+  };
+  try {
+    await mount(callbacks);
+    const input = node.querySelector('[aria-label="Ask Edu AI"]');
+    await setInputValue(input, "First question");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.deepEqual(inline, ["First question"]);
+    assert.deepEqual(continued, []);
+    await rerender({ ...callbacks, chatMessages: [{ id: "first", question: "First question", status: "complete", conversationId: "conversation-one" }] });
+    await setInputValue(input, "  Follow-up question  ");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.deepEqual(inline, ["First question"]);
+    assert.deepEqual(continued, [["Follow-up question", "conversation-one"]]);
+    assert.equal(input.value, "");
+  } finally { await unmount(); }
+});
+
+test("preserves the second message draft if the assistant handoff is blocked", async () => {
+  try {
+    await mount({ reducedMotion: true, onContinueAssistant: () => false, chatMessages: [{ id: "first", question: "First question", status: "complete", conversationId: "conversation-one" }] });
+    const input = node.querySelector('[aria-label="Ask Edu AI"]');
+    await setInputValue(input, "Keep this follow-up");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.equal(input.value, "Keep this follow-up");
+  } finally { await unmount(); }
+});
+
+test("routes a follow-up after a failed first ask without inventing a conversation ID", async () => {
+  let continued;
+  try {
+    await mount({ reducedMotion: true, onAskAssistant: () => assert.fail("Do not send the follow-up inline"), onContinueAssistant: (...args) => { continued = args; }, chatMessages: [{ id: "failed", question: "First question", status: "failed", error: "Assistant setup required." }] });
+    await setInputValue(node.querySelector('[aria-label="Ask Edu AI"]'), "Try again");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.deepEqual(continued, ["Try again", undefined]);
   } finally { await unmount(); }
 });
 

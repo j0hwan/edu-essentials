@@ -50,12 +50,17 @@ export default function AcademicAssistant({ profileId, prepare, apply, experimen
     try { await task(); } catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "Assistant request failed."); }
     finally { if (mounted.current) setBusy(false); }
   }, []);
-  const send = useCallback((question = draft) => {
+  const send = useCallback((question = draft, targetConversationId = conversationId) => {
     if (!question.trim() || experimental || !access?.eligible || !access.enabled || busy || running) return;
     return action(async () => {
+    let id = targetConversationId;
+    if (id && id !== conversationId) {
+      setConversationId(id);
+      await loadMessages(id);
+    }
+    if (!mounted.current) return;
     await prepare();
     if (!mounted.current) return;
-    let id = conversationId;
     if (!id) { const created = await api<Conversation>("conversations", { method: "POST", body: JSON.stringify({ title: question.trim().slice(0, 100) }) }); id = created.id; setConversationId(id); await loadConversations(); }
     if (!mounted.current) return;
     const requestId = crypto.randomUUID();
@@ -70,7 +75,7 @@ export default function AcademicAssistant({ profileId, prepare, apply, experimen
     if ((initialPrompt.send || initialPrompt.conversationId || initialPrompt.proposalId) && (!access?.eligible || !access.enabled || experimental || busy || running)) return;
     consumedPrompt.current = initialPrompt.id;
     onPromptConsumed?.(initialPrompt.id);
-    if (initialPrompt.send) void send(initialPrompt.question);
+    if (initialPrompt.send) void send(initialPrompt.question, initialPrompt.conversationId);
     else if (initialPrompt.conversationId || initialPrompt.proposalId) void action(async () => {
       if (initialPrompt.conversationId) {
         setConversationId(initialPrompt.conversationId);
