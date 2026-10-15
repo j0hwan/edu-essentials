@@ -91,8 +91,13 @@
 .dashboard-focus-heading h2 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
 .dashboard-focus-counts { display: flex; justify-content: flex-end; flex-wrap: nowrap; gap: 9px; min-width: 0; margin: 0; padding: 0; }
 .dashboard-focus-counts > span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9px; white-space: nowrap; }
-.dashboard-focus-viewport { min-width: 0; touch-action: pan-y; }
+.dashboard-focus-viewport { position: relative; display: grid; min-width: 0; margin: -4px; padding: 4px; overflow: clip; touch-action: pan-y; }
+.dashboard-focus-track { position: relative; grid-area: 1 / 1; width: 100%; min-width: 0; transform: translate3d(0, 0, 0); }
+.dashboard-focus-track--moving { will-change: transform; }
 .dashboard-focus-list { display: grid; grid-template-rows: repeat(2, minmax(78px, auto)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.dashboard-focus-list--neighbor { position: absolute; top: 0; width: 100%; }
+.dashboard-focus-list--previous { left: calc(-100% - 8px); }
+.dashboard-focus-list--next { right: calc(-100% - 8px); }
 .dashboard-focus-list > li { min-width: 0; }
 .dashboard-focus-item { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 16px; align-items: center; gap: 9px; width: 100%; min-height: 78px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 14px; color: var(--ink); background: color-mix(in srgb, var(--surface-2) 56%, transparent); text-align: left; transition: border-color 150ms ease, background 150ms ease; }
 .dashboard-focus-list > li.dashboard-focus-priority-first .dashboard-focus-item { border-color: color-mix(in srgb, var(--brand) 36%, var(--border)); background: linear-gradient(115deg, color-mix(in srgb, var(--brand-soft) 72%, var(--surface)), color-mix(in srgb, var(--surface-2) 70%, transparent)); }

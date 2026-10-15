@@ -1,17 +1,16 @@
-import { ArrowRight, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, ChevronUp, MessageSquare, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUp, CheckCircle2, ChevronUp, MessageSquare, Sparkles } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createCourseExpansionProgressFrames, COURSE_EXPANSION_MOTION_DURATION_MS, COURSE_EXPANSION_MOTION_EASING } from "../lib/course-expansion-motion";
 import type { Answer, Citation } from "../lib/ai/contracts";
-import { dashboardSummaryShape } from "../lib/dashboard-summary-shape";
-import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import type { SavedAssignment } from "../lib/workspace-codec";
+import { dashboardSummaryShape } from "../lib/dashboard-summary-shape";
+import PriorityCarousel from "./priority-carousel";
 import { useAskSuggestions } from "./use-ask-suggestions";
 
 const STUDY_SUMMARY = "I’d start with the work that needs your attention most, then give you a head start on the next deadline. Your week looks manageable—let’s take it one priority at a time.";
 const STUDY_SUMMARY_TYPING_DURATION_MS = 2500;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
-const PRIORITIES_PER_PAGE = 2;
-const PRIORITY_SWIPE_THRESHOLD = 40;
 
 function subscribeToReducedMotion(onChange: () => void) {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
@@ -51,12 +50,6 @@ type Props = {
   chatBusy?: boolean;
   reducedMotion?: boolean;
 };
-
-function priorityAdvice(assignment: SavedAssignment) {
-  if (assignment.status === "overdue") return "Clear this first to get back on track.";
-  if (assignment.status === "today") return "Make time for this before the day ends.";
-  return "Get a head start on your next deadline.";
-}
 
 export default function DashboardStudyBrief({
   focusAssignments,
@@ -218,79 +211,6 @@ export default function DashboardStudyBrief({
     && !askFocused
     && question.length === 0
     && !shouldReduceMotion;
-  const assignmentSequence = JSON.stringify(focusAssignments.map((assignment) => assignment.id));
-  const [priorityState, setPriorityState] = useState({ sequence: assignmentSequence, page: 0 });
-  const priorityPage = priorityState.sequence === assignmentSequence ? priorityState.page : 0;
-  if (priorityState.sequence !== assignmentSequence) {
-    setPriorityState({ sequence: assignmentSequence, page: 0 });
-  }
-  const priorityPageCount = Math.ceil(focusAssignments.length / PRIORITIES_PER_PAGE);
-  const priorityStartIndex = priorityPage * PRIORITIES_PER_PAGE;
-  const visiblePriorities = focusAssignments.slice(priorityStartIndex, priorityStartIndex + PRIORITIES_PER_PAGE);
-  const priorityRangeEnd = priorityStartIndex + visiblePriorities.length;
-  const priorityRangeLabel = priorityRangeEnd === priorityStartIndex + 1
-    ? `${priorityRangeEnd} of ${focusAssignments.length}`
-    : `${priorityStartIndex + 1}–${priorityRangeEnd} of ${focusAssignments.length}`;
-  const prioritySwipeRef = useRef<{ pointerId: number; x: number; y: number; captured: boolean } | null>(null);
-  const suppressSwipeClickRef = useRef(false);
-
-  function handlePriorityPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    suppressSwipeClickRef.current = false;
-    if (event.pointerType === "mouse" || event.isPrimary === false || event.button !== 0) {
-      prioritySwipeRef.current = null;
-      return;
-    }
-
-    prioritySwipeRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, captured: false };
-  }
-
-  function handlePriorityPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    const start = prioritySwipeRef.current;
-    if (!start || start.captured || start.pointerId !== event.pointerId) return;
-
-    const deltaX = event.clientX - start.x;
-    const deltaY = event.clientY - start.y;
-    if (Math.abs(deltaX) < PRIORITY_SWIPE_THRESHOLD || Math.abs(deltaX) <= Math.abs(deltaY)) return;
-    if (typeof event.currentTarget.setPointerCapture !== "function") return;
-
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-      start.captured = true;
-    } catch {
-      // Pointer capture is unavailable in some DOM implementations.
-    }
-  }
-
-  function handlePriorityPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
-    const start = prioritySwipeRef.current;
-    if (!start || start.pointerId !== event.pointerId) return;
-    prioritySwipeRef.current = null;
-
-    const deltaX = event.clientX - start.x;
-    const deltaY = event.clientY - start.y;
-    if (Math.abs(deltaX) < PRIORITY_SWIPE_THRESHOLD || Math.abs(deltaX) <= Math.abs(deltaY)) return;
-
-    suppressSwipeClickRef.current = true;
-    shiftPriorityPage(deltaX < 0 ? 1 : -1);
-  }
-
-  function shiftPriorityPage(direction: number) {
-    setPriorityState((current) => {
-      const page = current.sequence === assignmentSequence ? current.page : 0;
-      return {
-        sequence: assignmentSequence,
-        page: Math.max(0, Math.min(priorityPageCount - 1, page + direction)),
-      };
-    });
-  }
-
-  function handlePriorityClickCapture(event: ReactMouseEvent<HTMLDivElement>) {
-    if (!suppressSwipeClickRef.current || event.detail === 0) return;
-    suppressSwipeClickRef.current = false;
-    event.preventDefault();
-    event.stopPropagation();
-  }
-
   function handleAskSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedQuestion = question.trim();
@@ -396,74 +316,14 @@ export default function DashboardStudyBrief({
             <span><i className="dashboard-dot done" />{completedThisWeek} done this week</span>
           </div>
         </div>
-        {focusAssignments.length ? (
-          <>
-            <div
-              className="dashboard-focus-viewport"
-              onPointerDown={handlePriorityPointerDown}
-              onPointerMove={handlePriorityPointerMove}
-              onPointerUp={handlePriorityPointerUp}
-              onPointerCancel={() => { prioritySwipeRef.current = null; }}
-              onClickCapture={handlePriorityClickCapture}
-            >
-              <ol
-                id="dashboard-priority-list"
-                className="dashboard-focus-list"
-                start={priorityStartIndex + 1}
-                aria-label="Prioritized assignments"
-              >
-                {visiblePriorities.map((assignment, index) => {
-                  const globalIndex = priorityStartIndex + index;
-                  return (
-                    <li
-                      key={assignment.id}
-                      className={globalIndex === 0 ? "dashboard-focus-priority-first" : undefined}
-                      aria-posinset={globalIndex + 1}
-                      aria-setsize={focusAssignments.length}
-                    >
-                      <button type="button" className="dashboard-focus-item" onClick={() => onSelectAssignment(assignment)}>
-                        <span className="dashboard-focus-number">{String(globalIndex + 1).padStart(2, "0")}</span>
-                        <span className="dashboard-focus-label">
-                          <strong>{assignment.title}</strong>
-                          <small>{courseCodeFor(assignment.courseId)} · {assignment.dateKey ? assignment.due : "No due date"}</small>
-                          <span className="dashboard-focus-rationale">{priorityAdvice(assignment)}</span>
-                        </span>
-                        {renderStatusBadge(assignment.status)}
-                        <ChevronRight size={16} aria-hidden="true" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-            {focusAssignments.length > PRIORITIES_PER_PAGE && (
-              <div className="dashboard-focus-pagination" role="group" aria-label="Priority pages">
-                <button
-                  type="button"
-                  className="dashboard-focus-page-button"
-                  aria-label="Previous priorities"
-                  aria-controls="dashboard-priority-list"
-                  disabled={priorityPage === 0}
-                  onClick={() => shiftPriorityPage(-1)}
-                >
-                  <ChevronLeft size={16} aria-hidden="true" />
-                </button>
-                <span className="dashboard-focus-range" aria-live="polite" aria-atomic="true">
-                  {priorityRangeLabel}
-                </span>
-                <button
-                  type="button"
-                  className="dashboard-focus-page-button"
-                  aria-label="Next priorities"
-                  aria-controls="dashboard-priority-list"
-                  disabled={priorityPage >= priorityPageCount - 1}
-                  onClick={() => shiftPriorityPage(1)}
-                >
-                  <ChevronRight size={16} aria-hidden="true" />
-                </button>
-              </div>
-            )}
-          </>
+        {focusAssignments.length > 0 ? (
+          <PriorityCarousel
+            assignments={focusAssignments}
+            courseCodeFor={courseCodeFor}
+            renderStatusBadge={renderStatusBadge}
+            onSelectAssignment={onSelectAssignment}
+            reducedMotion={shouldReduceMotion}
+          />
         ) : (
           <div className="dashboard-focus-empty">
             <CheckCircle2 size={28} aria-hidden="true" />

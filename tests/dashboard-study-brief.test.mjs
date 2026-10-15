@@ -46,6 +46,8 @@ function installFakeWindowTimers() {
     clearTimeout: window.clearTimeout,
     setInterval: window.setInterval,
     clearInterval: window.clearInterval,
+    requestAnimationFrame: window.requestAnimationFrame,
+    cancelAnimationFrame: window.cancelAnimationFrame,
     performanceNow: window.performance.now,
   };
   let now = 0;
@@ -53,6 +55,7 @@ function installFakeWindowTimers() {
   let summaryInterval;
   const timeouts = new Map();
   const intervals = new Map();
+  const animationFrames = new Map();
 
   window.performance.now = () => now;
   window.setTimeout = (callback, delay = 0) => {
@@ -71,10 +74,18 @@ function installFakeWindowTimers() {
     intervals.delete(id);
     if (summaryInterval === id) summaryInterval = undefined;
   };
+  window.requestAnimationFrame = (callback) => {
+    const id = nextId++;
+    animationFrames.set(id, callback);
+    return id;
+  };
+  window.cancelAnimationFrame = (id) => animationFrames.delete(id);
 
   return {
+    get now() { return now; },
     get pendingTimeoutCount() { return timeouts.size; },
     get pendingIntervalCount() { return intervals.size; },
+    get pendingAnimationFrameCount() { return animationFrames.size; },
     async tickSummary(elapsed) {
       now = elapsed;
       const callback = intervals.get(summaryInterval);
@@ -97,11 +108,28 @@ function installFakeWindowTimers() {
       }
       now = target;
     },
+    async advanceFrame(milliseconds = 16) {
+      now += milliseconds;
+      const frameCallbacks = [...animationFrames.values()];
+      animationFrames.clear();
+      await act(async () => {
+        for (const callback of frameCallbacks) callback(now);
+      });
+    },
+    async finishAnimation(maxFrames = 180) {
+      for (let frame = 0; frame < maxFrames && animationFrames.size > 0; frame += 1) {
+        await this.advanceFrame();
+      }
+    },
     restore() {
       window.setTimeout = original.setTimeout;
       window.clearTimeout = original.clearTimeout;
       window.setInterval = original.setInterval;
       window.clearInterval = original.clearInterval;
+      if (original.requestAnimationFrame) window.requestAnimationFrame = original.requestAnimationFrame;
+      else delete window.requestAnimationFrame;
+      if (original.cancelAnimationFrame) window.cancelAnimationFrame = original.cancelAnimationFrame;
+      else delete window.cancelAnimationFrame;
       window.performance.now = original.performanceNow;
     },
   };
@@ -162,8 +190,61 @@ async function dispatchPointer(element, type, { pointerId = 1, pointerType = "to
   return event;
 }
 
+async function dispatchWheel(element, { deltaX = 0, deltaY = 0, deltaMode = 0, ctrlKey = false, momentum, cancelable = true } = {}) {
+  const event = new window.WheelEvent("wheel", {
+    bubbles: true,
+    cancelable,
+    deltaX,
+    deltaY,
+    deltaMode,
+    ctrlKey,
+  });
+  if (momentum !== undefined) Object.defineProperty(event, "momentum", { value: momentum });
+  await act(async () => element.dispatchEvent(event));
+  return event;
+}
+
 function priorityNumbers() {
   return [...node.querySelectorAll(".dashboard-focus-number")].map((number) => number.textContent);
+}
+
+function priorityTrackOffset() {
+  const transform = node.querySelector(".dashboard-focus-track")?.style.transform ?? "";
+  const match = transform.match(/translate3d\((-?[\d.]+)px/);
+  return match ? Number(match[1]) : 0;
+}
+
+function setViewportSize(viewport, width = 320, height = 480) {
+  Object.defineProperty(viewport, "clientWidth", { configurable: true, value: width });
+  Object.defineProperty(viewport, "clientHeight", { configurable: true, value: height });
+  const track = viewport.querySelector(".dashboard-focus-track");
+  if (track) Object.defineProperty(track, "clientWidth", { configurable: true, value: width });
+}
+
+function installFakePointerCapture() {
+  const prototype = window.HTMLElement.prototype;
+  const original = {
+    setPointerCapture: prototype.setPointerCapture,
+    hasPointerCapture: prototype.hasPointerCapture,
+    releasePointerCapture: prototype.releasePointerCapture,
+  };
+  const captures = new WeakMap();
+  prototype.setPointerCapture = function (pointerId) {
+    let pointerIds = captures.get(this);
+    if (!pointerIds) {
+      pointerIds = new Set();
+      captures.set(this, pointerIds);
+    }
+    pointerIds.add(pointerId);
+  };
+  prototype.hasPointerCapture = function (pointerId) { return captures.get(this)?.has(pointerId) ?? false; };
+  prototype.releasePointerCapture = function (pointerId) { captures.get(this)?.delete(pointerId); };
+  return () => {
+    for (const name of Object.keys(original)) {
+      if (original[name]) prototype[name] = original[name];
+      else delete prototype[name];
+    }
+  };
 }
 
 test("types the sample summary with a caret, then completes without shifting its reserved copy", async () => {
@@ -831,73 +912,822 @@ test("resets paging when the ordered assignment IDs change, but preserves the pa
     await click(node.querySelector('[aria-label="Next priorities"]'));
     assert.equal(node.querySelector(".dashboard-focus-range").textContent, "5 of 5");
 
-    await rerender({ focusAssignments: [...focusAssignments] });
+    await rerender({ focusAssignments: [...focusAssignments], reducedMotion: true });
     assert.equal(node.querySelector(".dashboard-focus-range").textContent, "5 of 5");
 
     const reordered = [...focusAssignments].reverse();
-    await rerender({ focusAssignments: reordered });
+    await rerender({ focusAssignments: reordered, reducedMotion: true });
     assert.deepEqual(priorityNumbers(), ["01", "02"]);
     assert.equal(node.querySelector(".dashboard-focus-list").textContent.includes("Assignment 5"), true);
     assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
 
     await click(node.querySelector('[aria-label="Next priorities"]'));
-    await rerender({ focusAssignments: reordered.slice(0, 2) });
+    await rerender({ focusAssignments: reordered.slice(0, 2), reducedMotion: true });
     assert.deepEqual(priorityNumbers(), ["01", "02"]);
     assert.equal(node.querySelector(".dashboard-focus-pagination"), null);
   } finally { await unmount(); }
 });
 
-test("touch swipes page priorities while vertical moves, canceled or multitouch gestures do not", async () => {
+test("wheel input tracks subpixels, cancels a reversal, and commits a new page after idle release", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    const verticalMomentum = await dispatchWheel(viewport, { deltaX: 0.2, deltaY: 50, momentum: true });
+    const zoom = await dispatchWheel(viewport, { deltaX: 90, ctrlKey: true });
+    assert.equal(verticalMomentum.defaultPrevented, false);
+    assert.equal(zoom.defaultPrevented, false);
+    assert.equal(priorityTrackOffset(), 0);
+    await timers.advance(80);
+
+    await dispatchWheel(viewport, { deltaX: 0.5 });
+    assert.equal(priorityTrackOffset(), -0.5);
+    await dispatchWheel(viewport, { deltaX: 1, deltaMode: 1 });
+    assert.equal(priorityTrackOffset(), -16.5);
+    await dispatchWheel(viewport, { deltaX: 0.05, deltaMode: 2 });
+    assert.equal(priorityTrackOffset(), -32.5);
+    await dispatchWheel(viewport, { deltaX: -0.04, deltaMode: 2 });
+    assert.ok(priorityTrackOffset() > -32.5 && priorityTrackOffset() < 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    await timers.advance(79);
+    assert.equal(timers.pendingAnimationFrameCount, 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.advance(1);
+    assert.ok(timers.pendingAnimationFrameCount > 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.finishAnimation();
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    await timers.advance(200);
+    await dispatchWheel(viewport, { deltaX: 120 });
+    assert.equal(priorityTrackOffset(), -120);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.advance(79);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.advance(1);
+    assert.ok(timers.pendingAnimationFrameCount > 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("wheel intent stays on its first axis through mixed packets and the horizontal release tail", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    const verticalStart = await dispatchWheel(viewport, { deltaX: 2, deltaY: 30 });
+    const verticalBurst = await dispatchWheel(viewport, { deltaX: 30, deltaY: 0 });
+    assert.equal(verticalStart.defaultPrevented, false);
+    assert.equal(verticalBurst.defaultPrevented, false, "a vertical-start burst cannot become a carousel swipe");
+    assert.equal(priorityTrackOffset(), 0);
+
+    await timers.advance(80);
+    const horizontalStart = await dispatchWheel(viewport, { deltaX: 20, deltaY: 2 });
+    assert.equal(horizontalStart.defaultPrevented, true);
+    assert.equal(priorityTrackOffset(), -20);
+
+    const diagonalTail = await dispatchWheel(viewport, { deltaX: 1, deltaY: 40 });
+    const zeroXTail = await dispatchWheel(viewport, { deltaX: 0, deltaY: 24 });
+    assert.equal(diagonalTail.defaultPrevented, true, "a latched horizontal burst consumes y-dominant packets");
+    assert.equal(zeroXTail.defaultPrevented, true, "a latched horizontal burst consumes zero-X packets");
+    assert.equal(priorityTrackOffset(), -21, "latched packets apply only their horizontal component");
+
+    const zoom = await dispatchWheel(viewport, { deltaX: 120, deltaY: 80, ctrlKey: true });
+    assert.equal(zoom.defaultPrevented, false, "browser zoom remains available during a horizontal burst");
+    assert.equal(priorityTrackOffset(), -21);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    await timers.advance(79);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.advance(1);
+    assert.ok(timers.pendingAnimationFrameCount > 0, "ordinary wheel motion releases after about 80ms idle");
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    const tail = await dispatchWheel(viewport, { deltaX: 0, deltaY: 30 });
+    assert.equal(tail.defaultPrevented, true, "the horizontal axis remains latched through its momentum tail");
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("an uncancelable wheel packet cannot move the priority cards", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    const event = await dispatchWheel(viewport, { deltaX: 80, cancelable: false });
+    assert.equal(event.defaultPrevented, false);
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    await timers.advance(200);
+    await timers.finishAnimation();
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    await dispatchWheel(viewport, { deltaX: 120 });
+    await dispatchWheel(viewport, { deltaX: -10 });
+    await timers.advance(80);
+    assert.ok(timers.pendingAnimationFrameCount > 0, "the inward correction is returning toward the original page");
+    const returningOffset = priorityTrackOffset();
+    const duringReturn = await dispatchWheel(viewport, { deltaX: 40, cancelable: false });
+    assert.equal(duringReturn.defaultPrevented, false);
+    assert.equal(priorityTrackOffset(), returningOffset, "uncancelable input cannot replace or stop the springback");
+    await timers.finishAnimation();
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("a corrected first-page edge pull can cross the origin and page to the next priorities", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: -1000 });
+    assert.ok(priorityTrackOffset() > 0 && priorityTrackOffset() <= 24, "the unavailable previous-page pull is resisted");
+    await dispatchWheel(viewport, { deltaX: 172 });
+    assert.ok(priorityTrackOffset() <= -140, "a clear correction crosses the origin toward the available next page");
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    await timers.advance(80);
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("an explicit fresh reverse wheel packet can correct a release during the tail guard", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: 100 });
+    await timers.advance(80);
+    assert.ok(timers.pendingAnimationFrameCount > 0, "the first gesture has begun settling");
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    const correction = await dispatchWheel(viewport, { deltaX: -100, momentum: false });
+    assert.equal(correction.defaultPrevented, true, "explicit momentum=false identifies a fresh physical gesture");
+    assert.equal(priorityTrackOffset(), 0, "the new gesture cancels the stale release and applies its correction");
+    await timers.advance(80);
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("subpixel inward wheel corrections accumulate and cancel a threshold-crossing swipe", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: 120 });
+    assert.equal(priorityTrackOffset(), -120);
+    for (let packet = 0; packet < 24; packet += 1) {
+      await timers.advance(10);
+      await dispatchWheel(viewport, { deltaX: -0.25 });
+    }
+
+    assert.equal(priorityTrackOffset(), -114, "24 quarter-pixel packets add up to 6px of inward correction");
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.advance(79);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.advance(1);
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5", "small recent corrections cancel the pending page change");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("native horizontal momentum releases one page and consumes its remaining tail", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ focusAssignments: assignments(7) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: 1000, momentum: false });
+    assert.equal(priorityTrackOffset(), -328, "input cannot travel beyond one page plus the 8px page gap");
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 7");
+
+    const release = await dispatchWheel(viewport, { deltaX: 1, momentum: true });
+    assert.equal(release.defaultPrevented, true);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 7");
+
+    const momentumTail = await dispatchWheel(viewport, { deltaX: 40, momentum: true });
+    const followingTail = await dispatchWheel(viewport, { deltaX: 80 });
+    assert.equal(momentumTail.defaultPrevented, true);
+    assert.equal(followingTail.defaultPrevented, true);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 7");
+
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 7");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("same-direction wheel packets cannot reopen a committed page change", async (t) => {
+  for (const direction of [1, -1]) {
+    await t.test(direction > 0 ? "forward from the first page" : "back to the first page", async () => {
+      const timers = installFakeWindowTimers();
+      const focusAssignments = assignments(5);
+      try {
+        await mount({ focusAssignments, reducedMotion: true });
+        if (direction < 0) {
+          await click(node.querySelector('[aria-label="Next priorities"]'));
+          assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
+        }
+        await rerender({ focusAssignments, reducedMotion: false });
+        const viewport = node.querySelector(".dashboard-focus-viewport");
+        setViewportSize(viewport);
+
+        await dispatchWheel(viewport, { deltaX: direction * 1000, momentum: false });
+        await dispatchWheel(viewport, { deltaX: direction, momentum: true });
+        assert.ok(timers.pendingAnimationFrameCount > 0, "the page spring is ready to commit");
+        await timers.advanceFrame(16);
+
+        const destination = direction > 0 ? "3–4 of 5" : "1–2 of 5";
+        assert.equal(node.querySelector(".dashboard-focus-range").textContent, destination);
+        assert.equal(priorityTrackOffset(), 0, "the destination is committed at the track origin");
+
+        for (const momentum of [undefined, false, true]) {
+          const packet = await dispatchWheel(viewport, {
+            deltaX: direction * 120,
+            ...(momentum === undefined ? {} : { momentum }),
+          });
+          assert.equal(packet.defaultPrevented, true, `same-direction ${String(momentum)} packet stays inside the page-change tail`);
+          assert.equal(priorityTrackOffset(), 0, `same-direction ${String(momentum)} packet cannot pull the newly committed page`);
+          assert.equal(node.querySelector(".dashboard-focus-range").textContent, destination);
+        }
+
+        for (let frame = 0; frame < 4; frame += 1) {
+          await timers.advanceFrame(16);
+          assert.equal(priorityTrackOffset(), 0, "no frame may translate the track after destination arrival");
+          assert.equal(node.querySelector(".dashboard-focus-range").textContent, destination);
+        }
+      } finally {
+        await unmount();
+        timers.restore();
+      }
+    });
+  }
+});
+
+test("sparse same-direction wheel packets remain guarded during a page spring", async (t) => {
+  for (const direction of [1, -1]) {
+    for (const delay of [80, 200]) {
+      for (const momentum of [undefined, false, true]) {
+        const momentumLabel = momentum === undefined ? "unknown" : String(momentum);
+        await t.test(`${direction > 0 ? "forward" : "backward"}, ${delay}ms, momentum ${momentumLabel}`, async () => {
+          const timers = installFakeWindowTimers();
+          const focusAssignments = assignments(5);
+          try {
+            await mount({ focusAssignments, reducedMotion: true });
+            if (direction < 0) await click(node.querySelector('[aria-label="Next priorities"]'));
+            await rerender({ focusAssignments, reducedMotion: false });
+            const viewport = node.querySelector(".dashboard-focus-viewport");
+            setViewportSize(viewport);
+
+            await dispatchWheel(viewport, { deltaX: direction * 120 });
+            await timers.advance(80);
+            assert.ok(timers.pendingAnimationFrameCount > 0, "idle release started a page spring");
+            await timers.advance(delay);
+            assert.ok(timers.pendingAnimationFrameCount > 0, `the spring is still active ${delay}ms after release`);
+
+            const beforePacket = priorityTrackOffset();
+            const packet = await dispatchWheel(viewport, {
+              deltaX: direction * 20,
+              ...(momentum === undefined ? {} : { momentum }),
+            });
+            assert.equal(packet.defaultPrevented, true, "a sparse packet in the original direction remains captured");
+            assert.equal(priorityTrackOffset(), beforePacket, "the late packet cannot stop or rebase the active spring");
+
+            const destination = direction > 0 ? "3–4 of 5" : "1–2 of 5";
+            for (let frame = 0; frame < 100 && timers.pendingAnimationFrameCount > 0; frame += 1) {
+              await timers.advanceFrame(16);
+              if (node.querySelector(".dashboard-focus-range").textContent === destination) {
+                assert.equal(priorityTrackOffset(), 0, "arrival commits the destination at the track origin");
+              }
+            }
+            assert.equal(node.querySelector(".dashboard-focus-range").textContent, destination);
+            assert.equal(priorityTrackOffset(), 0);
+          } finally {
+            await unmount();
+            timers.restore();
+          }
+        });
+      }
+    }
+  }
+});
+
+test("uncancelable same-direction tail packets extend the arrival guard without moving the track", async () => {
+  const timers = installFakeWindowTimers();
   const focusAssignments = assignments(5);
+  try {
+    await mount({ focusAssignments, reducedMotion: true });
+    await click(node.querySelector('[aria-label="Next priorities"]'));
+    await rerender({ focusAssignments, reducedMotion: false });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: -1000, momentum: false });
+    await dispatchWheel(viewport, { deltaX: -1, momentum: true });
+    assert.ok(timers.pendingAnimationFrameCount > 0);
+    await timers.advanceFrame(16);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    assert.equal(priorityTrackOffset(), 0);
+
+    for (let packet = 0; packet < 3; packet += 1) {
+      await timers.advance(100);
+      const event = await dispatchWheel(viewport, {
+        deltaX: -20,
+        momentum: false,
+        cancelable: false,
+      });
+      assert.equal(event.defaultPrevented, false, "the browser-owned packet remains uncancelable");
+      assert.equal(priorityTrackOffset(), 0, "uncancelable tail packets cannot create an edge pull");
+      assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    }
+
+    await timers.advance(1);
+    const continuation = await dispatchWheel(viewport, { deltaX: -20, momentum: false });
+    assert.equal(continuation.defaultPrevented, true, "uncancelable packets keep the same-direction tail alive");
+    assert.equal(priorityTrackOffset(), 0, "the next cancelable packet cannot reopen the first-page edge");
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    for (let frame = 0; frame < 4; frame += 1) {
+      await timers.advanceFrame(16);
+      assert.equal(priorityTrackOffset(), 0, "no sampled frame translates after arrival");
+      assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    }
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("a tiny inward wheel correction keeps the tail aligned with the page that was selected", async () => {
+  const timers = installFakeWindowTimers();
+  const focusAssignments = assignments(7);
+  try {
+    await mount({ focusAssignments });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: 120 });
+    await timers.advance(20);
+    await dispatchWheel(viewport, { deltaX: -1 });
+    assert.equal(priorityTrackOffset(), -119, "the one-pixel correction remains visible before release");
+    await timers.advance(80);
+    assert.ok(timers.pendingAnimationFrameCount > 0, "the remaining page intent still begins its spring");
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 7");
+    assert.equal(priorityTrackOffset(), 0);
+
+    const lateOriginalDirection = await dispatchWheel(viewport, { deltaX: 20, momentum: false });
+    assert.equal(lateOriginalDirection.defaultPrevented, true, "the tail follows the selected forward page");
+    assert.equal(priorityTrackOffset(), 0, "a small inward correction cannot retarget the tail to edge-return intent");
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 7");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("opposing tail jitter must reach six pixels consecutively, then a quiet tail permits a fresh swipe", async () => {
+  const timers = installFakeWindowTimers();
+  const focusAssignments = assignments(7);
+  try {
+    await mount({ focusAssignments });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: 120 });
+    await timers.advance(20);
+    await dispatchWheel(viewport, { deltaX: -1 });
+    await timers.advance(80);
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 7");
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const opposing = await dispatchWheel(viewport, { deltaX: -2, momentum: false });
+      const original = await dispatchWheel(viewport, { deltaX: 0.5, momentum: false });
+      assert.equal(opposing.defaultPrevented, true, "subthreshold opposite packets stay inside the page-change tail");
+      assert.equal(original.defaultPrevented, true, "original-direction packets reset the pending reversal distance");
+      assert.equal(priorityTrackOffset(), 0, "alternating packets cannot reopen the settled page");
+    }
+
+    await timers.advance(200);
+    await dispatchWheel(viewport, { deltaX: 120 });
+    assert.equal(priorityTrackOffset(), -120, "a deliberate swipe starts after a full quiet tail");
+    await timers.advance(80);
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "5–6 of 7");
+    assert.equal(priorityTrackOffset(), 0);
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("wheel pulls compress progressively at both ends and spring back without changing the page", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    await mount({ focusAssignments: assignments(5), reducedMotion: true });
+    await click(node.querySelector('[aria-label="Next priorities"]'));
+    await click(node.querySelector('[aria-label="Next priorities"]'));
+    await rerender({ focusAssignments: assignments(5), reducedMotion: false });
+    let viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: 30 });
+    const lastPagePull = Math.abs(priorityTrackOffset());
+    await dispatchWheel(viewport, { deltaX: 30 });
+    const fartherLastPagePull = Math.abs(priorityTrackOffset());
+    await dispatchWheel(viewport, { deltaX: 1000 });
+    const cappedLastPagePull = Math.abs(priorityTrackOffset());
+    assert.ok(lastPagePull > 0 && lastPagePull < 30);
+    assert.ok(fartherLastPagePull > lastPagePull && fartherLastPagePull <= 24);
+    assert.ok(cappedLastPagePull >= fartherLastPagePull && cappedLastPagePull <= 24, `edge travel stays within 24px (got ${cappedLastPagePull})`);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "5 of 5");
+
+    await dispatchWheel(viewport, { deltaX: -2 });
+    const reversedLastPagePull = Math.abs(priorityTrackOffset());
+    assert.ok(reversedLastPagePull < cappedLastPagePull, "a small reversal immediately moves inward from the edge");
+
+    await timers.advance(47);
+    assert.equal(timers.pendingAnimationFrameCount, 0);
+    await timers.advance(1);
+    assert.ok(timers.pendingAnimationFrameCount > 0, "an edge pull releases after about 48ms idle");
+    const releaseAt = timers.now;
+    let previousEdgeOffset = priorityTrackOffset();
+    let edgeFrames = 0;
+    while (timers.pendingAnimationFrameCount > 0) {
+      await timers.advanceFrame(16);
+      edgeFrames += 1;
+      const offset = priorityTrackOffset();
+      assert.ok(offset >= previousEdgeOffset - 0.01, "edge return does not overshoot away from its origin");
+      assert.ok(offset <= 0.01, "edge return does not cross the committed page origin");
+      previousEdgeOffset = offset;
+      assert.ok(edgeFrames <= 20, "edge return has a bounded frame count");
+    }
+    assert.ok(timers.now - releaseAt < 300, `edge return completes under 300ms (took ${timers.now - releaseAt}ms)`);
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "5 of 5");
+
+    await rerender({ focusAssignments: assignments(5), reducedMotion: true });
+    await click(node.querySelector('[aria-label="Previous priorities"]'));
+    await click(node.querySelector('[aria-label="Previous priorities"]'));
+    await rerender({ focusAssignments: assignments(5), reducedMotion: false });
+    viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: -30 });
+    const firstPagePull = priorityTrackOffset();
+    await dispatchWheel(viewport, { deltaX: -30 });
+    const fartherFirstPagePull = priorityTrackOffset();
+    await dispatchWheel(viewport, { deltaX: -1000 });
+    const cappedFirstPagePull = priorityTrackOffset();
+    assert.ok(firstPagePull > 0 && firstPagePull < 30);
+    assert.ok(fartherFirstPagePull > firstPagePull && fartherFirstPagePull <= 24);
+    assert.ok(cappedFirstPagePull >= fartherFirstPagePull && cappedFirstPagePull <= 24, `edge travel stays within 24px (got ${cappedFirstPagePull})`);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    await dispatchWheel(viewport, { deltaX: 2 });
+    assert.ok(priorityTrackOffset() < cappedFirstPagePull, "a small reversal immediately moves inward from the first page edge");
+
+    await timers.advance(48);
+    await timers.finishAnimation();
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+  }
+});
+
+test("a pointer regrab recovers the hidden edge pull without jumping", async () => {
+  const timers = installFakeWindowTimers();
+  const restorePointerCapture = installFakePointerCapture();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchPointer(viewport, "pointerdown", { x: 100, y: 100 });
+    await timers.advance(100);
+    await dispatchPointer(viewport, "pointermove", { x: 106, y: 100 });
+    await timers.advance(100);
+    await dispatchPointer(viewport, "pointermove", { x: 130, y: 100 });
+    await dispatchPointer(viewport, "pointerup", { x: 130, y: 100 });
+    const beforeRegrab = priorityTrackOffset();
+    assert.ok(beforeRegrab > 0 && beforeRegrab < 30);
+
+    await timers.advanceFrame(16);
+    await timers.advanceFrame(32);
+    const settlingOffset = priorityTrackOffset();
+    assert.ok(settlingOffset > 0 && settlingOffset <= beforeRegrab);
+
+    await dispatchPointer(viewport, "pointerdown", { x: 130, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 136, y: 100 });
+    const regrabbedOffset = priorityTrackOffset();
+    assert.ok(regrabbedOffset > settlingOffset);
+    assert.ok(regrabbedOffset - settlingOffset < 6);
+
+    await dispatchPointer(viewport, "pointermove", { x: 132, y: 100 });
+    assert.ok(priorityTrackOffset() < regrabbedOffset);
+    assert.ok(priorityTrackOffset() > 0);
+    await dispatchPointer(viewport, "pointercancel", { x: 132, y: 100 });
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+    restorePointerCapture();
+  }
+});
+
+test("pointer movement follows subpixels, previews an inert neighbor, and keeps vertical motion and taps available", async () => {
+  const timers = installFakeWindowTimers();
+  const restorePointerCapture = installFakePointerCapture();
   const selected = [];
   try {
-    await mount({ focusAssignments, reducedMotion: true, onSelectAssignment: (assignment) => selected.push(assignment.id) });
+    await mount({ focusAssignments: assignments(5), onSelectAssignment: (assignment) => selected.push(assignment.id) });
     const viewport = node.querySelector(".dashboard-focus-viewport");
-
-    await dispatchPointer(viewport, "pointerdown", { x: 200, y: 100 });
-    await dispatchPointer(viewport, "pointerup", { x: 210, y: 180 });
-    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
-
-    await dispatchPointer(viewport, "pointerdown", { x: 200, y: 100 });
-    await dispatchPointer(viewport, "pointercancel", { x: 120, y: 100 });
-    await dispatchPointer(viewport, "pointerup", { x: 120, y: 100 });
-    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
-
-    await dispatchPointer(viewport, "pointerdown", { x: 200, y: 100 });
-    await dispatchPointer(viewport, "pointerdown", { pointerId: 2, isPrimary: false, x: 190, y: 100 });
-    await dispatchPointer(viewport, "pointerup", { x: 120, y: 100 });
-    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
-
+    setViewportSize(viewport);
     const tapTarget = node.querySelector(".dashboard-focus-item");
+
+    await dispatchPointer(tapTarget, "pointerdown", { x: 200, y: 100 });
+    const verticalMove = await dispatchPointer(tapTarget, "pointermove", { x: 197, y: 130 });
+    assert.equal(verticalMove.defaultPrevented, false);
+    assert.equal(priorityTrackOffset(), 0);
+    const lockedVerticalMove = await dispatchPointer(tapTarget, "pointermove", { x: 140, y: 131 });
+    assert.equal(lockedVerticalMove.defaultPrevented, false, "a vertical-start pointer gesture stays available to page scrolling");
+    assert.equal(priorityTrackOffset(), 0, "horizontal motion cannot turn the same vertical gesture into a swipe");
+    await dispatchPointer(tapTarget, "pointerup", { x: 140, y: 131 });
+
+    await dispatchPointer(tapTarget, "pointerdown", { x: 200, y: 100 });
+    await dispatchPointer(tapTarget, "pointermove", { x: 194, y: 100 });
+    await timers.advance(10);
+    await dispatchPointer(tapTarget, "pointermove", { x: 193.5, y: 100 });
+    assert.ok(Math.abs(priorityTrackOffset() + 6.5) < 0.001);
+    await dispatchPointer(tapTarget, "lostpointercapture", { x: 193.5, y: 100 });
+    assert.ok(Math.abs(priorityTrackOffset() + 6.5) < 0.001);
+    await dispatchPointer(tapTarget, "pointermove", { x: 187.5, y: 100 });
+    assert.ok(Math.abs(priorityTrackOffset() + 12.5) < 0.001);
+
+    const nextPreview = viewport.querySelector('[data-priority-neighbor="next"]');
+    assert.ok(nextPreview);
+    assert.equal(nextPreview.getAttribute("aria-hidden"), "true");
+    assert.ok(nextPreview.hasAttribute("inert"));
+
+    await timers.advance(10);
+    await dispatchPointer(tapTarget, "pointermove", { x: 191.5, y: 100 });
+    assert.ok(Math.abs(priorityTrackOffset() + 8.5) < 0.001);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+
+    await dispatchPointer(tapTarget, "pointerup", { x: 191.5, y: 100 });
+    await timers.finishAnimation();
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    assert.equal(viewport.querySelector('[data-priority-neighbor="next"]'), null);
+
     await dispatchPointer(tapTarget, "pointerdown", { x: 100, y: 100 });
     await dispatchPointer(tapTarget, "pointerup", { x: 102, y: 101 });
-    await click(tapTarget);
+    const tapClick = await dispatchClick(tapTarget, 1);
+    assert.equal(tapClick.defaultPrevented, false);
     assert.deepEqual(selected, ["assignment-1"]);
 
-    await dispatchPointer(viewport, "pointerdown", { x: 220, y: 100 });
-    await dispatchPointer(viewport, "pointerup", { x: 150, y: 105 });
-    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
-    const swipeClick = await dispatchClick(viewport, 1);
-    assert.equal(swipeClick.defaultPrevented, true);
-    assert.deepEqual(selected, ["assignment-1"]);
-
-    await dispatchPointer(viewport, "pointerdown", { x: 150, y: 105 });
-    await dispatchPointer(viewport, "pointerup", { x: 220, y: 100 });
-    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
-
-    await dispatchPointer(viewport, "pointerdown", { x: 220, y: 100 });
-    await dispatchPointer(viewport, "pointerup", { x: 150, y: 105 });
-    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
-    const keyboardTarget = node.querySelector(".dashboard-focus-item");
-    await act(async () => keyboardTarget.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-    const keyboardClick = await dispatchClick(keyboardTarget, 0);
+    const keyboardClick = await dispatchClick(tapTarget, 0);
     assert.equal(keyboardClick.defaultPrevented, false);
-    assert.deepEqual(selected, ["assignment-1", "assignment-3"]);
+    assert.deepEqual(selected, ["assignment-1", "assignment-1"]);
+  } finally {
+    await unmount();
+    timers.restore();
+    restorePointerCapture();
+  }
+});
 
-    await dispatchPointer(keyboardTarget, "pointerdown", { pointerType: "mouse", x: 150, y: 100 });
-    await dispatchPointer(keyboardTarget, "pointerup", { pointerType: "mouse", x: 150, y: 100 });
-    const mouseClick = await dispatchClick(keyboardTarget, 1);
-    assert.equal(mouseClick.defaultPrevented, false);
-    assert.deepEqual(selected, ["assignment-1", "assignment-3", "assignment-3"]);
-  } finally { await unmount(); }
+test("a slow inward pointer release cancels a drag that crossed the page threshold", async () => {
+  const timers = installFakeWindowTimers();
+  const restorePointerCapture = installFakePointerCapture();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchPointer(viewport, "pointerdown", { x: 300, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 294, y: 100 });
+    await timers.advance(300);
+    await dispatchPointer(viewport, "pointermove", { x: 170, y: 100 });
+    assert.equal(priorityTrackOffset(), -130);
+
+    await timers.advance(20);
+    await dispatchPointer(viewport, "pointerup", { x: 180, y: 100 });
+    assert.equal(priorityTrackOffset(), -120, "the final 10px inward correction remains visible at release");
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5", "recent reversal cancels the earlier page-threshold drag");
+  } finally {
+    await unmount();
+    timers.restore();
+    restorePointerCapture();
+  }
+});
+
+test("a full-page drag with outward residual velocity never springs past its adjacent-page bound", async () => {
+  const timers = installFakeWindowTimers();
+  const restorePointerCapture = installFakePointerCapture();
+  try {
+    await mount({ focusAssignments: assignments(5) });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport, 320, 480);
+
+    await dispatchPointer(viewport, "pointerdown", { x: 300, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 294, y: 100 });
+    await timers.advance(100);
+    await dispatchPointer(viewport, "pointermove", { x: -28, y: 100 });
+    assert.equal(priorityTrackOffset(), -328);
+    await timers.advance(10);
+    await dispatchPointer(viewport, "pointermove", { x: -128, y: 100 });
+    await dispatchPointer(viewport, "pointerup", { x: -128, y: 100 });
+
+    let frames = 0;
+    while (timers.pendingAnimationFrameCount > 0) {
+      await timers.advanceFrame(16);
+      frames += 1;
+      assert.ok(priorityTrackOffset() >= -328.01, `spring stays within one page plus gap (offset ${priorityTrackOffset()})`);
+      assert.ok(frames < 100, "page spring finishes in a bounded time");
+    }
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+    restorePointerCapture();
+  }
+});
+
+test("slow drags and short flicks commit after settling, while a held drag loses stale velocity", async () => {
+  const timers = installFakeWindowTimers();
+  const restorePointerCapture = installFakePointerCapture();
+  const selected = [];
+  try {
+    await mount({
+      focusAssignments: assignments(5),
+      onSelectAssignment: (assignment) => selected.push(assignment.id),
+    });
+    const viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchPointer(viewport, "pointerdown", { x: 300, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 294, y: 100 });
+    await timers.advance(200);
+    await dispatchPointer(viewport, "pointermove", { x: 210, y: 100 });
+    await dispatchPointer(viewport, "pointerup", { x: 210, y: 100 });
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
+
+    await dispatchPointer(viewport, "pointerdown", { x: 300, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 294, y: 100 });
+    await timers.advance(10);
+    await dispatchPointer(viewport, "pointermove", { x: 244, y: 100 });
+    await timers.advance(1000);
+    await dispatchPointer(viewport, "pointerup", { x: 244, y: 100 });
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
+
+    await dispatchPointer(viewport, "pointerdown", { x: 300, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 294, y: 100 });
+    await timers.advance(10);
+    await dispatchPointer(viewport, "pointermove", { x: 270, y: 100 });
+    await timers.advance(2);
+    await dispatchPointer(viewport, "pointerup", { x: 255, y: 100 });
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "3–4 of 5");
+    await timers.finishAnimation();
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "5 of 5");
+
+    const swipeClick = await dispatchClick(node.querySelector(".dashboard-focus-item"), 1);
+    assert.equal(swipeClick.defaultPrevented, true);
+    assert.deepEqual(selected, []);
+
+    await dispatchPointer(viewport, "pointerdown", { x: 200, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 194, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 180, y: 100 });
+    assert.notEqual(priorityTrackOffset(), 0);
+    await dispatchPointer(viewport, "pointercancel", { x: 180, y: 100 });
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "5 of 5");
+
+    await dispatchPointer(viewport, "pointerdown", { x: 200, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 194, y: 100 });
+    assert.notEqual(priorityTrackOffset(), 0);
+    await dispatchPointer(viewport, "lostpointercapture", { x: 194, y: 100 });
+    assert.equal(priorityTrackOffset(), 0);
+
+    await dispatchPointer(viewport, "pointerdown", { x: 200, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 194, y: 100 });
+    await dispatchPointer(viewport, "pointermove", { x: 180, y: 100 });
+    await dispatchPointer(viewport, "pointerdown", { pointerId: 2, isPrimary: false, x: 190, y: 100 });
+    assert.equal(priorityTrackOffset(), 0);
+    await dispatchPointer(viewport, "pointerup", { x: 180, y: 100 });
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "5 of 5");
+  } finally {
+    await unmount();
+    timers.restore();
+    restorePointerCapture();
+  }
+});
+
+test("assignment changes, reduced motion, empty lists, and unmount cancel pending movement", async () => {
+  const timers = installFakeWindowTimers();
+  try {
+    const originalAssignments = assignments(5);
+    const reordered = [...originalAssignments].reverse();
+    await mount({ focusAssignments: originalAssignments });
+    let viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+
+    await dispatchWheel(viewport, { deltaX: 100 });
+    await timers.advance(115);
+    assert.ok(timers.pendingAnimationFrameCount > 0);
+    await rerender({ focusAssignments: reordered });
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(timers.pendingAnimationFrameCount, 0);
+
+    viewport = node.querySelector(".dashboard-focus-viewport");
+    await dispatchWheel(viewport, { deltaX: 100 });
+    await timers.advance(115);
+    assert.ok(timers.pendingAnimationFrameCount > 0);
+    await rerender({ focusAssignments: reordered, reducedMotion: true });
+    assert.equal(node.querySelector(".dashboard-focus-range").textContent, "1–2 of 5");
+    assert.equal(priorityTrackOffset(), 0);
+    assert.equal(timers.pendingAnimationFrameCount, 0);
+
+    await rerender({ focusAssignments: reordered, reducedMotion: false });
+    await timers.advance(200);
+    viewport = node.querySelector(".dashboard-focus-viewport");
+    const unrelatedTimeoutCount = timers.pendingTimeoutCount;
+    await dispatchWheel(viewport, { deltaX: 30 });
+    assert.ok(timers.pendingTimeoutCount > unrelatedTimeoutCount);
+    await rerender({ focusAssignments: [] });
+    assert.equal(node.querySelector("[data-priority-carousel]"), null);
+    assert.equal(timers.pendingTimeoutCount, unrelatedTimeoutCount);
+    assert.equal(timers.pendingAnimationFrameCount, 0);
+
+    await rerender({ focusAssignments: reordered });
+    viewport = node.querySelector(".dashboard-focus-viewport");
+    setViewportSize(viewport);
+    const wheel = await dispatchWheel(viewport, { deltaX: 40 });
+    assert.equal(wheel.defaultPrevented, true);
+    assert.ok(priorityTrackOffset() < 0);
+
+    await timers.advance(115);
+    assert.ok(timers.pendingAnimationFrameCount > 0);
+    await unmount();
+    assert.equal(timers.pendingAnimationFrameCount, 0);
+    assert.equal(timers.pendingTimeoutCount, 0);
+    assert.equal(timers.pendingIntervalCount, 0);
+  } finally {
+    await unmount();
+    timers.restore();
+  }
 });
