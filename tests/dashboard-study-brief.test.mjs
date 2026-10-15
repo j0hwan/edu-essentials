@@ -466,7 +466,10 @@ test("collapses and reopens chat without replacing the composer or losing its dr
 
     const region = node.querySelector("#dashboard-study-chat");
     const collapse = node.querySelector('[aria-label="Collapse chat"]');
+    const shell = node.querySelector(".dashboard-study-brief");
     assert.ok(region);
+    assert.equal(collapse.parentElement, shell);
+    assert.notEqual(collapse.closest(".dashboard-study-summary"), collapse.parentElement);
     assert.equal(collapse.getAttribute("aria-expanded"), "true");
     assert.equal(collapse.getAttribute("aria-controls"), "dashboard-study-chat");
     assert.equal(region.id, "dashboard-study-chat");
@@ -672,6 +675,7 @@ test("observes the summary shell border box and keeps its outline paths in sync 
     if (this.classList?.contains("dashboard-focus")) {
       return { width: 240, height: 100, top: 140, bottom: 240, left: 340, right: 580 };
     }
+    if (this.classList?.contains("dashboard-study-chat-toggle")) return { width: 120, height: 16 };
     if (this.classList?.contains("dashboard-study-lead")) return { width: 200, height: 20, top: 20, bottom: 40, left: 0, right: 200 };
     if (this.classList?.contains("dashboard-study-footer")) return { width: 200, height: 30, top: 250, bottom: 280, left: 0, right: 200 };
     return originalRect.call(this);
@@ -688,16 +692,24 @@ test("observes the summary shell border box and keeps its outline paths in sync 
   try {
     await mount();
     const shell = node.querySelector(".dashboard-study-brief");
+    assert.equal(shell.style.getPropertyValue("--summary-tab-center"), "170px");
     const shellObservation = observations.find(({ target }) => target === shell);
     assert.deepEqual(shellObservation?.options, { box: "border-box" });
 
     const outline = node.querySelector(".dashboard-study-outline path");
     const initialPath = outline.getAttribute("d");
     assert.ok(initialPath);
+    assert.equal(shell.style.getPropertyValue("--summary-tab-depth"), "0px");
+    await rerender({ reducedMotion: true, chatMessages: [{ id: "tab", question: "Show the tab", status: "complete" }] });
+    assert.equal(shell.style.getPropertyValue("--summary-tab-depth"), "16px");
+    assert.match(outline.getAttribute("d"), /315\.5/);
+    assert.match(outline.getAttribute("d"), /A 16 16 /);
     shellHeight = 340;
     await act(async () => observerCallback([{ target: shell }]));
+    assert.equal(shell.style.getPropertyValue("--summary-tab-center"), "170px");
     const updatedPath = outline.getAttribute("d");
     assert.notEqual(updatedPath, initialPath);
+    assert.match(updatedPath, /355\.5/);
     assert.equal(shell.style.getPropertyValue("--summary-shell-path"), `path("${updatedPath}")`);
 
     await unmount();

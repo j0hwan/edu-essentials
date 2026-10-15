@@ -24,13 +24,14 @@
   box-shadow: var(--shadow-sm);
 }
 .dashboard-study-brief[data-shaped] { border-color: transparent; background: transparent; box-shadow: none; }
-.dashboard-study-brief[data-shaped]::before { content: ""; position: absolute; inset: -1px; z-index: -1; background: var(--summary-surface); clip-path: var(--summary-shell-path); pointer-events: none; }
-.dashboard-study-outline { display: none; position: absolute; inset: -1px; z-index: -1; width: calc(100% + 2px); height: calc(100% + 2px); overflow: visible; pointer-events: none; }
+.dashboard-study-brief[data-shaped]::before { content: ""; position: absolute; inset: -1px; bottom: calc(-1px - var(--summary-tab-depth, 0px)); z-index: -1; background: var(--summary-surface); clip-path: var(--summary-shell-path); pointer-events: none; }
+.dashboard-study-outline { display: none; position: absolute; inset: -1px; z-index: -1; width: calc(100% + 2px); height: calc(100% + 2px + var(--summary-tab-depth, 0px)); overflow: visible; pointer-events: none; }
 .dashboard-study-brief[data-shaped] > .dashboard-study-outline { display: block; }
 .dashboard-study-outline path { fill: none; stroke: color-mix(in srgb, var(--brand) 38%, var(--border)); stroke-width: 1; }
 .dashboard-study-summary { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-.dashboard-study-chat-toggle { position: absolute; bottom: -20px; left: 50%; display: grid; place-items: center; width: 120px; max-width: 50%; height: 20px; padding: 0; transform: translateX(-50%); border: 0; border-radius: 6px; color: var(--brand-dark); background: transparent; transition: color 150ms ease, background 150ms ease; }
-.dashboard-study-chat-toggle:hover { color: var(--brand); background: color-mix(in srgb, var(--brand-soft) 65%, transparent); }
+.dashboard-study-chat-toggle { position: absolute; top: calc(100% - 1px); left: var(--summary-tab-center, 50%); z-index: 1; display: grid; place-items: center; width: 120px; max-width: 40%; height: 16px; padding: 0; transform: translateX(-50%); border: 0; border-radius: inherit; color: var(--brand-dark); background: transparent; box-shadow: none; transition: color 150ms ease; }
+.dashboard-study-chat-toggle::after { content: ""; position: absolute; inset: -4px 0; }
+.dashboard-study-chat-toggle:hover { color: var(--brand); }
 .dashboard-study-chat-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 .dashboard-study-chat-toggle svg { transition: transform 180ms ease; }
 .dashboard-study-chat-toggle[aria-expanded="false"] svg { transform: rotate(180deg); }

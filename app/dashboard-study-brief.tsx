@@ -103,7 +103,10 @@ export default function DashboardStudyBrief({
       if (bounds.width <= 1 || bounds.height <= 1) return;
       const focusBounds = priorities.getBoundingClientRect();
       const summaryBounds = summary.getBoundingClientRect();
+      const tabBounds = section.querySelector<HTMLButtonElement>(".dashboard-study-chat-toggle")?.getBoundingClientRect();
+      const tabCenter = summaryBounds.left - bounds.left + summaryBounds.width / 2;
       const styles = window.getComputedStyle(section);
+      const radius = Number.parseFloat(styles.borderTopLeftRadius);
       const stacked = focusBounds.left < summaryBounds.right;
       const bottomPadding = Number.parseFloat(styles.paddingBottom) + 1;
       const collapsedBottom = Math.max(
@@ -115,10 +118,13 @@ export default function DashboardStudyBrief({
         height: bounds.height,
         split: stacked ? bounds.width : focusBounds.left - bounds.left,
         baseHeight: stacked ? bounds.height : collapsedBottom,
-        radius: Number.parseFloat(styles.borderTopLeftRadius),
+        radius,
+        tab: tabBounds ? { center: tabCenter, width: tabBounds.width, height: tabBounds.height, radius } : undefined,
       });
       path.setAttribute("d", shape);
       section.style.setProperty("--summary-shell-path", `path("${shape}")`);
+      section.style.setProperty("--summary-tab-center", `${tabCenter}px`);
+      section.style.setProperty("--summary-tab-depth", `${tabBounds?.height ?? 0}px`);
       section.dataset.shaped = "true";
     };
     updateShape();
@@ -129,7 +135,7 @@ export default function DashboardStudyBrief({
       observer?.disconnect();
       window.removeEventListener("resize", updateShape);
     };
-  }, []);
+  }, [showChatToggle]);
 
   useLayoutEffect(() => {
     const region = chatRegion.current;
@@ -369,17 +375,17 @@ export default function DashboardStudyBrief({
             <MessageSquare size={18} aria-hidden="true" />
           </button>
         </div>
-        {showChatToggle && <button
-          className="dashboard-study-chat-toggle"
-          type="button"
-          aria-label={chatExpanded ? "Collapse chat" : "Expand chat"}
-          title={chatExpanded ? "Collapse chat" : "Expand chat"}
-          aria-expanded={chatExpanded}
-          aria-controls="dashboard-study-chat"
-          data-reduced-motion={shouldReduceMotion}
-          onClick={() => setChatOpen(!chatExpanded)}
-        ><ChevronUp size={17} aria-hidden="true" /></button>}
       </div>
+      {showChatToggle && <button
+        className="dashboard-study-chat-toggle"
+        type="button"
+        aria-label={chatExpanded ? "Collapse chat" : "Expand chat"}
+        title={chatExpanded ? "Collapse chat" : "Expand chat"}
+        aria-expanded={chatExpanded}
+        aria-controls="dashboard-study-chat"
+        data-reduced-motion={shouldReduceMotion}
+        onClick={() => setChatOpen(!chatExpanded)}
+      ><ChevronUp size={14} aria-hidden="true" /></button>}
 
       <aside className="dashboard-focus" aria-labelledby="dashboard-priorities-title">
         <div className="dashboard-focus-heading">
