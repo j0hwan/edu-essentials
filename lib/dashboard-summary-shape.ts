@@ -26,8 +26,9 @@ export function dashboardSummaryShape({ width, height, split, baseHeight, radius
     const segmentRight = tabSegmentRight;
     const requestedWidth = Math.max(0, tab.width);
     if (tab.height <= 2 * tab.radius && tab.radius > 0) {
-      const arcRadius = tab.radius;
       const halfRise = tab.height / 2;
+      // Scale the corners to the shallow tab instead of stretching the panel radius across it.
+      const arcRadius = Math.min(tab.radius, halfRise);
       const run = Math.sqrt(Math.max(0, 2 * arcRadius * halfRise - halfRise * halfRise));
       const reach = 2 * run;
       const tabWidth = Math.min(requestedWidth, tabSegmentLength);

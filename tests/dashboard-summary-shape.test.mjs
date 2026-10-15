@@ -49,14 +49,16 @@ test("optional tab is one integrated contour below the chat column", () => {
   }
 });
 
-test("shallow tab uses the parent radius and tangent arcs within its total mouth width", () => {
-  for (const [parentRadius, run] of [[24, Math.sqrt(320)], [20, 16]]) {
+test("shallow tab caps its corner radius to half its depth within its total mouth width", () => {
+  for (const parentRadius of [24, 20]) {
     const height = 300;
+    const tabRadius = 8;
+    const run = 8;
     const path = dashboardSummaryShape({ width: 1000, height, split: 600, baseHeight: height,
       radius: parentRadius, tab: { center: 300, width: 120, height: 16, radius: parentRadius } });
     const middle = height - 0.5 + 8;
     const tabBottom = height - 0.5 + 16;
-    assert.ok(path.includes(`H 360 A ${parentRadius} ${parentRadius} 0 0 0 ${360 - run} ${middle} A ${parentRadius} ${parentRadius} 0 0 1 ${360 - 2 * run} ${tabBottom} H ${240 + 2 * run} A ${parentRadius} ${parentRadius} 0 0 1 ${240 + run} ${middle} A ${parentRadius} ${parentRadius} 0 0 0 240 ${height - 0.5}`));
+    assert.ok(path.includes(`H 360 A ${tabRadius} ${tabRadius} 0 0 0 ${360 - run} ${middle} A ${tabRadius} ${tabRadius} 0 0 1 ${360 - 2 * run} ${tabBottom} H ${240 + 2 * run} A ${tabRadius} ${tabRadius} 0 0 1 ${240 + run} ${middle} A ${tabRadius} ${tabRadius} 0 0 0 240 ${height - 0.5}`));
     assert.equal((path.match(/\bM\b/g) ?? []).length, 1);
     assert.equal((path.match(/\bZ\b/g) ?? []).length, 1);
     assert.ok(path.includes(` ${tabBottom}`));
@@ -66,7 +68,7 @@ test("shallow tab uses the parent radius and tangent arcs within its total mouth
 
 test("tab clamps away from the left corner and L bend and remains safe in narrow bounds", () => {
   const path = dashboardSummaryShape({ ...dimensions, tab: { center: -100, width: 300, height: 40, radius: 30 } });
-  assert.match(path, /H 324\.5 A 30 30 0 0 0 /);
+  assert.match(path, /H 324\.5 A 20 20 0 0 0 /);
   assert.doesNotMatch(path, /Q 600 /);
 
   const narrow = dashboardSummaryShape({ width: 100, height: 120, split: 55, baseHeight: 80, radius: 24,

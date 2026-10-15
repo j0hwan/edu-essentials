@@ -703,7 +703,7 @@ test("observes the summary shell border box and keeps its outline paths in sync 
     await rerender({ reducedMotion: true, chatMessages: [{ id: "tab", question: "Show the tab", status: "complete" }] });
     assert.equal(shell.style.getPropertyValue("--summary-tab-depth"), "16px");
     assert.match(outline.getAttribute("d"), /315\.5/);
-    assert.match(outline.getAttribute("d"), /A 16 16 /);
+    assert.match(outline.getAttribute("d"), /A 8 8 /);
     shellHeight = 340;
     await act(async () => observerCallback([{ target: shell }]));
     assert.equal(shell.style.getPropertyValue("--summary-tab-center"), "170px");
