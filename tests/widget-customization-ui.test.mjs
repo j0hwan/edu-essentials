@@ -573,6 +573,72 @@ test("all five size choices persist across reload, and note duplication or delet
   assert.equal(dashboardData().study.dailyMinutes, savedStudy.dailyMinutes);
 });
 
+test("shrinking a later medium to mini keeps an existing mini pair stable through save and reload", async (context) => {
+  const originalWidth = window.innerWidth;
+  context.after(() => Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth }));
+
+  const widgets = [
+    { instanceId: "upcoming-mini", type: "upcoming", size: "mini" },
+    { instanceId: "daily-goal-mini", type: "daily-goal", size: "mini" },
+    { instanceId: "alerts-small", type: "red-alerts", size: "small" },
+    { instanceId: "notes-medium", type: "notes", size: "medium", note: "Resize regression" },
+    { instanceId: "calendar-medium", type: "mini-calendar", size: "medium" },
+    { instanceId: "alerts2-medium", type: "red-alerts", size: "medium" },
+    { instanceId: "daily-goal-bottom", type: "daily-goal", size: "medium" },
+  ];
+  const dashboard = encodeWorkspaceState([{ id: "day", name: "My Day", widgets }], "day", "");
+
+  for (const columns of [2, 4]) {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: columns === 2 ? 560 : 1024 });
+    if (root) await unmount();
+    reset(); installServer(dashboard); await render(Workspace, { initialProfile: baseProfile });
+
+    const grid = rootNode.querySelector(".widget-grid");
+    assert.ok(grid, "the saved workspace renders its widget grid");
+    // Browser CSS selects this value at the responsive breakpoint. Set it on the
+    // jsdom grid explicitly so both the renderer and the resize callback use the
+    // same breakpoint while exercising the real workspace menu interaction.
+    grid.style.setProperty("--widget-columns", String(columns));
+    await act(async () => window.dispatchEvent(new window.Event("resize")));
+
+    const position = (instanceId) => {
+      const card = rootNode.querySelector(`[data-widget-id="${instanceId}"]`);
+      assert.ok(card, `Missing widget ${instanceId}`);
+      return { column: card.style.gridColumn, row: card.style.gridRow };
+    };
+    const originalMiniPair = [position("upcoming-mini"), position("daily-goal-mini")];
+    const resizeAnchor = position("daily-goal-bottom");
+    const expectedAnchorColumn = Number.parseInt(resizeAnchor.column, 10);
+    const expectedAnchorRow = Number.parseInt(resizeAnchor.row, 10);
+
+    assert.equal(rootNode.querySelector('[data-widget-id="daily-goal-bottom"]').dataset.size, "medium");
+    assert.equal(expectedAnchorColumn, 1, `${columns}-column fixture puts the final medium at column 1`);
+    assert.equal(expectedAnchorRow, columns === 4 ? 5 : 9, `${columns}-column fixture places the final medium on its expected row`);
+
+    const menu = await openWidgetMenu("daily-goal-bottom");
+    await clickAria("Mini widget", menu);
+
+    const resized = rootNode.querySelector('[data-widget-id="daily-goal-bottom"]');
+    assert.equal(resized.dataset.size, "mini");
+    assert.equal(Number.parseInt(position("daily-goal-bottom").column, 10), expectedAnchorColumn,
+      "the resized mini remains in the medium widget's anchored column");
+    assert.equal(Number.parseInt(position("daily-goal-bottom").row, 10), expectedAnchorRow,
+      "the resized mini remains in the medium widget's anchored row");
+    assert.deepEqual([position("upcoming-mini"), position("daily-goal-mini")], originalMiniPair,
+      `${columns}-column resize does not move the existing mini pair`);
+
+    await saveAndReload();
+    const savedWidgets = decodeWorkspaceState(server.dashboard).workspaces[0].widgets;
+    assert.equal(savedWidgets.find((widget) => widget.instanceId === "daily-goal-bottom").size, "mini");
+    assert.deepEqual([position("upcoming-mini"), position("daily-goal-mini")], originalMiniPair,
+      `${columns}-column reload keeps the existing mini pair in its original positions`);
+    assert.equal(Number.parseInt(position("daily-goal-bottom").column, 10), expectedAnchorColumn,
+      `${columns}-column reload keeps the resized mini in its anchored column`);
+    assert.equal(Number.parseInt(position("daily-goal-bottom").row, 10), expectedAnchorRow,
+      `${columns}-column reload keeps the resized mini in its anchored row`);
+  }
+});
+
 test("appearance history, per-widget overrides, and board reset stay scoped", async () => {
   reset(); installServer(); await render(Workspace, { initialProfile: baseProfile });
   await click("Widget customization");

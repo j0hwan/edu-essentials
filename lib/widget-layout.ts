@@ -94,12 +94,12 @@ export function calculateWidgetPlacements(
     const row = Math.floor((priority.row - 1) / 2);
     reserve(column, row, footprint.width, footprint.height);
     priorityPlacement = { column: column + 1, columnSpan: footprint.width, row: row * 2 + 1, rowSpan: size === "mini" ? 1 : footprint.height * 2 };
-    if (size === "mini" && !startsNewMiniBlocks[priority.index]) pendingMini = { column, row };
   }
 
   return sizes.map((size, index) => {
     if (index === priority?.index && priorityPlacement) {
-      if (size === "mini" && startsNewMiniBlocks[index]) pendingMini = { column: priorityPlacement.column - 1, row: (priorityPlacement.row - 1) / 2 };
+      // Its cell was reserved before traversal; only following minis can pair with this anchor.
+      if (size === "mini") pendingMini = { column: priorityPlacement.column - 1, row: (priorityPlacement.row - 1) / 2 };
       return priorityPlacement;
     }
     if (size === "mini") {

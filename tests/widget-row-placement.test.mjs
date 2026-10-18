@@ -159,6 +159,61 @@ test("growing a paired bottom mini keeps its small-cell row and displaces packed
   assert.notDeepEqual(byId["large-blocker"], legacy[2], "the large blocker is repacked around the reserved anchor");
 });
 
+test("shrinking a later medium to mini preserves an earlier mini pair", () => {
+  const beforeResize = [
+    { id: "mini-a", size: "mini" },
+    { id: "mini-b", size: "mini" },
+    { id: "small-a", size: "small" },
+    { id: "medium-a", size: "medium" },
+    { id: "medium-b", size: "medium" },
+    { id: "medium-c", size: "medium" },
+    { id: "resize-target", size: "medium" },
+  ];
+
+  for (const columns of [2, 4]) {
+    const beforePlacements = calculateWidgetPlacements(beforeResize.map(({ size }) => size), columns);
+    const afterResize = beforeResize.map(({ id, size }) => ({
+      id,
+      size: id === "resize-target" ? "mini" : size,
+    }));
+    const resizedPlacements = calculateWidgetPlacements(afterResize.map(({ size }) => size), columns, [], {
+      index: 6,
+      column: beforePlacements[6].column,
+      row: beforePlacements[6].row,
+    });
+
+    assertValidPacking(afterResize, resizedPlacements, columns);
+    assert.deepEqual(resizedPlacements.slice(0, 2), beforePlacements.slice(0, 2),
+      `${columns}-column layout keeps the existing mini pair in place`);
+  }
+});
+
+test("an earlier lone mini stays separate while a later mini joins the priority mini", () => {
+  for (const startsNewBlock of [false, true]) {
+    for (const columns of [2, 4]) {
+      const cards = [
+        { id: "earlier-mini", size: "mini" },
+        { id: "small-between", size: "small" },
+        { id: "anchor-mini", size: "mini" },
+        { id: "following-mini", size: "mini" },
+      ];
+      const placements = calculateWidgetPlacements(cards.map(({ size }) => size), columns,
+        [false, false, startsNewBlock, false], {
+          index: 2,
+          column: columns,
+          row: 5,
+        });
+      const byId = assertValidPacking(cards, placements, columns);
+
+      assert.deepEqual(byId["earlier-mini"], { column: 1, columnSpan: 1, row: 1, rowSpan: 1 },
+        `${columns}-column layout keeps the earlier mini in its own cell`);
+      assert.deepEqual(byId["anchor-mini"], { column: columns, columnSpan: 1, row: 5, rowSpan: 1 });
+      assert.deepEqual(byId["following-mini"], { column: columns, columnSpan: 1, row: 6, rowSpan: 1 },
+        `${columns}-column layout lets the following mini join the priority mini (flagged: ${startsNewBlock})`);
+    }
+  }
+});
+
 test("width growth at the right edge clamps the column and preserves the anchor row", () => {
   const cards = [
     { id: "right-edge", size: "medium" },
