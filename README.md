@@ -8,6 +8,11 @@ Use the [Home and sidebar design standard](docs/design-system.md) for future
 features and pages. It includes visual references, design tokens, responsive
 layout rules, component patterns, and an implementation acceptance checklist.
 
+Use the [widget design standard](docs/widget-design.md) when building or revising
+widgets. It defines the target shared frame, content composition across all five
+sizes, and smooth content motion during resize, using the supplied header and
+Small Alerts references. These are redesign requirements, not shipped behavior.
+
 ## Academic AI pilot
 
 See [ACADEMIC_AI.md](ACADEMIC_AI.md) for the implemented assistant, model selection,

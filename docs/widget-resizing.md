@@ -1,5 +1,11 @@
 # Corner widget resizing
 
+This document describes the current interaction. The [widget design standard](widget-design.md)
+defines the target content motion: smooth repositioning, progressive detail fades,
+and gentle chart resizing during the gesture, including replacing the current
+blur dependency. Those content transitions are design requirements awaiting
+implementation; the frame animation described below already exists.
+
 ## iOS reference and scope
 
 Apple's iPhone guide documents choosing from the sizes a widget supports, and

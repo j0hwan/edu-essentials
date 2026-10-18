@@ -15,6 +15,11 @@ This document makes **Home and the sidebar the visual authority**. Other pages a
 
 **“Baseline” describes the current Home/sidebar implementation. “Standard” describes what future work must follow. “Recommendation” identifies a proposed improvement, not a change already made.** Screenshots support the written rules; they do not turn incidental limitations into requirements.
 
+**Widget redesign:** the [widget design standard](widget-design.md) defines the
+future shared widget frame, reference-based Small composition, per-size content,
+and resize motion. Its widget targets supersede the recorded widget baseline for
+new redesign work; the baseline values below still describe existing behavior.
+
 ## 1. Design principles
 
 | Principle | What it means in a feature |
