@@ -1,37 +1,51 @@
 # Priority carousel gesture behavior
 
-The priority list follows horizontal input while a gesture is active, then settles on the current or an adjacent page. Vertical gestures scroll the webpage. Once a gesture is recognized as horizontal, later diagonal movement belongs to the carousel until that gesture ends.
+The dashboard displays two assignments per page, with a dot for each page and previous/next buttons. The [research and design decision](priority-swipe-research.md) explains the Swiper, Embla, Keen Slider, and wheel-gestures patterns used in this rebuild.
 
-## Research
+## Architecture
 
-Reviewed October 15, 2026:
+`lib/priority-carousel-controller.ts` owns page selection, pointer identity, wheel sessions, cancellation, and animation. Its clock, frame scheduler, and timer scheduler are injected so event streams can be replayed deterministically. `app/priority-carousel.tsx` binds browser events, pointer capture, layout measurements, lifecycle events, and React rendering. `lib/priority-swipe-motion.ts` contains the bounded motion math.
 
-- [Apple: Designing Fluid Interfaces, WWDC18](https://developer.apple.com/videos/play/wwdc2018/803/). The iPhone examples emphasize immediate feedback, continuous redirection, tracking a recognized drag directly, and projecting release velocity to choose an endpoint. Apple recommends starting spring tuning without overshoot and adding bounce only when it serves the interaction.
-- [Apple: UIScrollView.isDirectionalLockEnabled](https://developer.apple.com/documentation/uikit/uiscrollview/isdirectionallockenabled). UIKit can restrict general horizontal or vertical drags to one axis. Its diagonal behavior does not define this web carousel's policy; we deliberately keep horizontal ownership through diagonal wheel packets so the webpage cannot move underneath a swipe.
-- [W3C: Pointer Events, supported direct manipulation behavior](https://www.w3.org/TR/pointerevents3/#determining-supported-direct-manipulation-behavior). Declare `touch-action` before a gesture. `pan-y` leaves vertical touch panning to the browser while allowing the carousel to handle horizontal drags. Canceling a pointer event alone does not prevent browser panning, and browser takeover is reported through `pointercancel`.
-- [W3C: Wheel Events](https://w3c.github.io/uievents/split/wheel-events.html). Wheel packets use pixel, line, or page units. Custom handling needs a non-passive listener and cancelable events. Wheel input has no universally available physical finger-up phase, so an inactivity fallback is needed where the browser does not expose momentum information.
+The controller publishes a snapshot with a committed `page`, immediate `selectedPage`, and an explicit `idle`, `dragging`, or `settling` phase. The selected page drives dots and the polite page announcement. The committed page drives assignment cards and numbering until the slide arrives.
 
-## Implementation decisions
+At arrival, the track origin and page snapshot commit synchronously before the controller releases its motion lock. Ignored input cannot restart a frame sequence, alter its deadline, queue a destination, or change the selected dot.
 
-These are project choices informed by those sources, rather than Apple-prescribed constants or an exact reproduction of iOS physics:
+## Motion
 
-- Track horizontal and vertical wheel gestures separately. Keep the chosen axis through mixed input and the horizontal momentum tail; retain Ctrl+wheel zoom and vertical page scrolling for vertical gestures.
-- Translate the current page and its adjacent previews together. Limit travel to one adjacent page so a large swipe cannot reveal empty space beyond that page or skip multiple pages.
-- Allow at most 21.6px of resisted pull at the first and last pages, using a 24px resistance scale. Apply inward movement to the displayed position immediately, so reversing a large pull never requires unwinding invisible accumulated input.
-- Recognize deliberate reversal even below the fast-flick threshold. A return toward the current page should cancel the earlier outward page choice.
-- Use a 48ms release fallback at an unavailable edge, compared with 80ms for ordinary paging. The edge return uses a critically damped spring with stiffness 900; page changes use stiffness 700. Start an edge return toward the resting position, with no extra outward coast, and settle page changes without overshooting their destination.
-- Consume same-direction packets throughout a page change and until 200ms of quiet after arrival. A `momentum: false` packet alone does not prove a new gesture: it can still belong to the swipe that reached the destination. Derive the guarded direction from the selected page, so a minor inward correction cannot misclassify subsequent momentum.
-- Count uncancelable tail packets as continued input for the quiet window without letting them move the cards or interrupt the animation. Changing browser cancelability mid-swipe must not reopen the destination page.
-- Require 6px of consecutive opposing horizontal input to interrupt a page change or its arrival guard; reset that intent on original-direction or native momentum packets. Edge and canceled-return springs remain immediately interruptible. Preserve horizontal axis ownership through mixed momentum packets.
-- Preserve `touch-action: pan-y`, latch vertical pointer intent, and cancel stale movement on browser takeover, changed assignments, resized content, or lifecycle interruptions.
-- Keep adjacent previews inert and hidden from accessibility APIs. Reduced motion preserves paging while skipping translated tracking and spring animation.
+- Advance at most one adjacent page per accepted gesture. The first and last page have hard stops.
+- Keep raw intent separate from the visible preview, capped at 64px or one quarter of the page distance, whichever is smaller.
+- Select from displacement: 22% of viewport width, bounded between 48px and 120px. Pointer input selects on release; horizontal wheel input selects as soon as the threshold is crossed.
+- Settle with monotone smoothstep easing, with no spring, bounce, overshoot, or velocity projection. The base duration is 70ms, extended only as needed to cap peak speed at 12px/ms. Browser frame scheduling can make observed completion slightly later.
+- Reduced motion commits accepted navigation immediately without a translated intermediate frame.
+
+## Wheel sessions
+
+Wheel ownership outlives a visual transition. Sessions track their axis, consumption or rejection, last input time, direction, and magnitude history. One release timer governs the current session; there are no independent accepted/rejected cooldown timers.
+
+Horizontal sessions use a 70ms quiet boundary. Vertical-first sessions retain native scrolling through mixed-axis packets and use 80ms. Preserve Ctrl+wheel zoom and normalize pixel, line, and page units before submitting input.
+
+A consumed session cannot advance another page with continuing packets. A new session that begins while settling is rejected for its lifetime; its tail cannot resume when the cards arrive. An end signal or the quiet boundary allows recovery without an arrival cooldown.
+
+Feature-detect native `WheelEvent.momentum`. Momentum packets do not move cards. They end active gesture ownership; a subsequent physical packet can start a new session. Browsers without this property use direction and delta history rather than assuming that every wheel packet is deliberate input.
+
+For unmarked input, two declining samples establish a decay trend. A clearly smaller same-direction packet after a quiet gap is also treated as a tail candidate rather than automatically becoming a new swipe. After consumption, a renewed impulse must reach at least 12px and twice the preceding magnitude, or meaningfully reverse direction, to start a fresh session during an established tail. Rejected sessions cannot use this shortcut. A decaying tail can remain guarded across a 70ms quiet gap; history expires after 300ms of silence. Fresh vertical input remains native after horizontal ownership ends.
+
+These thresholds are application heuristics, not a guaranteed reconstruction of physical finger contact. Regression tests cover both native momentum hints and absent-property event streams.
+
+## Pointers, accessibility, and lifecycle
+
+Latch pointer intent after 6px. Capture horizontal drags, retain `touch-action: pan-y`, and leave vertical movement to native page scrolling. A pointer that starts during settling remains ignored through release. Suppress clicks generated by dragging or rejected gestures; allow a fresh deliberate click and keyboard activation.
+
+Retain native previous/next buttons, the polite page status, and global assignment numbering. Adjacent visual previews are inert and hidden from accessibility APIs. Hide pagination when all assignments fit on one page.
+
+Cancel active input, frames, pending selection, and captures on width changes, blur, hidden documents, reduced-motion changes, assignment-order changes, and unmount. Cancellation restores the committed page and its dot. Destroyed controllers cannot publish later frame or timer updates.
 
 ## Verification
 
-Deterministic tests cover travel bounds, deep-pull reversal, slow cancellation after crossing a paging threshold, axis ownership, momentum, reduced motion, and cleanup. `scripts/verify-priority-carousel.mjs` exercises real wheel input, document scroll position, and touch panning. Run it with `PLAYWRIGHT_MODULE` pointing to the available Playwright runtime and optionally `CHROME_EXECUTABLE` pointing to Chrome.
+Run the focused motion, controller, and dashboard tests:
 
-The local Chrome 155 run kept document scroll at 0px through horizontal input followed by a vertical wheel packet, while a vertical-start gesture scrolled the page by 100px. A large edge pull stopped at 21.6px; a 1px reversal immediately reduced it to 20.6px, and the return reached the resting tolerance in about 247ms. Large paging input stopped at exactly one page plus the 8px gap. Real touch input preserved vertical page scrolling and horizontal card tracking, with no browser console or page errors.
+```sh
+node --test --test-concurrency=1 tests/priority-swipe-motion.test.mjs tests/priority-carousel-controller.test.mjs tests/dashboard-study-brief.test.mjs
+```
 
-Arrival regressions also cover both directions with late packets reporting unknown, false, and true momentum. The browser keeps the destination at offset 0 after those packets; deterministic tests additionally cover sparse input during settling, mixed cancelability, small inward nudges, and alternating direction noise.
-
-Automated browser checks establish gesture routing and motion bounds. Judging the final feel still benefits from trying the carousel on a physical trackpad or iPhone.
+`scripts/verify-priority-carousel.mjs` validates the React adapter in Chrome, including destination timing, bounded trajectories, rejected tails crossing arrival, fallback decay and renewed input, native vertical touch panning, click recovery, and reduced motion. Set `PLAYWRIGHT_MODULE` to an available Playwright runtime and optionally `CHROME_EXECUTABLE` to Chrome. Synthetic wheel checks supplement deterministic stream tests; physical trackpad cadence still needs device testing.

@@ -2,99 +2,130 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { clientModule } from "./helpers/client-modules.mjs";
 
-const { advancePriorityOffset, inverseRubberBandOffset, rubberBandOffset, selectPriorityTarget, samplePrioritySpring } = await import(
-  await clientModule("lib/priority-swipe-motion.ts")
-);
+const {
+  PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS,
+  PRIORITY_SLIDE_DURATION_MS,
+  advancePriorityOffset,
+  getPriorityPreviewOffset,
+  getPrioritySlideDuration,
+  samplePrioritySlide,
+  selectPriorityTarget,
+} = await import(await clientModule("lib/priority-swipe-motion.ts"));
 
-test("rubber banding preserves direction and progressively compresses increasing overflow", () => {
-  assert.equal(rubberBandOffset(0, 100), 0);
-
-  const firstOverflow = rubberBandOffset(30, 100);
-  const fartherOverflow = rubberBandOffset(80, 100);
-  assert.ok(firstOverflow > 0 && firstOverflow < 30);
-  assert.ok(fartherOverflow > firstOverflow && fartherOverflow < 80);
-  assert.ok(fartherOverflow < 100);
-  assert.ok(rubberBandOffset(-80, 100) < -firstOverflow);
-  assert.ok(rubberBandOffset(-80, 100) > -80);
+test("priority slide has a 70ms base duration and a 12px/ms speed cap", () => {
+  assert.equal(PRIORITY_SLIDE_DURATION_MS, 70);
+  assert.equal(PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS, 12);
+  assert.equal(getPrioritySlideDuration(-120, -328), 70);
+  assert.equal(getPrioritySlideDuration(0, -1000), 125);
 });
 
-test("edge regrab recovers the raw pull from its compressed display offset", () => {
-  for (const rawDistance of [8, 30, 80]) {
-    const displayedDistance = rubberBandOffset(rawDistance, 100);
-    assert.ok(Math.abs(inverseRubberBandOffset(displayedDistance, 100) - rawDistance) < 1e-8);
+test("gesture preview is capped independently from raw intent used for page selection", () => {
+  assert.equal(getPriorityPreviewOffset(-10000, 328), -64);
+  assert.equal(getPriorityPreviewOffset(10000, 328), 64);
+  assert.equal(getPriorityPreviewOffset(-10000, 80), -20);
+  assert.equal(getPriorityPreviewOffset(10000, 80), 20);
+  assert.equal(getPriorityPreviewOffset(-12.5, 328), -12.5);
+  assert.equal(getPriorityPreviewOffset(Number.NaN, 328), 0);
+
+  const select = (offset, width) => selectPriorityTarget({
+    offset,
+    width,
+    canPrevious: true,
+    canNext: true,
+  });
+  assert.equal(getPriorityPreviewOffset(-100, 328), -64);
+  assert.equal(select(-100, 320), 1, "page selection uses uncapped intent even when the preview is below threshold");
+});
+
+test("offset advancement clamps both page edges without rubber banding", () => {
+  const bounds = { min: -328, max: 328 };
+  assert.equal(advancePriorityOffset(0, -1000, bounds), -328);
+  assert.equal(advancePriorityOffset(-328, -1000, bounds), -328);
+  assert.equal(advancePriorityOffset(0, 1000, bounds), 328);
+  assert.equal(advancePriorityOffset(328, 1000, bounds), 328);
+
+  const firstPageBounds = { min: -328, max: 0 };
+  assert.equal(advancePriorityOffset(0, 1, firstPageBounds), 0);
+  assert.equal(advancePriorityOffset(0, 1000, firstPageBounds), 0);
+  assert.equal(advancePriorityOffset(-40, -1000, firstPageBounds), -328);
+  assert.equal(advancePriorityOffset(Number.NaN, 100, bounds), 0);
+  assert.equal(advancePriorityOffset(0, Number.POSITIVE_INFINITY, bounds), 0);
+});
+
+test("page selection uses only the bounded distance threshold", () => {
+  const select = (offset, width, canPrevious = true, canNext = true) => selectPriorityTarget({
+    offset,
+    width,
+    canPrevious,
+    canNext,
+  });
+
+  assert.equal(select(-47.99, 100), 0);
+  assert.equal(select(-48, 100), 1);
+  assert.equal(select(48, 100), -1);
+
+  assert.equal(select(-70.39, 320), 0);
+  assert.equal(select(-70.4, 320), 1);
+  assert.equal(select(70.4, 320), -1);
+
+  assert.equal(select(-119.99, 1000), 0);
+  assert.equal(select(-120, 1000), 1);
+  assert.equal(select(120, 1000), -1);
+
+  assert.equal(select(120, 320, false, true), 0);
+  assert.equal(select(-120, 320, true, false), 0);
+  assert.equal(select(Number.NaN, 320), 0);
+});
+
+test("slide samples use smoothstep easing, clamp at the target, and never overshoot", () => {
+  const start = -120;
+  const target = -328;
+  const at = (elapsedMs) => samplePrioritySlide({ position: start, target, elapsedMs });
+
+  assert.deepEqual(at(0), { position: -120, done: false });
+  assert.deepEqual(at(17.5), { position: -152.5, done: false });
+  assert.deepEqual(at(35), { position: -224, done: false });
+  assert.deepEqual(at(52.5), { position: -295.5, done: false });
+  assert.deepEqual(at(70), { position: target, done: true });
+  assert.deepEqual(at(90), { position: target, done: true });
+  assert.notEqual(at(17.5).position, start + (target - start) * 0.25, "the path is eased instead of linear");
+
+  for (const elapsedMs of [0, 1, 9, 17, 34, 35, 52, 69, 70, 90]) {
+    const sample = at(elapsedMs);
+    assert.ok(sample.position <= start && sample.position >= target, "the forward slide stays between its endpoints");
   }
 });
 
-test("offset advancement caps edge resistance and reverses without hidden overflow debt", () => {
-  const pageBounds = { min: -408, max: 408 };
-  assert.equal(advancePriorityOffset(0, -1000, pageBounds), -408);
-  assert.equal(advancePriorityOffset(-408, -500, pageBounds), -408);
-
-  const firstPageBounds = { min: -408, max: 0, resistMax: true, resistanceLimit: 24 };
-  const pulled = advancePriorityOffset(0, 1000, firstPageBounds);
-  assert.ok(pulled > 0 && pulled <= 24, `edge pull stays within 24px (got ${pulled})`);
-
-  const reversed = advancePriorityOffset(pulled, -1, firstPageBounds);
-  assert.equal(reversed, pulled - 1, "a small reverse delta immediately unwinds the displayed edge pull");
-  assert.ok(reversed < pulled);
+test("slide sampling also moves back toward the origin without overshoot", () => {
+  const sample = (elapsedMs) => samplePrioritySlide({ position: 328, target: 0, elapsedMs });
+  assert.deepEqual(sample(0), { position: 328, done: false });
+  assert.deepEqual(sample(17.5), { position: 276.75, done: false });
+  assert.deepEqual(sample(35), { position: 164, done: false });
+  assert.deepEqual(sample(70), { position: 0, done: true });
+  assert.ok(sample(52).position > 0);
+  assert.ok(sample(52).position < 328);
 });
 
-test("release selection commits long drags and short flicks, cancels small motion, and respects ends", () => {
-  const options = { width: 400, canPrevious: true, canNext: true };
-  assert.equal(selectPriorityTarget({ ...options, offset: -130, velocity: 0.02 }), 1);
-  assert.equal(selectPriorityTarget({ ...options, offset: 130, velocity: -0.02 }), -1);
-  assert.equal(selectPriorityTarget({ ...options, offset: -24, velocity: -0.9 }), 1);
-  assert.equal(selectPriorityTarget({ ...options, offset: -16, velocity: -0.9 }), 0);
-  assert.equal(selectPriorityTarget({ ...options, offset: -1, velocity: -0.9 }), 0);
-  assert.equal(selectPriorityTarget({ ...options, offset: -16, velocity: 0.02 }), 0);
-  assert.equal(selectPriorityTarget({ ...options, offset: 16, velocity: -0.02 }), 0);
+test("long slides extend their duration to keep sampled speed at or below 12px/ms", () => {
+  const start = 123;
+  const target = -877;
+  const durationMs = getPrioritySlideDuration(start, target);
+  assert.equal(durationMs, 125);
 
-  assert.equal(selectPriorityTarget({ ...options, canPrevious: false, offset: 130, velocity: 0.9 }), 0);
-  assert.equal(selectPriorityTarget({ ...options, canNext: false, offset: -130, velocity: -0.9 }), 0);
-});
-
-test("a recent deliberate reversal cancels a page-threshold drag even when it is slow", () => {
-  const options = { width: 320, canPrevious: true, canNext: true };
-  assert.equal(selectPriorityTarget({ ...options, offset: -120, velocity: 0.2 }), 0);
-  assert.equal(selectPriorityTarget({ ...options, offset: -120, velocity: -0.1 }), 1);
-});
-
-test("a spring carries motion toward its target and settles without drifting", () => {
-  const start = { position: 0, velocity: 0 };
-  const sampleAt16ms = samplePrioritySpring({ ...start, target: 1, elapsedMs: 16 });
-  assert.ok(sampleAt16ms.position > 0);
-
-  let sample;
-  for (let elapsedMs = 16; elapsedMs <= 1500; elapsedMs += 16) {
-    sample = samplePrioritySpring({ ...start, target: 1, elapsedMs });
-    if (sample.done) break;
-  }
-
-  assert.equal(sample.done, true);
-  assert.ok(Math.abs(sample.position - 1) < 0.01);
-  assert.ok(Math.abs(sample.velocity) < 0.01);
-});
-
-test("a critically damped edge return settles under 300ms without crossing its target", () => {
-  let previousPosition = 24;
-  let sample;
-  let elapsedMs = 0;
-
-  for (elapsedMs = 16; elapsedMs <= 300; elapsedMs += 16) {
-    sample = samplePrioritySpring({
-      position: 24,
-      velocity: 0,
-      target: 0,
+  let priorPosition = start;
+  let maxSampledSpeed = 0;
+  for (let elapsedMs = 1; elapsedMs <= durationMs; elapsedMs += 1) {
+    const sample = samplePrioritySlide({
+      position: start,
+      target,
       elapsedMs,
-      stiffness: 900,
-      damping: 60,
+      durationMs: 1,
     });
-    assert.ok(sample.position >= 0, `edge return never passes its target (${sample.position}px)`);
-    assert.ok(sample.position <= previousPosition, `edge return moves inward (${sample.position}px)`);
-    previousPosition = sample.position;
-    if (sample.done) break;
+    maxSampledSpeed = Math.max(maxSampledSpeed, Math.abs(sample.position - priorPosition));
+    assert.ok(sample.position <= start && sample.position >= target, "every sample remains within its endpoints");
+    priorPosition = sample.position;
   }
-
-  assert.equal(sample?.done, true);
-  assert.ok(elapsedMs < 300, `edge return finishes before 300ms (finished at ${elapsedMs}ms)`);
+  assert.ok(maxSampledSpeed <= PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS, `sampled speed is ${maxSampledSpeed}px/ms`);
+  assert.equal(samplePrioritySlide({ position: start, target, elapsedMs: 124, durationMs: 1 }).done, false);
+  assert.deepEqual(samplePrioritySlide({ position: start, target, elapsedMs: 125, durationMs: 1 }), { position: target, done: true });
 });

@@ -1,190 +1,101 @@
 export type PriorityPageDelta = -1 | 0 | 1;
 
-export type PrioritySpringSample = {
-  position: number;
-  velocity: number;
-  done: boolean;
-};
+export const PRIORITY_SLIDE_DURATION_MS = 70;
+export const PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS = 12;
+
+const PRIORITY_PREVIEW_MAX_PX = 64;
 
 const MIN_SWIPE_DISTANCE = 48;
 const MAX_SWIPE_DISTANCE = 120;
 const SWIPE_DISTANCE_RATIO = 0.22;
-const FLICK_VELOCITY = 0.65;
-const MIN_FLICK_DISTANCE = 20;
-const FLICK_PROJECTION_MS = 120;
-const MIN_REVERSAL_VELOCITY = 0.12;
 
-/** Compress movement that is already beyond an edge while keeping the first part responsive. */
-export function rubberBandOffset(distance: number, limit: number, factor = 0.55) {
-  if (!Number.isFinite(distance) || !Number.isFinite(limit) || limit <= 0) return 0;
-
-  const magnitude = Math.abs(distance) * Math.max(0, factor);
-  const resistedMagnitude = Math.min((limit * magnitude) / (limit + magnitude), limit * 0.9);
-  return Math.sign(distance) * resistedMagnitude;
+/** Keep the live gesture preview small while retaining the full intent for selection. */
+export function getPriorityPreviewOffset(intent: number, pageDistance: number) {
+  const safeIntent = Number.isFinite(intent) ? intent : 0;
+  const safePageDistance = Number.isFinite(pageDistance) ? Math.max(0, pageDistance) : 0;
+  const previewLimit = Math.min(PRIORITY_PREVIEW_MAX_PX, safePageDistance / 4);
+  return Math.max(-previewLimit, Math.min(previewLimit, safeIntent));
 }
 
-/** Recover the uncompressed overflow amount from a displayed rubber-band offset. */
-export function inverseRubberBandOffset(resistedDistance: number, limit: number, factor = 0.55) {
-  if (!Number.isFinite(resistedDistance) || !Number.isFinite(limit) || limit <= 0 || factor <= 0) return 0;
-
-  const magnitude = Math.min(Math.abs(resistedDistance), limit * 0.9);
-  const distance = (limit * magnitude) / (factor * (limit - magnitude));
-  return Math.sign(resistedDistance) * distance;
+/** Keep the peak speed of a smoothstep slide at or below the configured limit. */
+export function getPrioritySlideDuration(position: number, target: number) {
+  const start = Number.isFinite(position) ? position : 0;
+  const destination = Number.isFinite(target) ? target : start;
+  const distance = Math.abs(destination - start);
+  return Math.max(
+    PRIORITY_SLIDE_DURATION_MS,
+    Math.ceil(1.5 * distance / PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS),
+  );
 }
 
-/**
- * Advance a displayed carousel offset by one input delta. Reversing an edge
- * pull moves the displayed position immediately; only further outward travel
- * is mapped through the inverse rubber-band curve.
- */
+/** Move an offset by a delta while keeping it inside the available page bounds. */
 export function advancePriorityOffset(
   displayedOffset: number,
   delta: number,
-  {
-    min,
-    max,
-    resistMin = false,
-    resistMax = false,
-    resistanceLimit = 24,
-  }: {
-    min: number;
-    max: number;
-    resistMin?: boolean;
-    resistMax?: boolean;
-    resistanceLimit?: number;
-  },
+  { min, max }: { min: number; max: number },
 ) {
   if (!Number.isFinite(displayedOffset)) return 0;
-  if (!Number.isFinite(delta) || delta === 0) return displayedOffset;
 
   const lower = Math.min(min, max);
   const upper = Math.max(min, max);
   if (!Number.isFinite(lower) || !Number.isFinite(upper)) return displayedOffset;
-  const limit = Number.isFinite(resistanceLimit) && resistanceLimit > 0 ? resistanceLimit : 24;
 
-  // Unwind visible resistance one-to-one so a tiny reversal is immediately
-  // perceptible even after a large outward pull.
-  if (displayedOffset < lower && delta > 0) return Math.min(upper, displayedOffset + delta);
-  if (displayedOffset > upper && delta < 0) return Math.max(lower, displayedOffset + delta);
-
-  const proposed = displayedOffset + delta;
-  if (proposed < lower) {
-    if (!resistMin) return lower;
-    const rawOverflow = displayedOffset < lower
-      ? inverseRubberBandOffset(displayedOffset - lower, limit) + delta
-      : proposed - lower;
-    return lower + rubberBandOffset(rawOverflow, limit);
-  }
-  if (proposed > upper) {
-    if (!resistMax) return upper;
-    const rawOverflow = displayedOffset > upper
-      ? inverseRubberBandOffset(displayedOffset - upper, limit) + delta
-      : proposed - upper;
-    return upper + rubberBandOffset(rawOverflow, limit);
-  }
-  return proposed;
+  const proposed = displayedOffset + (Number.isFinite(delta) ? delta : 0);
+  return Math.max(lower, Math.min(upper, proposed));
 }
 
-/** Choose at most one adjacent page from the final offset and deliberate flick velocity. */
+/** Choose at most one adjacent page using the final distance from the committed page. */
 export function selectPriorityTarget({
   offset,
-  velocity,
   width,
   canPrevious,
   canNext,
-  isReversing = false,
 }: {
   offset: number;
-  velocity: number;
   width: number;
   canPrevious: boolean;
   canNext: boolean;
-  isReversing?: boolean;
 }): PriorityPageDelta {
-  const threshold = Math.min(MAX_SWIPE_DISTANCE, Math.max(MIN_SWIPE_DISTANCE, width * SWIPE_DISTANCE_RATIO));
-  let projectedOffset = offset;
+  if (!Number.isFinite(offset)) return 0;
 
-  if (Math.abs(offset) < MIN_FLICK_DISTANCE || isReversing) return 0;
-  if (
-    Number.isFinite(velocity)
-    && offset * velocity < 0
-    && Math.abs(velocity) >= MIN_REVERSAL_VELOCITY
-  ) {
-    return 0;
-  }
-  if (Number.isFinite(velocity) && Math.abs(velocity) >= FLICK_VELOCITY) {
-    const projection = offset + velocity * FLICK_PROJECTION_MS;
-    // Reversal should unwind toward the committed page; it cannot predict through it.
-    projectedOffset = Math.sign(projection) !== Math.sign(offset) ? 0 : projection;
-  }
-
-  if (projectedOffset >= threshold) return canPrevious ? -1 : 0;
-  if (projectedOffset <= -threshold) return canNext ? 1 : 0;
+  const safeWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
+  const threshold = Math.min(MAX_SWIPE_DISTANCE, Math.max(MIN_SWIPE_DISTANCE, safeWidth * SWIPE_DISTANCE_RATIO));
+  if (offset >= threshold) return canPrevious ? -1 : 0;
+  if (offset <= -threshold) return canNext ? 1 : 0;
   return 0;
 }
 
-/**
- * Sample an analytical damped spring, so frame-rate changes do not alter its motion.
- * Position and velocity use px and px/sec; elapsedMs uses milliseconds.
- */
-export function samplePrioritySpring({
+export type PrioritySlideSample = {
+  position: number;
+  done: boolean;
+};
+
+/** Sample a monotone, eased slide from its initial position to its target. */
+export function samplePrioritySlide({
   position,
-  velocity,
   target,
   elapsedMs,
-  stiffness = 360,
-  damping = 32,
+  durationMs = PRIORITY_SLIDE_DURATION_MS,
 }: {
   position: number;
-  velocity: number;
   target: number;
   elapsedMs: number;
-  stiffness?: number;
-  damping?: number;
-}): PrioritySpringSample {
-  const safeStiffness = Math.max(0.001, Number.isFinite(stiffness) ? stiffness : 360);
-  const safeDamping = Math.max(0, Number.isFinite(damping) ? damping : 32);
-  const time = Math.max(0, Number.isFinite(elapsedMs) ? elapsedMs / 1000 : 0);
-  const naturalFrequency = Math.sqrt(safeStiffness);
-  const dampingRatio = safeDamping / (2 * naturalFrequency);
-  const initialDisplacement = position - target;
-  let displacement: number;
-  let nextVelocity: number;
+  durationMs?: number;
+}): PrioritySlideSample {
+  const start = Number.isFinite(position) ? position : 0;
+  const destination = Number.isFinite(target) ? target : start;
+  const requestedDuration = Number.isFinite(durationMs)
+    ? Math.max(0, durationMs)
+    : PRIORITY_SLIDE_DURATION_MS;
+  const duration = Math.max(requestedDuration, getPrioritySlideDuration(start, destination));
+  const elapsed = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
 
-  if (dampingRatio < 0.999) {
-    const dampedFrequency = naturalFrequency * Math.sqrt(1 - dampingRatio * dampingRatio);
-    const sineCoefficient = (velocity + dampingRatio * naturalFrequency * initialDisplacement) / dampedFrequency;
-    const phase = dampedFrequency * time;
-    const envelope = Math.exp(-dampingRatio * naturalFrequency * time);
-    const cosine = Math.cos(phase);
-    const sine = Math.sin(phase);
-    displacement = envelope * (initialDisplacement * cosine + sineCoefficient * sine);
-    nextVelocity = envelope * (
-      -dampingRatio * naturalFrequency * (initialDisplacement * cosine + sineCoefficient * sine)
-      + (-initialDisplacement * dampedFrequency * sine + sineCoefficient * dampedFrequency * cosine)
-    );
-  } else if (dampingRatio <= 1.001) {
-    const coefficient = velocity + naturalFrequency * initialDisplacement;
-    const envelope = Math.exp(-naturalFrequency * time);
-    displacement = (initialDisplacement + coefficient * time) * envelope;
-    nextVelocity = (coefficient - naturalFrequency * (initialDisplacement + coefficient * time)) * envelope;
-  } else {
-    const root = Math.sqrt(dampingRatio * dampingRatio - 1);
-    const fastRate = -naturalFrequency * (dampingRatio + root);
-    const slowRate = -naturalFrequency * (dampingRatio - root);
-    const fastCoefficient = (velocity - slowRate * initialDisplacement) / (fastRate - slowRate);
-    const slowCoefficient = initialDisplacement - fastCoefficient;
-    const fastTerm = fastCoefficient * Math.exp(fastRate * time);
-    const slowTerm = slowCoefficient * Math.exp(slowRate * time);
-    displacement = fastTerm + slowTerm;
-    nextVelocity = fastRate * fastTerm + slowRate * slowTerm;
-  }
+  if (elapsed >= duration) return { position: destination, done: true };
 
-  const nextPosition = target + displacement;
-  const done = (Math.abs(displacement) <= 0.5 && Math.abs(nextVelocity) <= 5) || time >= 1.5;
+  const linearProgress = elapsed / duration;
+  const progress = linearProgress * linearProgress * (3 - 2 * linearProgress);
   return {
-    position: done ? target : nextPosition,
-    velocity: done ? 0 : nextVelocity,
-    done,
+    position: start + (destination - start) * progress,
+    done: false,
   };
 }

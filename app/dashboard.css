@@ -113,7 +113,9 @@
 .dashboard-focus-page-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 10px; color: var(--brand-dark); background: color-mix(in srgb, var(--surface-2) 56%, transparent); transition: border-color 150ms ease, background 150ms ease, opacity 150ms ease; }
 .dashboard-focus-page-button:hover:not(:disabled) { border-color: var(--brand); background: var(--brand-soft); }
 .dashboard-focus-page-button:disabled { color: var(--subtle); opacity: 0.45; cursor: not-allowed; }
-.dashboard-focus-range { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; text-align: center; }
+.dashboard-focus-page-dots { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; padding: 8px 0; }
+.dashboard-focus-page-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--muted) 36%, transparent); }
+.dashboard-focus-page-dot--active { background: var(--ink); }
 .dashboard-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
 .dashboard-dot.overdue { background: var(--red); }
 .dashboard-dot.today { background: var(--amber); }
