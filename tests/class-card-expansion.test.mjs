@@ -379,6 +379,66 @@ test("opening animates asymmetric source corners and shadow while the preview av
   }
 });
 
+test("course-code badges fit the full text without ellipsis during opening and closing", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  const sourceCode = source.querySelector("[data-course-morph='code']");
+  sourceCode.className = "course-pill";
+  sourceCode.textContent = "ECON-101";
+  const restoreRects = installMorphRectMocks();
+  const styles = document.createElement("style");
+  try {
+    const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+    const dashboardStyles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
+    styles.textContent = `${globalStyles.match(/^\.course-pill \{[^}]+\}/m)[0]}\n${dashboardStyles.match(/^\.expanded-class-header \.course-pill \{[^}]+\}/m)[0]}`;
+    document.head.appendChild(styles);
+    await render({ children: (close) => h("div", { className: "expanded-class-header" },
+      h("span", { className: "course-pill", "data-course-morph": "code" }, "ECON-101"),
+      h("button", { onClick: close }, "Close class"),
+    ) });
+
+    const assertBadgeStyles = (element) => {
+      const computed = window.getComputedStyle(element);
+      assert.equal(element.textContent, "ECON-101");
+      assert.equal(computed.whiteSpace, "nowrap");
+      assert.equal(computed.flexShrink, "0");
+      assert.equal(computed.lineHeight, "1.4");
+      assert.notEqual(computed.overflow, "hidden");
+      assert.notEqual(computed.textOverflow, "ellipsis");
+      assert.equal(computed.maxWidth, "none");
+    };
+    assertBadgeStyles(sourceCode);
+    const expandedCode = document.querySelector(".class-card-expansion-content .course-pill");
+    assertBadgeStyles(expandedCode);
+    assert.equal(window.getComputedStyle(sourceCode).width, "max-content");
+    assert.equal(window.getComputedStyle(expandedCode).width, "max-content");
+
+    const openingWrapper = document.querySelector(".class-card-expansion-morph[data-course-morph='code']");
+    const openingBadge = openingWrapper.firstElementChild;
+    assertBadgeStyles(openingBadge);
+    assert.equal(openingWrapper.style.overflow, "visible", "interpolated wrapper bounds do not clip the intrinsic badge");
+    assert.equal(openingBadge.style.width, "max-content", "the background follows the full text width, not rounded animation bounds");
+    assert.equal(openingBadge.style.height, "auto", "the background follows the animated line height and padding");
+    assert.equal(openingBadge.style.inset, "0 auto auto 0");
+    assert.equal(openingBadge.style.boxSizing, "border-box", "animated padding stays inside the background");
+    const badgeStyles = calls.find((call) => call.element === openingBadge);
+    assert.equal(badgeStyles.frames[0].fontSize, "9px");
+    assert.equal(badgeStyles.frames.at(-1).fontSize, "12px");
+    assert.equal(badgeStyles.frames.at(-1).paddingLeft, "12px");
+
+    await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
+    await act(async () => document.querySelector(".class-card-expansion-content button").click());
+    const closingBadge = document.querySelector(".class-card-expansion-morph[data-course-morph='code']").firstElementChild;
+    assertBadgeStyles(closingBadge);
+    assert.equal(closingBadge.style.width, "max-content");
+    assert.equal(closingBadge.style.height, "auto");
+  } finally {
+    restoreRects();
+    await cleanup();
+    styles.remove();
+  }
+});
+
 test("matched visual, icon, and labels stay in an opaque shared layer through the expansion", async () => {
   const { source, render, cleanup } = setup();
   setMorphFixture(source);

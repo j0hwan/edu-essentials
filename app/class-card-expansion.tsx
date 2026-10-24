@@ -293,6 +293,14 @@ function createMorphWrapper(pair: MorphPair, direction: "opening" | "closing", l
   clone.style.setProperty("box-sizing", "border-box");
   clone.style.setProperty("margin", "0");
   clone.style.setProperty("transform-origin", "top left");
+  if (pair.key === "code") {
+    clone.style.setProperty("inset", "0 auto auto 0");
+    clone.style.setProperty("width", "max-content");
+    clone.style.setProperty("height", "auto");
+    clone.style.setProperty("white-space", "nowrap");
+    clone.style.setProperty("overflow", "visible");
+    clone.style.setProperty("text-overflow", "clip");
+  }
   if (pair.key === "name") {
     // Match the label's destination wrapping while the wrapper clips to its current bounds.
     const wrappingStyles = direction === "opening" ? pair.targetStyles : pair.sourceStyles;
@@ -340,6 +348,7 @@ function createMorphWrapper(pair: MorphPair, direction: "opening" | "closing", l
   wrapper.dataset.courseMorph = pair.key;
   wrapper.setAttribute("aria-hidden", "true");
   wrapper.style.zIndex = ["visual", "watermark"].includes(pair.key) ? "0" : "2";
+  if (pair.key === "code") wrapper.style.overflow = "visible";
   wrapper.appendChild(clone);
   layer.appendChild(wrapper);
   pair.wrapper = wrapper;
