@@ -376,24 +376,15 @@ function isVisibleAnchor(rect: WidgetMotionRect): boolean {
     && rect.top < navTop && rect.top + rect.height > 0;
 }
 
-function getExpansionRect(anchor: WidgetMotionRect | null): WidgetMotionRect {
+function getExpansionRect(): WidgetMotionRect {
   const viewportWidth = Math.max(1, window.innerWidth);
   const viewportHeight = Math.max(1, window.innerHeight);
   const margin = viewportWidth <= 600 ? 12 : 18;
   const minLeft = getSidebarRight() + margin;
   const availableBottom = Math.min(viewportHeight, getMobileNavTop());
-  const width = Math.max(1, Math.min(840, viewportWidth - minLeft - margin));
-  const height = Math.max(1, Math.min(740, availableBottom - margin * 2));
-  const maxLeft = Math.max(minLeft, viewportWidth - margin - width);
-  const maxTop = Math.max(margin, availableBottom - margin - height);
-  // Grow equally on both sides, staying between the sidebar and the viewport edge.
-  const left = anchor
-    ? Math.min(maxLeft, Math.max(minLeft, anchor.left + (anchor.width - width) / 2))
-    : minLeft + (maxLeft - minLeft) / 2;
-  const top = anchor
-    ? Math.min(maxTop, Math.max(margin, anchor.top + anchor.height - height))
-    : margin + (maxTop - margin) / 2;
-  return { left, top, width, height };
+  const width = Math.max(1, viewportWidth - minLeft - margin);
+  const height = Math.max(1, availableBottom - margin * 2);
+  return { left: minLeft, top: margin, width, height };
 }
 
 function makeStaticPreview(source: HTMLElement): HTMLElement {
@@ -551,7 +542,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     const anchor = source
       ? sourceRect && isVisibleAnchor(sourceRect) ? sourceRect : null
       : triggerRect && isVisibleAnchor(triggerRect) ? triggerRect : null;
-    const destination = getExpansionRect(anchor);
+    const destination = getExpansionRect();
     const startRect = anchor ?? destination;
     const expandedAppearance = readVisualAppearance(expansionDialog);
     const sourceAppearance = source && anchor ? readVisualAppearance(source) : null;
@@ -1193,9 +1184,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     }
 
     function currentExpansionRect(): WidgetMotionRect {
-      const anchorElement = sourceRef.current ?? triggerRef.current;
-      const anchorRect = anchorElement?.isConnected ? anchorElement.getBoundingClientRect() : null;
-      return getExpansionRect(anchorRect && isVisibleAnchor(anchorRect) ? anchorRect : null);
+      return getExpansionRect();
     }
 
     function handleSidebarReflow() {

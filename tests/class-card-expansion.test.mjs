@@ -254,28 +254,28 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(dialog.getAttribute("aria-label"), "Class details");
     assert.equal(dialog.getAttribute("aria-modal"), "true");
     assert.equal(dialog.style.left, "18px");
-    assert.equal(dialog.style.top, "60px");
-    assert.equal(dialog.style.width, "840px");
-    assert.equal(dialog.style.height, "740px");
+    assert.equal(dialog.style.top, "18px");
+    assert.equal(dialog.style.width, "1164px");
+    assert.equal(dialog.style.height, "864px");
     const content = dialog.querySelector(".class-card-expansion-content");
     const dialogStyle = window.getComputedStyle(dialog);
     const borderLeft = Number.parseFloat(dialogStyle.borderLeftWidth) || 0;
-    assert.equal(Number.parseFloat(content.style.width), 840 - (Number.parseFloat(dialogStyle.borderLeftWidth) || 0) - (Number.parseFloat(dialogStyle.borderRightWidth) || 0), "detail layout stays at its destination inner width while the shell expands");
-    assert.equal(Number.parseFloat(content.style.height), 740 - (Number.parseFloat(dialogStyle.borderTopWidth) || 0) - (Number.parseFloat(dialogStyle.borderBottomWidth) || 0), "detail layout stays at its destination inner height while the shell expands");
+    assert.equal(Number.parseFloat(content.style.width), 1164 - (Number.parseFloat(dialogStyle.borderLeftWidth) || 0) - (Number.parseFloat(dialogStyle.borderRightWidth) || 0), "detail layout stays at its destination inner width while the shell expands");
+    assert.equal(Number.parseFloat(content.style.height), 864 - (Number.parseFloat(dialogStyle.borderTopWidth) || 0) - (Number.parseFloat(dialogStyle.borderBottomWidth) || 0), "detail layout stays at its destination inner height while the shell expands");
     assert.equal(shape.frames.length, 31);
-    assert.deepEqual(geometryFrames(shape.frames), createCourseExpansionSettleFrames(sourceRect, { left: 18, top: 60, width: 840, height: 740 }));
+    assert.deepEqual(geometryFrames(shape.frames), createCourseExpansionSettleFrames(sourceRect, { left: 18, top: 18, width: 1164, height: 864 }));
     assert.deepEqual(shape.frames[0], {
       offset: 0,
       width: "260px",
       height: "200px",
-      transform: "translate(12px, 540px)",
+      transform: "translate(12px, 582px)",
       transformOrigin: "top left",
       ...appearanceOf(source),
     });
     assert.deepEqual(shape.frames.at(-1), {
       offset: 1,
-      width: "840px",
-      height: "740px",
+      width: "1164px",
+      height: "864px",
       transform: "translate(0px, 0px)",
       transformOrigin: "top left",
       ...expandedAppearance,
@@ -286,7 +286,7 @@ test("expansion animates from the matched source into a bounded in-place modal a
     const detailGeometry = contentGeometryCalls()[0];
     assert.deepEqual(detailGeometry.frames, createCourseExpansionHorizontalFrames(
       sourceRect,
-      { left: 18, top: 60, width: 840, height: 740 },
+      { left: 18, top: 18, width: 1164, height: 864 },
       18 + borderLeft,
       18 + borderLeft,
       borderLeft,
@@ -886,7 +886,7 @@ test("opening resize preserves the captured content position with an unchanged s
     await render();
     const initialShape = callsFor(".class-card-expansion-dialog")[0];
     const initialGeometry = contentGeometryCalls()[0];
-    dialogRectOverride = { left: 100, top: 80, width: 840, height: 740 };
+    dialogRectOverride = { left: 100, top: 80, width: 1164, height: 864 };
     detailRectOverride = { left: 150, top: 81, width: 838, height: 738 };
     sourceRect = { left: 540, top: 500, width: 260, height: 200 };
     await act(async () => window.dispatchEvent(new window.Event("resize")));
@@ -896,8 +896,8 @@ test("opening resize preserves the captured content position with an unchanged s
     const borderLeft = Number.parseFloat(window.getComputedStyle(document.querySelector(".class-card-expansion-dialog")).borderLeftWidth) || 0;
     assert.equal(initialShape.animation.cancelled, true);
     assert.equal(initialGeometry.animation.cancelled, true);
-    assert.equal(retargetedShape.frames[0].width, "840px");
-    assert.equal(retargetedShape.frames.at(-1).width, "840px", "the retarget keeps the expanded width unchanged");
+    assert.equal(retargetedShape.frames[0].width, "1164px");
+    assert.equal(retargetedShape.frames.at(-1).width, "1164px", "the retarget keeps the expanded width unchanged");
     assert.equal(retargetedGeometry.frames[0].transform, `translateX(${detailRectOverride.left - dialogRectOverride.left - borderLeft}px)`, "the first frame matches the captured live content position");
     assert.equal(retargetedGeometry.frames.at(-1).transform, "translateX(0px)");
   } finally {
@@ -1130,7 +1130,7 @@ test("mobile bounds keep the expanded card above the bottom navigation", async (
   }
 });
 
-test("expansion stays centered on interior cards in four- and seven-column layouts", async () => {
+test("expansion fills the inset viewport regardless of the selected card or column count", async () => {
   const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
   const layouts = [
     { width: 1800, centers: [680, 1120] },
@@ -1146,8 +1146,10 @@ test("expansion stays centered on interior cards in four- and seven-column layou
           await render();
           const dialog = document.querySelector(".class-card-expansion-dialog");
           const left = Number.parseFloat(dialog.style.left);
-          assert.equal(left, center - 420);
-          assert.equal(left + Number.parseFloat(dialog.style.width) / 2, center);
+          assert.equal(left, 18);
+          assert.equal(Number.parseFloat(dialog.style.width), layout.width - 36);
+          assert.equal(dialog.style.top, "18px");
+          assert.equal(dialog.style.height, "864px");
         } finally {
           await cleanup();
         }
@@ -1159,13 +1161,13 @@ test("expansion stays centered on interior cards in four- and seven-column layou
   }
 });
 
-test("viewport edges clamp the expansion while unconstrained animation frames keep the source center", async () => {
+test("edge cards expand into the same window and animate from source to destination", async () => {
   const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
   try {
     for (const { left: anchorLeft, expectedLeft } of [
       { left: 10, expectedLeft: 18 },
-      { left: 1150, expectedLeft: 342 },
+      { left: 1150, expectedLeft: 18 },
     ]) {
       sourceRect = { left: anchorLeft, top: 500, width: 40, height: 100 };
       const { render, cleanup } = setup();
@@ -1185,13 +1187,15 @@ test("viewport edges clamp the expansion while unconstrained animation frames ke
       const dialog = document.querySelector(".class-card-expansion-dialog");
       const targetLeft = Number.parseFloat(dialog.style.left);
       const sourceCenter = sourceRect.left + sourceRect.width / 2;
+      const targetCenter = targetLeft + Number.parseFloat(dialog.style.width) / 2;
       const shape = callsFor(".class-card-expansion-dialog")[0];
       assert.equal(shape.frames.length, 31);
       for (const frame of shape.frames) {
         const translation = frame.transform.match(/^translate\(([-\d.]+)px, ([-\d.]+)px\)$/);
         assert.ok(translation, `unexpected transform: ${frame.transform}`);
         const frameCenter = targetLeft + Number(translation[1]) + Number.parseFloat(frame.width) / 2;
-        assert.ok(Math.abs(frameCenter - sourceCenter) < 1e-8, `frame center ${frameCenter} differs from source center ${sourceCenter}`);
+        const expectedCenter = sourceCenter + (targetCenter - sourceCenter) * getCourseExpansionProgress(frame.offset);
+        assert.ok(Math.abs(frameCenter - expectedCenter) < 1e-8, `frame center ${frameCenter} differs from interpolated center ${expectedCenter}`);
       }
     } finally {
       await cleanup();
@@ -1202,20 +1206,21 @@ test("viewport edges clamp the expansion while unconstrained animation frames ke
   }
 });
 
-test("resize reflows the expansion around the source's latest center", async () => {
+test("resize reflows the inset expansion to the latest viewport size", async () => {
   const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1800 });
   sourceRect = { left: 380, top: 500, width: 220, height: 100 };
   const { render, cleanup } = setup();
   try {
     await render();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 2000 });
     sourceRect = { left: 980, top: 500, width: 220, height: 100 };
     await act(async () => window.dispatchEvent(new window.Event("resize")));
 
     const dialog = document.querySelector(".class-card-expansion-dialog");
-    const latestCenter = sourceRect.left + sourceRect.width / 2;
     const left = Number.parseFloat(dialog.style.left);
-    assert.equal(left, latestCenter - Number.parseFloat(dialog.style.width) / 2);
+    assert.equal(left, 18);
+    assert.equal(dialog.style.width, "1964px");
     assert.equal(callsFor(".class-card-expansion-dialog").length, 2);
     assert.equal(callsFor(".class-card-expansion-dialog").at(-1).frames.at(-1).transform, "translate(0px, 0px)");
     const content = dialog.querySelector(".class-card-expansion-content");
@@ -1232,15 +1237,15 @@ test("resize reflows the expansion around the source's latest center", async () 
   }
 });
 
-test("expanded and collapsed sidebars set a left boundary while interior cards stay centered", async () => {
+test("expanded and collapsed sidebars bound the full inset window for all cards", async () => {
   const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
   try {
     for (const { collapsed, sidebarRight, center, expectedLeft } of [
       { collapsed: false, sidebarRight: 246, center: 300, expectedLeft: 264 },
       { collapsed: true, sidebarRight: 82, center: 300, expectedLeft: 100 },
-      { collapsed: false, sidebarRight: 246, center: 900, expectedLeft: 480 },
-      { collapsed: true, sidebarRight: 82, center: 900, expectedLeft: 480 },
+      { collapsed: false, sidebarRight: 246, center: 900, expectedLeft: 264 },
+      { collapsed: true, sidebarRight: 82, center: 900, expectedLeft: 100 },
     ]) {
       sourceRect = { left: center - 100, top: 500, width: 200, height: 160 };
       const { render, cleanup } = setup();
@@ -1250,8 +1255,9 @@ test("expanded and collapsed sidebars set a left boundary while interior cards s
         await render();
         const dialog = document.querySelector(".class-card-expansion-dialog");
         assert.equal(dialog.style.left, `${expectedLeft}px`);
-        assert.equal(dialog.style.width, "840px");
-        if (center === 900) assert.equal(Number.parseFloat(dialog.style.left) + 420, center);
+        assert.equal(Number.parseFloat(dialog.style.width), 1600 - expectedLeft - 18);
+        assert.equal(dialog.style.top, "18px");
+        assert.equal(dialog.style.height, "864px");
       } finally {
         await cleanup();
       }
@@ -1312,14 +1318,15 @@ test("hidden and offscreen mobile sidebars do not shrink or shift the expansion"
   }
 });
 
-test("fallback expansion centers in the area remaining beside the sidebar", async () => {
+test("fallback expansion fills the inset area remaining beside the sidebar", async () => {
   sourceRect = { left: -500, top: -600, width: 240, height: 180 };
   const { render, cleanup } = setup();
   try {
     sidebarRect = { left: 0, top: 0, width: 246, height: 900 };
     await render();
     const dialog = document.querySelector(".class-card-expansion-dialog");
-    assert.equal(dialog.style.left, "303px");
+    assert.equal(dialog.style.left, "264px");
+    assert.equal(dialog.style.width, "918px");
     assert.equal(Number.parseFloat(dialog.style.left) + Number.parseFloat(dialog.style.width) / 2, 723);
   } finally {
     await cleanup();
@@ -1389,8 +1396,8 @@ test("trigger geometry handles missing sources and offscreen sources use a cente
   try {
     await offscreen.render();
     const dialog = document.querySelector(".class-card-expansion-dialog");
-    assert.equal(dialog.style.left, "180px");
-    assert.equal(dialog.style.top, "80px");
+    assert.equal(dialog.style.left, "18px");
+    assert.equal(dialog.style.top, "18px");
     assert.equal(callsFor(".class-card-expansion-dialog").length, 0);
     await act(async () => dialog.querySelector(".test-class-details button").click());
     assert.equal(callsFor(".class-card-expansion-dialog").length, 0);

@@ -7,8 +7,8 @@ export const COURSE_EXPANSION_CONTENT_DURATION_MS = 260;
 export const COURSE_EXPANSION_CONTENT_FADE_IN_START_MS = 75;
 export const COURSE_EXPANSION_CONTENT_FADE_OUT_END_MS = 110;
 
-const SPRING_FREQUENCY = 6.8;
-const SPRING_DAMPING = 6.8;
+const SPRING_FREQUENCY = 5.8;
+const SPRING_DAMPING = 9.5;
 
 function springResponse(offset: number): number {
   const phase = SPRING_FREQUENCY * offset;

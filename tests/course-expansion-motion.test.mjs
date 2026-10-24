@@ -4,15 +4,18 @@ import { clientModule } from "./helpers/client-modules.mjs";
 
 const motion = await import(await clientModule("lib/course-expansion-motion.ts"));
 
-test("course expansion uses a slower shared spring through its 420ms settle", () => {
+test("course expansion uses a damped shared spring with less than 0.6% overshoot", () => {
   const { getCourseExpansionProgress, COURSE_EXPANSION_MOTION_DURATION_MS } = motion;
 
   assert.equal(COURSE_EXPANSION_MOTION_DURATION_MS, 420);
   assert.equal(getCourseExpansionProgress(0), 0);
   assert.equal(getCourseExpansionProgress(1), 1);
   assert.ok(getCourseExpansionProgress(80 / COURSE_EXPANSION_MOTION_DURATION_MS) < 0.7, "the shell is still visibly expanding at 80ms");
-  assert.ok(getCourseExpansionProgress(190 / COURSE_EXPANSION_MOTION_DURATION_MS) > 1.03, "the approved spring bounce peaks near 190ms");
-  assert.ok(getCourseExpansionProgress(300 / COURSE_EXPANSION_MOTION_DURATION_MS) < 1.02, "the spring settles smoothly before the 420ms endpoint");
+  const progress = Array.from({ length: 1001 }, (_, index) => getCourseExpansionProgress(index / 1000));
+  const peak = Math.max(...progress);
+  assert.ok(peak > 1, "the spring retains a subtle settle");
+  assert.ok(peak < 1.006, "large course windows do not visibly bounce beyond their inset bounds");
+  assert.ok(getCourseExpansionProgress(300 / COURSE_EXPANSION_MOTION_DURATION_MS) < 1.003, "the spring settles smoothly before the 420ms endpoint");
 });
 
 test("shell geometry reaches the target with aligned size and translation and a small final step", () => {

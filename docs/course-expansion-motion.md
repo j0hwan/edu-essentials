@@ -29,6 +29,10 @@ The destination-sized detail layout needs its own horizontal position compensati
 
 ## Verification
 
+The expanded course fills the available viewport beside the visible sidebar, with an 18px inset on desktop and a 12px inset at widths of 600px or less. Its bottom edge stays above mobile navigation. All cards share this destination regardless of their starting position; resizing or collapsing the sidebar recalculates the inset window. Rounded corners, shadow, dismissal, and the card-to-window animation remain unchanged.
+
+The shared course spring uses stronger damping and a lower frequency to keep overshoot below 0.6% for the larger window. The 420ms duration and synchronized artwork/content geometry remain unchanged; widget motion is unaffected.
+
 Inspect rendered opening and closing frames on desktop and mobile, including long titles, portrait/landscape artwork, gradient-only headers, early dismissal, delayed image decoding, resize, and reduced motion. Confirm a continuous image, aligned endpoints, no duplicated shared content, and no corner/shadow snap. Unit tests support these checks but cannot establish perceived smoothness alone.
 
 Browser checks use the actual component and application styles with locally authored landmark SVGs, not private course photographs. Both system and app reduced-motion settings must restore the source immediately; disabling transitions on class-card descendants prevents the global reduced-duration rule from inadvertently animating inherited visibility.
