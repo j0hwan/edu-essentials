@@ -1284,14 +1284,35 @@ test("study controls persist targets, timers, history and grades", async (t) => 
 test("class cards enlarge in place with all class tools and retain nested assignment behavior", async () => {
   reset();
   const assignment = { id: "class-expansion-assignment", title: "Research outline", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Read the source material", weight: "" };
-  const details = { officeHours: "Tuesday, 2–3 PM", meetings: [], syllabusText: "Keep this saved syllabus source." };
-  installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment], courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse]);
+  const sourceId = "11111111-1111-4111-8111-111111111111";
+  const sourceText = "Original uploaded syllabus source text.";
+  const sourceFile = {
+    id: sourceId, name: "HIST 205 source.txt", mime_type: "text/plain", size_bytes: new TextEncoder().encode(sourceText).byteLength,
+    course_id: sampleCourse.id, assignment_id: null, kind: "syllabus", state: "ready",
+    created_at: "2026-09-01T00:00:00.000Z", updated_at: "2026-09-03T00:00:00.000Z",
+    content_sha256: null, folder_id: null, content_backend: "object", metadata_revision: 1, content_revision: 1,
+    trashed_at: null, trash_operation_id: null, original_folder_id: null,
+  };
+  const profile = { ...baseProfile, id: "12121212-1212-4121-8121-121212121212" };
+  const details = { officeHours: "Tuesday, 2–3 PM", meetings: [], syllabusText: "Keep this saved syllabus source.", syllabusName: "Saved History guide", syllabusFileId: sourceId };
+  const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment], courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse], profile);
+  filesFetcher = async (url, init = {}) => {
+    if (url === "/api/files") return Response.json({ files: [sourceFile], activities: { files: [], folders: [] } });
+    if (url === "/api/files/actions" && init.method === "POST") {
+      const body = JSON.parse(init.body);
+      assert.equal(body.action, "open");
+      return Response.json({ activities: { files: [{ file_id: sourceId, profile_id: profile.id, starred_at: null, last_opened_at: "2026-09-04T00:00:00.000Z" }], folders: [] } });
+    }
+    if (url === `/api/files?id=${sourceId}`) return new Response(sourceText, { headers: { "content-type": "text/plain" } });
+    throw new Error(`Unexpected class syllabus file request: ${url}`);
+  };
   try {
-    await render(Workspace, { initialProfile: baseProfile });
+    await render(Workspace, { initialProfile: profile });
     await click("Courses");
     const card = rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`);
     await act(async () => { card.focus(); card.click(); });
-    const expanded = rootNode.querySelector('[role="dialog"][aria-label="Class details"]');
+    let expanded = rootNode.querySelector('[role="dialog"][aria-label="Class details"]');
+    await waitUntil(() => expanded.textContent.includes(sourceFile.name), "the course syllabus source file");
     assert.ok(expanded.querySelector(".expanded-class-body"));
     const banner = expanded.querySelector(".expanded-class-header.class-card-visual");
     const cardVisual = card.querySelector(".class-card-visual");
@@ -1306,8 +1327,49 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.ok(expanded.querySelector(".expanded-class-heading h2").textContent.includes(sampleCourse.name));
     assert.equal(rootNode.querySelector(".side-panel-backdrop"), null);
     assert.equal(card.getAttribute("aria-expanded"), "true");
-    for (const label of ["Progress", "Instructor", "Office hours", "Schedule", "Assignments", "Files and images", "Saved syllabus source", "Tuesday, 2–3 PM"]) assert.ok(expanded.textContent.includes(label), label);
+    for (const label of ["Progress", "Instructor", "Office hours", "Schedule", "Assignments", "Files and images", "Syllabus", "Saved History guide", "Tuesday, 2–3 PM"]) assert.ok(expanded.textContent.includes(label), label);
     for (const label of ["Edit class", "View schedule", "Add assignment", "Add class file", "Upload class image", "Remove class"]) assert.ok([...expanded.querySelectorAll("button")].some((button) => button.textContent.trim() === label), label);
+
+    const syllabusSection = expanded.querySelector('[aria-label="Course syllabus"]');
+    assert.ok(syllabusSection);
+    assert.ok([...syllabusSection.querySelectorAll("button")].some((button) => button.textContent.trim() === "Import syllabus"));
+    assert.ok([...syllabusSection.querySelectorAll("button")].some((button) => button.textContent.trim() === "Preview syllabus"));
+    await clickIn(syllabusSection, "Preview syllabus");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Private file preview"] .syllabus-source')?.textContent === sourceText, "the uploaded syllabus file preview");
+    assert.equal(rootNode.querySelector('[aria-label="Private file preview"] h2').textContent, sourceFile.name);
+    await click("Close file preview");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"]'), "expanded course after file preview");
+    expanded = rootNode.querySelector('[aria-label="Class details"]');
+    assert.match(expanded.querySelector(".expanded-class-heading h2").textContent, /HIST 205.*History/);
+
+    await clickIn(expanded.querySelector('[aria-label="Course syllabus"]'), "Preview syllabus text");
+    await waitUntil(() => rootNode.querySelector(".syllabus-text-preview-content"), "the saved syllabus text preview");
+    assert.equal(rootNode.querySelector(".syllabus-text-preview-content").textContent, details.syllabusText);
+    assert.match(rootNode.querySelector(".syllabus-text-preview h2").textContent, /Saved History guide/);
+    await click("Close preview");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"]'), "expanded course after text preview");
+    expanded = rootNode.querySelector('[aria-label="Class details"]');
+
+    const writesBeforeImport = server.writes;
+    await clickIn(expanded.querySelector('[aria-label="Course syllabus"]'), "Import syllabus");
+    const attachment = rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]');
+    assert.ok(attachment, "Import syllabus opens the existing course attachment editor");
+    assert.match(attachment.textContent, /HIST 205 · History/);
+    const replacementText = "Updated from the expanded course syllabus section.";
+    await edit("Syllabus text", replacementText);
+    await edit("Syllabus name", "Updated History guide");
+    await click("Save syllabus");
+    await waitUntil(() => !rootNode.querySelector('[aria-label="Attach syllabus for HIST 205"]'), "course syllabus import save");
+    await waitForWorkspaceSave(server, writesBeforeImport);
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusText, replacementText);
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusName, "Updated History guide");
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusFileId, sourceId, "the existing source remains linked to this course");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"]'), "expanded course after syllabus import");
+    expanded = rootNode.querySelector('[aria-label="Class details"]');
+    assert.equal(expanded.querySelector(".expanded-class-header .course-pill").textContent, sampleCourse.code);
+    assert.match(expanded.querySelector(".expanded-class-heading h2").textContent, /HIST 205.*History/);
+    assert.equal(card.getAttribute("aria-expanded"), "true");
+
     await act(async () => { expanded.querySelector(".assignment-row").focus(); expanded.querySelector(".assignment-row").click(); });
     const assignmentDialog = rootNode.querySelector('[aria-label="Assignment details"]');
     assert.ok(assignmentDialog);
@@ -1327,7 +1389,44 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.ok(rootNode.querySelector(".academic-editor"));
     assert.equal(rootNode.querySelector('[aria-label="Class details"]'), null);
     await click("Close editor");
-  } finally { await unmount(); }
+    await saveAndReload({ initialProfile: profile });
+    await click("Courses");
+    await waitUntil(() => rootNode.querySelector(".dashboard-classes-heading"), "courses dashboard after reload");
+    const reloadedCard = rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`);
+    assert.ok(reloadedCard, "the existing course remains available after reload");
+    await act(async () => reloadedCard.click());
+    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"] .expanded-class-syllabus')?.textContent.includes("Updated History guide"), "saved course syllabus after reload");
+    await clickIn(rootNode.querySelector('[aria-label="Class details"] .expanded-class-syllabus'), "Preview syllabus text");
+    await waitUntil(() => rootNode.querySelector(".syllabus-text-preview-content")?.textContent === replacementText, "updated syllabus text after reload");
+    await click("Close preview");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"]'), "reloaded expanded course after text preview");
+  } finally { filesFetcher = undefined; await unmount(); }
+});
+
+test("dashboard actions omit the shortcut row and the class header adds assignments", async () => {
+  reset();
+  const server = installWorkspaceServer(savedDashboard, [sampleCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Courses");
+    assert.equal(rootNode.querySelector(".dashboard-tools"), null, "the dashboard shortcut row is removed");
+    const header = rootNode.querySelector(".dashboard-classes-heading");
+    const actions = header.querySelector(".dashboard-classes-actions");
+    assert.equal(actions.children[0].textContent.trim(), "Add assignment");
+    assert.equal(actions.children[1].textContent.trim(), "Add Class");
+    assert.equal(actions.children[2].getAttribute("aria-label"), "Dashboard view");
+
+    await clickIn(actions, "Add assignment");
+    assert.ok(rootNode.querySelector('[role="dialog"][aria-label="Edit assignment"]'));
+    await edit("Assignment title", "Header-created essay");
+    await edit("Class", sampleCourse.id);
+    await edit("Due date", "2026-10-15");
+    await click("Save assignment");
+    await waitForWorkspaceSave(server);
+    assert.equal(server.dashboard.d.assignments.length, 1);
+    assert.equal(server.dashboard.d.assignments[0].title, "Header-created essay");
+    assert.equal(server.dashboard.d.assignments[0].courseId, sampleCourse.id);
+  } finally { if (root) await unmount(); }
 });
 
 test("academic forms, syllabus review and calendar save complete account snapshots", async (t) => {
@@ -1411,15 +1510,154 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await selectCalendarDate("2026-10-15"); await act(async () => rootNode.querySelector(".calendar-chip").click()); await click("Delete event"); await saveAndReload(); assert.equal(server.dashboard.d.manualEvents.length, 0);
   });
 
-  await t.test("syllabus source and edited review resume, then approve exactly once after a lost response", async () => {
-    reset(); const server = installWorkspaceServer(); await render(Workspace, { initialProfile: baseProfile }); await click("Courses"); await click("Import syllabus");
-    await edit("Syllabus text", "HIST 222\nEssay - 2026-10-15\nMidterm exam - 2026-11-03\nRead chapter 1 in September."); await edit("Course code", "HIST 222"); await edit("Class name", "Local history"); await click("Suggest dated items");
-    assert.equal(rootNode.querySelectorAll(".meeting-editor").length, 2); await edit("Item title", "Reviewed essay"); await edit("Item weight", "20%");
-    await click("Close review"); await saveAndReload(); assert.equal(server.courses.length, 0); assert.equal(server.dashboard.d.assignments.length, 0);
-    await click("Courses"); await click("Resume HIST 222"); assert.equal(field("Item title").value, "Reviewed essay"); assert.match(field("Syllabus text").value, /Read chapter/);
-    await click("Approve class and items"); server.loseResponse = true; await waitForWorkspaceError("Response lost");
-    await click("Retry save"); await saveAndReload(); assert.equal(server.courses.length, 1); assert.equal(server.dashboard.d.assignments.length, 2); assert.equal(server.dashboard.d.syllabusDrafts.length, 0);
-    assert.equal(server.dashboard.d.assignments[1].type, "Exam"); assert.equal(server.dashboard.d.assignments[0].weight, "20%"); assert.match(Object.values(server.dashboard.d.courseDetails)[0].syllabusText, /Read chapter/);
+  await t.test("syllabus review edits stay transient through unrelated autosave and reload", async () => {
+    reset();
+    const legacyDraft = { id: "legacy-review", sourceText: "Legacy syllabus text", sourceName: "Legacy guide", course: { id: "legacy-course", code: "HIST 199", name: "Legacy History" }, items: [] };
+    const initial = { ...savedDashboard, d: { ...savedDashboard.d, syllabusDrafts: [legacyDraft] } };
+    const server = installWorkspaceServer(initial);
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Courses");
+    await click("Add Class");
+    const addClass = rootNode.querySelector('[role="dialog"][aria-label="Add a class"]');
+    assert.ok(addClass);
+    assert.doesNotMatch(addClass.textContent, /HIST 199|Resume|pending review/i, "a legacy saved review is not offered for resuming");
+    await clickIn(addClass, "Import syllabus");
+
+    await edit("Syllabus text", "HIST 222\nEssay - 2026-10-15\nMidterm exam - 2026-11-03\nRead chapter 1 in September.");
+    await edit("Course code", "HIST 222");
+    await edit("Class name", "Local history");
+    await click("Suggest dated items");
+    assert.equal(rootNode.querySelectorAll(".meeting-editor").length, 2);
+    await edit("Item title", "Reviewed essay");
+    await edit("Item weight", "20%");
+    assert.equal(server.writes, 0, "editing the review does not write a workspace snapshot");
+    assert.equal(unloadBlocked(), true, "the active transient review still warns before leaving the page");
+
+    const writesBeforeUnrelatedEdit = server.writes;
+    await click("Add assignment");
+    await edit("Assignment title", "Independent workspace edit");
+    await edit("Due date", "2026-10-20");
+    await click("Save assignment");
+    await waitUntil(() => server.writes > writesBeforeUnrelatedEdit, "unrelated workspace autosave while review is open");
+    assert.equal(server.writes, writesBeforeUnrelatedEdit + 1);
+    assert.equal(server.courses.length, 0, "the review course is not part of the unrelated save");
+    assert.deepEqual(server.dashboard.d.assignments.map((item) => item.title), ["Independent workspace edit"]);
+    assert.deepEqual(server.dashboard.d.syllabusDrafts, [], "an unrelated autosave stores no syllabus review draft");
+    assert.equal(unloadBlocked(), true, "the active review remains protected after the unrelated save");
+
+    await click("Close review");
+    await saveAndReload();
+    assert.deepEqual(server.dashboard.d.syllabusDrafts, []);
+    assert.equal(server.courses.length, 0);
+    assert.deepEqual(server.dashboard.d.assignments.map((item) => item.title), ["Independent workspace edit"]);
+    await click("Courses");
+    await click("Add Class");
+    assert.doesNotMatch(rootNode.querySelector('[role="dialog"][aria-label="Add a class"]').textContent, /HIST 199|HIST 222|Resume|pending review/i, "neither legacy nor discarded review returns after reload");
+  });
+
+  await t.test("approved syllabus source and reviewed items persist exactly once after a lost response", async () => {
+    reset();
+    const server = installWorkspaceServer();
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Courses");
+    await click("Add Class");
+    await clickIn(rootNode.querySelector('[role="dialog"][aria-label="Add a class"]'), "Import syllabus");
+    const sourceText = "HIST 222\nEssay - 2026-10-15\nMidterm exam - 2026-11-03\nRead chapter 1 in September.";
+    await edit("Syllabus text", sourceText);
+    await edit("Course code", "HIST 222");
+    await edit("Class name", "Local history");
+    await click("Suggest dated items");
+    assert.equal(rootNode.querySelectorAll(".meeting-editor").length, 2);
+    await edit("Item title", "Reviewed essay");
+    await edit("Item weight", "20%");
+    assert.equal(server.writes, 0);
+
+    server.loseResponse = true;
+    await click("Approve class and items");
+    await waitForWorkspaceError("Response lost");
+    assert.equal(server.writes, 1, "the first approval committed one full snapshot despite the lost response");
+    await click("Retry save");
+    await waitForWorkspaceSave(server, 0);
+    assert.equal(server.writes, 1, "retry confirms the committed snapshot without duplicating the class or items");
+    assert.equal(server.courses.length, 1);
+    const course = server.courses[0];
+    assert.equal(course.code, "HIST 222");
+    assert.equal(course.name, "Local history");
+    assert.equal(server.dashboard.d.assignments.length, 2);
+    assert.equal(server.dashboard.d.assignments[0].title, "Reviewed essay");
+    assert.equal(server.dashboard.d.assignments[0].courseId, course.id);
+    assert.equal(server.dashboard.d.assignments[0].weight, "20%");
+    assert.equal(server.dashboard.d.assignments[1].type, "Exam");
+    assert.equal(server.dashboard.d.assignments[1].courseId, course.id);
+    assert.equal(server.dashboard.d.courseDetails[course.id].syllabusText, sourceText);
+    assert.deepEqual(server.dashboard.d.syllabusDrafts, []);
+
+    await saveAndReload();
+    await click("Courses");
+    const card = rootNode.querySelector(`[data-course-card-id="${course.id}"]`);
+    assert.ok(card);
+    await act(async () => card.click());
+    const expanded = rootNode.querySelector('[aria-label="Class details"]');
+    assert.match(expanded.textContent, /Reviewed essay.*Midterm exam/s);
+    await clickIn(expanded.querySelector('[aria-label="Course syllabus"]'), "Preview syllabus");
+    await waitUntil(() => rootNode.querySelector(".syllabus-text-preview-content")?.textContent === sourceText, "approved syllabus source after reload");
+    await click("Close preview");
+  });
+
+  await t.test("opening an active review's source file does not restart or clear the review", async () => {
+    reset();
+    const profile = { ...baseProfile, id: "13131313-1313-4131-8131-131313131313" };
+    const sourceId = "14141414-1414-4141-8141-141414141414";
+    const sourceText = "HIST 205\nResearch essay - 2026-10-15";
+    const sourceFile = {
+      id: sourceId, name: "HIST 205 review source.txt", mime_type: "text/plain", size_bytes: new TextEncoder().encode(sourceText).byteLength,
+      course_id: sampleCourse.id, assignment_id: null, kind: "syllabus", state: "ready",
+      created_at: "2026-09-01T00:00:00.000Z", updated_at: "2026-09-03T00:00:00.000Z",
+      content_sha256: null, folder_id: null, content_backend: "object", metadata_revision: 1, content_revision: 1,
+      trashed_at: null, trash_operation_id: null, original_folder_id: null,
+    };
+    const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: { officeHours: "", meetings: [], syllabusFileId: sourceId } } } }, [sampleCourse], profile);
+    filesFetcher = async (url, init = {}) => {
+      if (url === "/api/files") return Response.json({ files: [sourceFile], activities: { files: [], folders: [] } });
+      if (url === "/api/files/actions" && init.method === "POST") return Response.json({ activities: { files: [{ file_id: sourceId, profile_id: profile.id, starred_at: null, last_opened_at: "2026-09-04T00:00:00.000Z" }], folders: [] } });
+      if (url === `/api/files?id=${sourceId}`) return new Response(sourceText, { headers: { "content-type": "text/plain" } });
+      throw new Error(`Unexpected active syllabus review file request: ${url}`);
+    };
+
+    try {
+      await render(Workspace, { initialProfile: profile });
+      await click("Courses");
+      const card = rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`);
+      await act(async () => card.click());
+      const expanded = rootNode.querySelector('[aria-label="Class details"]');
+      await waitUntil(() => expanded.textContent.includes(sourceFile.name), "course source file in expanded course");
+      await clickIn(expanded, sourceFile.name);
+      await waitUntil(() => rootNode.querySelector('[aria-label="Private file preview"] .syllabus-source')?.textContent === sourceText, "source file before review");
+      await click("Review syllabus");
+      await waitUntil(() => rootNode.querySelector('[aria-label="Syllabus review"]'), "syllabus review from source file");
+      await edit("Course code", sampleCourse.code);
+      await edit("Class name", sampleCourse.name);
+      await click("Suggest dated items");
+      await edit("Item title", "My reviewed research essay");
+      await click("Open saved source file");
+      await waitUntil(() => rootNode.querySelector('[aria-label="Private file preview"]'), "active review source preview");
+      const preview = rootNode.querySelector('[aria-label="Private file preview"]');
+      assert.equal(preview.querySelector(".syllabus-source").textContent, sourceText);
+      assert.equal([...preview.querySelectorAll("button")].some((button) => button.textContent.trim() === "Review syllabus"), false, "the source already belongs to the active review");
+      assert.ok(rootNode.querySelector('[aria-label="Syllabus review"]'), "the review remains mounted under its source preview");
+
+      await click("Close file preview");
+      const review = rootNode.querySelector('[aria-label="Syllabus review"]');
+      assert.ok(review, "closing the source preview returns to the same review");
+      assert.equal(field("Course code").value, sampleCourse.code);
+      assert.equal(field("Class name").value, sampleCourse.name);
+      assert.equal(field("Syllabus text").value, sourceText);
+      assert.equal(field("Item title").value, "My reviewed research essay");
+      assert.equal(server.writes, 0, "opening a source preview does not approve or save the review");
+      assert.equal(server.courses.length, 1);
+      assert.equal(server.dashboard.d.assignments.length, 0);
+      await click("Close review");
+    } finally { filesFetcher = undefined; if (root) await unmount(); }
   });
 
   await t.test("existing course syllabus text saves through Files without changing the rest of the workspace", async () => {

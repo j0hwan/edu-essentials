@@ -290,13 +290,13 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
 
     const course = { id: "course-a", code: "TEST 101", name: "Test course", credits: 3, instructor: "Teacher", room: "Room", color: "#112233", soft_color: "#11223318", initials: "T1" };
     const snapshot = async (courses, dashboard = layout, revision) => sql("select save_account_workspace($1, $2, $3, $4, $5) as revision", [a.id, userA, revision ?? (await getWorkspace()).revision, JSON.stringify(courses), JSON.stringify(dashboard)]);
-    await t.test("academic API round-trips a review draft and its atomic approval without touching another account", async () => {
+    await t.test("academic API drops review drafts and saves atomic approval without touching another account", async () => {
       const { soft_color, ...fields } = course, clientCourse = { ...fields, soft: soft_color };
       const beforeB = await sql("select * from dashboard_state where profile_id = $1", [b.id]);
       const draft = { id: "review", sourceName: "history.txt", sourceText: "Final exam 2026-12-15", course: clientCourse, items: [{ id: "row", title: "Reviewed final", date: "2026-12-15", type: "Exam", description: "Chapters 1–5", weight: "30%" }] };
       const pending = { ...layout, d: { ...layout.d, syllabusDrafts: [draft] } };
       assert.equal((await workspace.PUT(request({ courses: [], dashboard: pending, baseRevision: (await getWorkspace()).revision }))).status, 200);
-      assert.deepEqual((await getWorkspace()).dashboard.d.syllabusDrafts, [draft]);
+      assert.deepEqual((await getWorkspace()).dashboard.d.syllabusDrafts, []);
       const dashboard = { ...layout, d: { ...layout.d,
         calendarFilter: course.id, syllabusDrafts: [],
         assignments: [{ id: "syllabus-row", title: "Reviewed final", courseId: course.id, dateKey: "2026-12-15", dueTime: "18:00", due: "Dec 15", type: "Exam", description: "Chapters 1–5", weight: "30%", notes: "Outline", checklist: [true, false, true], status: "done", progress: 100, progressBeforeCompletion: 40, completedAt: "2026-12-15T23:00:00.000Z" }],

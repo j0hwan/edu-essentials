@@ -5,12 +5,12 @@ import { downloadDraft, useSaveProtection } from "./use-save-protection";
 export default function SyllabusReview({ draft, onChange, onApprove, onClose, onDelete, onUpload, onFile }: { draft: SyllabusDraft; onChange: (draft: SyllabusDraft) => void; onApprove: () => boolean; onClose: () => void; onDelete: () => void; onUpload?: () => void; onFile?: () => void }) {
   const [error, setError] = useState("");
   const [reading, setReading] = useState(false);
-  useSaveProtection(reading);
+  useSaveProtection(true);
   const course = draft.course;
   return <div className="modal-backdrop"><section className="add-class-modal academic-editor" role="dialog" aria-modal="true" aria-label="Syllabus review">
     <div className="modal-header"><h2>Review your syllabus</h2><button className="secondary-button" disabled={reading} onClick={onClose}>Close review</button></div>
     <fieldset disabled={reading}>
-    <p>Your review draft saves to your account. Approval adds the class and reviewed assignments together.</p>
+    <p>Reviews are not saved for later. Closing or reloading discards this review. Approval saves the class, syllabus source, and reviewed assignments together. Uploaded source files are saved separately.</p>
     {onUpload && <button className="secondary-button" onClick={onUpload}>Upload private syllabus source</button>}{draft.sourceFileId && <><button className="secondary-button" onClick={onFile}>Open saved source file</button><button className="secondary-button" onClick={() => { const next = { ...draft }; delete next.sourceFileId; onChange(next); }}>Detach source file</button></>}
     <label>Syllabus text<textarea aria-label="Paste syllabus text" maxLength={60000} value={draft.sourceText} onChange={(e) => onChange({ ...draft, sourceText: e.target.value })} /></label>
     <label>Read a text file (.txt)<input type="file" accept=".txt,text/plain" onChange={async (e) => {

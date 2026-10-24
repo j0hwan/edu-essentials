@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { clientModule } from "./helpers/client-modules.mjs";
 const { academicSnapshot } = await import(await clientModule("lib/academic-snapshot.ts"));
+const { decodeWorkspaceState, encodeWorkspaceState } = await import(await clientModule("lib/workspace-codec.ts"));
 const { dayKey, weekStart, addDays, isDate, assignmentStatus, suggestSyllabusItems, validateCourseDetails } = await import(await clientModule("lib/academics.ts"));
 const base = { v: 2, a: "day", w: [["day", "Day", []]], d: { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" } };
 const course = { id: "c", code: "BIO 1", name: "Biology", credits: 3, instructor: "", room: "", color: "#112233", soft: "#11223318", initials: "BI" };
@@ -19,6 +20,18 @@ test("syllabus suggestions use actual ISO dates and preserve exam/project types"
   const rows = suggestSyllabusItems(text, () => String(++i));
   assert.deepEqual(rows.map((r) => [r.title, r.date, r.type]), [["Essay", "2026-10-15", "Assignment"], ["Exam", "2026-11-02", "Exam"], ["Project", "2026-12-03", "Project"]]);
   assert.deepEqual(suggestSyllabusItems("No dated work provided", () => "unused"), []);
+});
+test("legacy syllabus drafts are discarded by decoding, encoding, and academic snapshots", () => {
+  const draft = { id: "review", sourceText: "Do not persist this source", course, items: [] };
+  const legacy = { ...base, d: { ...base.d, syllabusDrafts: [draft] } };
+  const decoded = decodeWorkspaceState(legacy);
+  assert.deepEqual(decoded.data.syllabusDrafts, []);
+  const encoded = encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, legacy.d);
+  assert.deepEqual(encoded.d.syllabusDrafts, []);
+  const snapshot = academicSnapshot([course], legacy);
+  assert.deepEqual(snapshot.dashboard.d.syllabusDrafts, []);
+  assert.ok(!JSON.stringify(snapshot).includes(draft.sourceText));
+  assert.deepEqual(academicSnapshot([], { ...base, d: { ...base.d, syllabusDrafts: "obsolete" } }).dashboard.d.syllabusDrafts, []);
 });
 test("academic snapshots reject malformed dates, ownership references and invalid completion state", () => {
   const make = (patch = {}) => ({ ...base, d: { ...base.d, assignments: [{ ...assignment, ...patch }] } });

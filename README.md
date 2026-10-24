@@ -126,7 +126,7 @@ loading alone does not rewrite it. No SQL migration is needed for this format ch
 The API prevents an old client from downgrading a v2 document back to shared notes.
 See PERSISTENCE_WORKSPACES.md for the Step 4 format, controls, and verification.
 
-Courses, assignments, calendar events, recurring schedules, and syllabus reviews
+Courses, assignments, calendar events, recurring schedules, and approved syllabuses
 now save through one complete course/dashboard snapshot. The API uses the installed
 save_account_workspace transaction, so approval and class removal cannot partially
 save related data. Reads retry when a concurrent commit changes the document
@@ -135,8 +135,11 @@ return 426 and require a reload after preserving pending edits.
 
 Dashboard provides class and assignment editors; Calendar provides event editing
 and actual month/week/day views with the saved time zone, week start, and filter.
-Syllabus review saves actual pasted/.txt source, editable course fields, and review
-rows before approval. Approval commits the course and typed assignments together.
+Syllabus reviews are temporary: source text, editable course fields, and review
+rows are not saved before approval, and closing or reloading discards the review.
+Approval commits the course, source, and typed assignments together. Existing
+courses have a Syllabus section with import and preview controls. The dashboard
+header places Add assignment beside Add Class and the Cards/List toggle.
 PDF/image storage and extraction are not claimed by this text-review workflow.
 See PERSISTENCE_ACADEMICS.md for the completed Step 5 surfaces, storage, recovery,
 and verification limits.

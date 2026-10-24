@@ -21,10 +21,11 @@ published during Step 5.
 | Calendar → Month / Week / Day / Class filter | The view is browser-local; the class/personal filter remains saved, and each view displays the same assignments, events, and recurring meetings |
 | Calendar → Today / previous / next / select a day | Actual dates and month/year navigation; browsing position remains transient; saved week start and time zone apply |
 | Home → Today; mini calendar; topbar date | Current dates and actual due/overdue tasks and today's schedule; mini calendar shows the current week |
-| Dashboard → Import syllabus / Resume; Add class → Import syllabus | Account-saved review draft, complete pasted/read source text, source filename, editable course fields and review rows |
-| Syllabus review → Suggest dated items / Add / Remove | Suggestions from explicit YYYY-MM-DD dates in the actual source; editable title, date, type, description, and weight; incomplete review rows may be saved for later |
-| Syllabus review → Approve class and items | Validated course, typed assignments, and retained source text commit together; the review draft is consumed in that same save |
-| Save bar / Settings → Export data | Academic changes share save/retry/conflict protection; unsaved-work downloads and current JSON exports include schedules and review drafts |
+| Add class → Import syllabus | Temporary review with pasted/read source text, source filename, editable course fields and review rows; not saved to the account; closing or reloading discards it |
+| Syllabus review → Suggest dated items / Add / Remove | Suggestions from explicit YYYY-MM-DD dates in the actual source; editable title, date, type, description, and weight; review drafts cannot be resumed |
+| Syllabus review → Approve class and items | Validated course, typed assignments, and retained source text commit together; approval clears the temporary review |
+| Expanded course → Syllabus → Import / Preview | Import or replace a saved course's syllabus file/text; preview the available uploaded file or saved text without creating another course |
+| Save bar / Settings → Export data | Academic changes share save/retry/conflict protection; account exports exclude temporary syllabus reviews; a review can be downloaded explicitly from its dialog |
 
 ## Storage and ownership
 
@@ -37,7 +38,12 @@ records and preferences live in `dashboard_state.payload.d`:
 - `manualEvents` includes description and supports an empty `courseId` for Personal.
 - `courseDetails` maps owned course IDs to office hours, schedules, and approved
   syllabus source text/name.
-- `syllabusDrafts` retains source text/name, editable course fields, and review rows.
+- `syllabusDrafts` is retained as an empty compatibility field in client saves.
+  Previously stored drafts are ignored and cleared on the next workspace save.
+  The workspace codec also empties incoming drafts in decoded and saved snapshots,
+  including writes through the workspace API.
+  Active reviews live only in component state, outside autosave and account exports.
+  Explicitly uploaded source files remain saved independently of the review.
 - `calendarFilter` and `dashboardView` retain chosen filters/views. The active
   calendar view is stored in browser localStorage under `edu-calendar-view`.
   Older snapshots may contain `calendarView`; the decoder ignores it, and the
@@ -66,7 +72,7 @@ response, including syllabus approval, without inserting duplicates.
 The shared validators enforce course ownership references, unique IDs, real dates,
 24-hour times, supported item types, meeting date/time ranges, completion/progress
 consistency, and size/count limits. Limits include 100 courses, 2,000 assignments,
-2,000 events, 30 meeting schedules per class, 10 reviews, 200 rows per review, and
+2,000 events, 30 meeting schedules per class, 200 rows per temporary review, and
 60,000 characters per syllabus source. Existing workspace/note limits still apply.
 
 Academic forms retain unapplied drafts after validation errors and protect leaving
@@ -98,7 +104,7 @@ legacy-write rejection, and file metadata retention through the new API.
 
 React interaction tests cover course/schedule create-edit-reload and offline retry;
 assignment fields, checklist, completion/reopening/deletion; event CRUD, filters,
-all calendar views and recurring dates; syllabus source/review resume and approval
+all calendar views and recurring dates; temporary syllabus reviews and approval
 after a lost response; class removal; and legacy-date repairs. Earlier settings,
 widget, independent-note, account-switch, and recovery tests also pass.
 
