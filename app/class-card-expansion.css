@@ -81,6 +81,34 @@
   overflow: hidden;
 }
 
+.class-card-expansion-content .expanded-class-body {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.class-card-expansion-content .expanded-class-body[data-scrolling="true"] {
+  scrollbar-color: var(--muted, #8893a8) transparent;
+}
+
+.class-card-expansion-content .expanded-class-body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.class-card-expansion-content .expanded-class-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.class-card-expansion-content .expanded-class-body::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: transparent;
+}
+
+.class-card-expansion-content .expanded-class-body[data-scrolling="true"]::-webkit-scrollbar-thumb {
+  background: var(--muted, #8893a8);
+}
+
 .class-card-expansion-dialog[data-closing="true"] .expanded-class-header > button {
   animation: class-card-expansion-close-fade 100ms ease-out both;
   pointer-events: none;

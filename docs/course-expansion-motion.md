@@ -33,6 +33,8 @@ The expanded course fills the available viewport beside the visible sidebar, wit
 
 The shared course spring uses stronger damping and a lower frequency to keep overshoot below 0.6% for the larger window. The 420ms duration and synchronized artwork/content geometry remain unchanged; widget motion is unaffected.
 
+The detail-body scrollbar keeps a stable gutter but stays transparent on expansion and while idle. Actual scrolling reveals the thumb until 900ms after the latest movement, without disabling native scrolling or shifting the content.
+
 Inspect rendered opening and closing frames on desktop and mobile, including long titles, portrait/landscape artwork, gradient-only headers, early dismissal, delayed image decoding, resize, and reduced motion. Confirm a continuous image, aligned endpoints, no duplicated shared content, and no corner/shadow snap. Unit tests support these checks but cannot establish perceived smoothness alone.
 
 Browser checks use the actual component and application styles with locally authored landmark SVGs, not private course photographs. Both system and app reduced-motion settings must restore the source immediately; disabling transitions on class-card descendants prevents the global reduced-duration rule from inadvertently animating inherited visibility.

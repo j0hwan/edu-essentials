@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
@@ -1106,6 +1107,45 @@ test("reduced-motion settings and missing WAAPI open and close immediately", asy
       await cleanup();
     }
   }
+});
+
+test("course scrollbar stays hidden through expansion and appears only while scrolling", async () => {
+  const { render, cleanup } = setup();
+  let scrollArea;
+  try {
+    const styles = await readFile(new URL("../app/class-card-expansion.css", import.meta.url), "utf8");
+    document.head.insertAdjacentHTML("beforeend", `<style id="scrollbar-test-styles">${styles}</style>`);
+    await render({ children: (close) => h("div", { className: "expanded-class-body" },
+      h("button", { onClick: close }, "Close class"),
+    ) });
+    scrollArea = document.querySelector(".expanded-class-body");
+    assert.equal(scrollArea.dataset.scrolling, undefined);
+    const hiddenColor = window.getComputedStyle(scrollArea).getPropertyValue("scrollbar-color");
+    assert.match(hiddenColor, /transparent|rgba\(0, 0, 0, 0\)/);
+    assert.equal(window.getComputedStyle(scrollArea).getPropertyValue("scrollbar-gutter"), "stable");
+
+    await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
+    scrollArea.dispatchEvent(new window.Event("scroll"));
+    assert.equal(scrollArea.dataset.scrolling, undefined, "layout notifications without movement do not reveal the scrollbar");
+
+    scrollArea.scrollTop = 120;
+    scrollArea.dispatchEvent(new window.Event("scroll"));
+    assert.equal(scrollArea.dataset.scrolling, "true", "actual scrolling reveals the scrollbar");
+    assert.notEqual(window.getComputedStyle(scrollArea).getPropertyValue("scrollbar-color"), hiddenColor);
+    assert.equal(window.getComputedStyle(scrollArea).getPropertyValue("scrollbar-gutter"), "stable");
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.equal(scrollArea.dataset.scrolling, undefined, "the scrollbar hides after scrolling stops");
+    assert.equal(scrollArea.scrollTop, 120, "hiding the scrollbar preserves the scroll position");
+
+    scrollArea.scrollLeft = 30;
+    scrollArea.dispatchEvent(new window.Event("scroll"));
+    assert.equal(scrollArea.dataset.scrolling, "true", "horizontal scrolling also reveals the scrollbar");
+  } finally {
+    await cleanup();
+    document.getElementById("scrollbar-test-styles")?.remove();
+  }
+  assert.equal(scrollArea.dataset.scrolling, undefined, "unmount cleans up the active scrollbar state and timer");
 });
 
 test("mobile bounds keep the expanded card above the bottom navigation", async () => {

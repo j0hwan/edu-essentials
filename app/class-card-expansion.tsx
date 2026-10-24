@@ -499,6 +499,30 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
   const wasSuspendedRef = useRef(suspended);
   const onCloseRef = useRef(onClose);
 
+  useEffect(() => {
+    const scrollArea = contentRef.current?.querySelector<HTMLElement>(".expanded-class-body");
+    if (!visible || !scrollArea) return;
+    let hideTimer: number | undefined;
+    let previousTop = scrollArea.scrollTop;
+    let previousLeft = scrollArea.scrollLeft;
+    const handleScroll = () => {
+      if (scrollArea.scrollTop === previousTop && scrollArea.scrollLeft === previousLeft) return;
+      previousTop = scrollArea.scrollTop;
+      previousLeft = scrollArea.scrollLeft;
+      scrollArea.dataset.scrolling = "true";
+      window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => {
+        delete scrollArea.dataset.scrolling;
+      }, 900);
+    };
+    scrollArea.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      scrollArea.removeEventListener("scroll", handleScroll);
+      window.clearTimeout(hideTimer);
+      delete scrollArea.dataset.scrolling;
+    };
+  }, [courseId, visible]);
+
   useLayoutEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
