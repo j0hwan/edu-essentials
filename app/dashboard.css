@@ -124,6 +124,7 @@
 .dashboard-focus-empty strong { font-size: 16px; }
 .dashboard-focus-empty p { max-width: 360px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .dashboard-page .dashboard-classes-heading { align-items: center; margin-top: 28px; }
+.dashboard-classes-heading h2 { font-weight: 700; }
 .dashboard-classes-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-left: auto; }
 .dashboard-classes-actions .secondary-button { min-height: 42px; gap: 6px; background: transparent; }
 .dashboard-page .dashboard-tools { gap: 8px; margin: 0 0 16px; }
