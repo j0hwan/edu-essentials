@@ -1179,6 +1179,93 @@ test("topbar search submits the typed query and supports searching again", async
   } finally { if (root) await unmount(); }
 });
 
+test("compact topbar search suggestions open, dismiss, and retain full-search actions", async () => {
+  const dashboard = {
+    ...savedDashboard,
+    d: {
+      ...savedDashboard.d,
+      assignments: Array.from({ length: 7 }, (_, index) => ({ id: `search-essay-${index}`, title: `Saved notes essay ${index + 1}`, courseId: "history", dateKey: "2026-10-15", due: "", status: "later", progress: 0, description: "Use saved notes for the essay", weight: "" })),
+    },
+  };
+  reset(); installWorkspaceServer(dashboard, [sampleCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    const input = rootNode.querySelector('.topbar-search input');
+    const searchForm = input?.form;
+    const searchRow = rootNode.querySelector('.topbar-search-row');
+    assert.ok(searchForm?.matches('.topbar-search-slot > form.topbar-search'), "the search form is the expanding shell in its topbar slot");
+    assert.ok(searchRow?.contains(input), "the stable search row contains the input");
+    const animationCalls = [];
+    searchForm.animate = (frames, options) => {
+      animationCalls.push({ frames, options });
+      return { cancel() {}, finished: Promise.resolve() };
+    };
+    const setQuery = async (value) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    const suggestions = () => rootNode.querySelector('#workspace-search-suggestions[aria-label="Quick search results"]');
+    await setQuery("Saved notes");
+    const firstMount = suggestions();
+    assert.ok(firstMount, "nonblank typing opens the labeled quick results region");
+    assert.equal(firstMount.closest(".topbar-search"), searchForm, "the results region is in the same form shell as the input");
+    assert.equal(firstMount.classList.contains("topbar-search"), false, "the results region does not create a second search surface");
+    assert.equal(rootNode.querySelector('.topbar-search-row'), searchRow, "opening suggestions preserves the mounted input row");
+    assert.equal(animationCalls.length, 1, "opening suggestions animates the form shell once");
+    const openingFrames = animationCalls[0].frames;
+    assert.ok(Array.isArray(openingFrames) && openingFrames.length > 1, "shell opening uses progress keyframes");
+    assert.ok(openingFrames.some((frame) => Object.hasOwn(frame, "height")), "shell opening animates actual height");
+    assert.ok(openingFrames.every((frame) => !Object.hasOwn(frame, "transform") || !String(frame.transform).includes("scale")), "shell opening does not fake expansion with scale");
+    assert.equal(window.location.pathname, "/home", "typing does not navigate away from the workspace");
+    assert.ok(firstMount.querySelectorAll(".quick-search-result").length <= 6, "compact suggestions show at most six result action buttons");
+    assert.ok(firstMount.textContent.includes("Saved notes"), "matching saved workspace content is suggested");
+    assert.equal(firstMount.querySelectorAll(".quick-search-result").length, 6, "many matches are capped at six compact results");
+
+    await setQuery("Saved notes essay");
+    assert.equal(suggestions(), firstMount, "typing updates the mounted dropdown without remounting it");
+    assert.equal(animationCalls.length, 1, "query changes do not replay the shell opening animation");
+    assert.ok(suggestions().querySelectorAll(".quick-search-result").length <= 6);
+
+    await setQuery("   ");
+    assert.equal(suggestions(), null, "blank input closes suggestions");
+    await setQuery("Saved notes");
+    const reopened = suggestions();
+    assert.ok(reopened, "typing after blank reopens suggestions");
+    await act(async () => input.focus());
+    await act(async () => input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    assert.equal(document.activeElement, reopened.querySelector(".quick-search-result"), "ArrowDown focuses the first compact result");
+    await act(async () => input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    assert.equal(suggestions(), null, "Escape closes suggestions");
+    assert.equal(document.activeElement, input, "Escape returns focus to the search input");
+    await setQuery("Saved notes essay");
+    assert.ok(suggestions(), "subsequent typing after Escape reopens suggestions");
+    await act(async () => document.body.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true })));
+    assert.equal(suggestions(), null, "focus leaving the search closes suggestions");
+
+    await setQuery("Saved notes");
+    const assignmentResult = [...suggestions().querySelectorAll(".quick-search-result")].find((button) => button.textContent.includes("Saved notes essay 1"));
+    assert.ok(assignmentResult, "the matching assignment is available as a compact result action");
+    await act(async () => assignmentResult.click());
+    assert.equal(suggestions(), null, "activating a compact result dismisses suggestions");
+    assert.equal(window.location.pathname, "/home", "activating a compact result uses its full-search action without forcing Search navigation");
+    assert.ok(rootNode.querySelector('[role="dialog"]')?.textContent.includes("Saved notes essay 1"), "the compact result opens the assignment using its full-search action");
+
+    await setQuery("Saved notes");
+    const send = rootNode.querySelector('.topbar-search button[aria-label="Search"]');
+    assert.ok(send, "the topbar send button is available");
+    await act(async () => send.click());
+    assert.equal(window.location.pathname, "/search", "the send button opens full Search");
+    assert.equal(rootNode.querySelector('[aria-label="Search everything"]').value, "Saved notes", "the send button retains the query");
+
+    await setQuery("Saved notes");
+    const submit = new window.Event("submit", { bubbles: true, cancelable: true });
+    await act(async () => input.form.dispatchEvent(submit));
+    assert.equal(submit.defaultPrevented, true);
+    assert.equal(window.location.pathname, "/search", "form submit opens full Search");
+    assert.equal(rootNode.querySelector('[aria-label="Search everything"]').value, "Saved notes", "full Search retains the submitted query");
+  } finally { if (root) await unmount(); }
+});
+
 const sampleCourse = { id: "history", code: "HIST 205", name: "History", credits: 3, instructor: "Teacher", room: "Hall", color: "#112233", soft: "#11223318", initials: "HI" };
 test("experimental mode previews each schedule without saving and restores the real workspace", async () => {
   reset(); const server = installWorkspaceServer(savedDashboard, []);

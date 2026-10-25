@@ -56,6 +56,7 @@ import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
 import AcademicEditor from "./academic-editor";
+import TopbarSearch from "./topbar-search";
 import SyllabusReview from "./syllabus-review";
 import { SyllabusAttachment, SyllabusTextPreview, type SyllabusAttachmentValue } from "./course-syllabus";
 import AcademicCalendar from "./academic-calendar";
@@ -521,6 +522,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [calendarFilter, setCalendarFilter] = useState("all");
   const [manualEvents, setManualEvents] = useState<SavedEvent[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
+  const quickSearchRef = useRef<HTMLFormElement>(null);
   const [fileQuery, setFileQuery] = useState("");
   const [filePreview, setFilePreview] = useState<PrivateFile | null>(null);
   const [filePreviewReadOnly, setFilePreviewReadOnly] = useState(false);
@@ -624,6 +627,19 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   useEffect(() => { if (saveState.status === "saved") void refreshFiles(); }, [saveState.status, refreshFiles]);
   useSaveProtection(saveState.dirty || profilePending || fileUploads.dirty || fileUploads.busy || !!pendingFolderUpload || !!nativeDocumentDraft?.dirty || !!organizationState?.dirty || !!organizationState?.busy || undoBusy);
   const topSearchRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (!quickSearchOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof window.Node && !quickSearchRef.current?.contains(event.target)) setQuickSearchOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !quickSearchRef.current?.contains(document.activeElement)) return;
+      event.preventDefault(); setQuickSearchOpen(false); topSearchRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
+  }, [quickSearchOpen]);
   const study = extraData.study;
   const activeGpaSystem = experimentalMode ? "4.0 scale" : profile.gpa_system;
   const activeTerm = experimentalMode ? "Current term" : profile.current_term;
@@ -864,6 +880,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const overdueAssignments = assignments.filter((assignment) => assignment.status === "overdue");
 
   const navigate = (destination: PageId) => {
+    setQuickSearchOpen(false);
     if (nativeDocumentDialog) { flash("Close the text editor before navigating. Your draft is still here."); return; }
     router.push(`/${destination}`);
     setSidebarOpen(false);
@@ -1261,18 +1278,27 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       {sidebarOpen && <button className="sidebar-scrim" onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label="Close navigation overlay" />}
 
       <header className="desktop-topbar">
-        <form className="topbar-search" role="search" onSubmit={(event) => { event.preventDefault(); navigate("search"); }}>
+        <TopbarSearch formRef={quickSearchRef} open={quickSearchOpen && Boolean(searchQuery.trim())} reducedMotion={profile.preferences.reducedMotion}
+          results={quickSearchOpen && searchQuery.trim() ? renderQuickSearch() : null}
+          onSubmit={(event) => { event.preventDefault(); navigate("search"); }}
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setQuickSearchOpen(false); }}>
           <MessageSquare size={20} aria-hidden="true" />
           <input
             ref={topSearchRef}
             aria-label="Search assignments, classes, and files"
+            aria-controls={quickSearchOpen && searchQuery.trim() ? "workspace-search-suggestions" : undefined}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" && quickSearchOpen) {
+                event.preventDefault(); quickSearchRef.current?.querySelector<HTMLButtonElement>(".quick-search-result")?.focus();
+              }
+            }}
             placeholder="Search your workspace…"
             value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
+            onChange={(event) => { setSearchQuery(event.target.value); setQuickSearchOpen(Boolean(event.target.value.trim())); }}
           />
           <kbd>Ctrl K</kbd>
           <button type="submit" className="search-send" aria-label="Search"><Send size={18} /><span className="sr-only">Search</span></button>
-        </form>
+        </TopbarSearch>
         <div className="topbar-actions">
           <button className="topbar-icon" onClick={() => flash("You’re all caught up")} aria-label="Open notifications">
             <Bell size={18} />
@@ -1853,9 +1879,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return <AcademicCalendar courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} monday={profile.week_starts_on === "Monday"} timezone={profile.timezone} filter={calendarFilter} onFilter={setCalendarFilter} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onAdd={newEvent} />;
   }
 
-  function renderSearch() {
+  function searchResultGroups() {
     const query = searchQuery.toLowerCase().trim();
-    const resultGroups = [
+    return [
       { title: "Assignments", icon: CheckCircle2, items: assignments.filter((assignment) => !query || `${assignment.title} ${assignment.description} ${assignment.notes ?? ""} ${statusMeta[assignment.status].label} ${courseFor(courses, assignment.courseId).code}`.toLowerCase().includes(query)).map((assignment) => ({ id: assignment.id, title: assignment.title, subtitle: `${courseFor(courses, assignment.courseId).code} · ${assignment.due}`, badge: statusMeta[assignment.status].short, action: () => setSelectedAssignment(assignment) })) },
       { title: "Classes", icon: BookOpen, items: courses.filter((course) => !query || `${course.name} ${course.code} ${course.instructor} ${course.room} ${extraData.courseDetails[course.id]?.officeHours ?? ""}`.toLowerCase().includes(query)).map((course) => ({ id: course.id, title: course.name, subtitle: `${course.code} · ${course.instructor}`, badge: `${course.credits} credits`, action: () => setSelectedClass(course) })) },
       { title: "Files", icon: FileText, items: fileStore.files.filter((f) => !query || (f.name + " " + f.kind + " " + f.mime_type + " " + courseFor(courses, f.course_id ?? "").code).toLowerCase().includes(query)).map((f) => ({ id: f.id, title: f.name, subtitle: fileSize(Number(f.size_bytes)) + " · " + f.state, badge: f.kind, action: () => setFilePreview(f) })) },
@@ -1865,6 +1891,25 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       { title: "Study history", icon: Clock3, items: study.sessions.filter((session) => !query || (session.kind + " " + courseFor(courses, session.courseId).code + " " + session.segments.at(-1)!.end).toLowerCase().includes(query)).map((session) => ({ id: session.id, title: courseFor(courses, session.courseId).code + " study session", subtitle: durationLabel(segmentSeconds(session.segments)) + " · " + session.segments.at(-1)!.end.slice(0, 10), badge: session.kind, action: () => setStudyOpen(true) })) },
       { title: "Notes", icon: StickyNote, items: workspaces.flatMap((workspace) => workspace.widgets.filter((widget) => widget.type === "notes").map((widget, index) => ({ id: widget.instanceId, title: `Quick notes ${index + 1} · ${workspace.name}`, subtitle: (widget.note ?? "").replace(/\n/g, " · "), badge: "Note", action: () => { navigate("home"); setActiveWorkspaceId(workspace.id); noteFocusRef.current = widget.instanceId; } }))).filter((item) => !query || `${item.title} ${item.subtitle}`.toLowerCase().includes(query)) },
     ];
+  }
+
+  function renderQuickSearch() {
+    const results = searchResultGroups().flatMap((group) => group.items.map((item) => ({ ...item, group: group.title, icon: group.icon })));
+    return <section id="workspace-search-suggestions" className="quick-search" aria-label="Quick search results">
+      <div className="quick-search-heading"><strong>Quick results</strong><span role="status">{results.length} {results.length === 1 ? "match" : "matches"}</span></div>
+      {results.length ? <div className="quick-search-results">{results.slice(0, 6).map((item) => {
+        const Icon = item.icon;
+        return <button key={`${item.group}-${item.id}`} type="button" className="quick-search-result" onClick={() => { setQuickSearchOpen(false); item.action(); }}>
+          <Icon size={18} aria-hidden="true" /><span><strong>{item.title}</strong><small>{item.subtitle}</small></span><em>{item.group}</em>
+        </button>;
+      })}</div> : <p className="quick-search-empty">No matches yet. Try a different word or phrase.</p>}
+      <button type="submit" className="quick-search-all"><span>View all results</span><span>Enter <ArrowRight size={14} aria-hidden="true" /></span></button>
+    </section>;
+  }
+
+  function renderSearch() {
+    const query = searchQuery.toLowerCase().trim();
+    const resultGroups = searchResultGroups();
     const resultCount = resultGroups.reduce((total, group) => total + group.items.length, 0);
     return <div className="page search-page">
       {renderPageHeader("Find anything", "Search your workspace", "Search saved text, file names, events, classes, grades, and study history. PDF/image contents are not indexed.")}
