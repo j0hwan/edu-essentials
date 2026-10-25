@@ -332,6 +332,7 @@
     --page-gutter: calc(20 * var(--ui-unit));
     margin-left: calc(var(--desktop-sidebar-edge) + var(--desktop-content-gutter));
     padding-right: var(--desktop-content-gutter);
+    transition: margin-left var(--shell-reflow-duration) var(--shell-reflow-easing), padding-right var(--shell-reflow-duration) var(--shell-reflow-easing);
     min-height: calc(100svh - 70 * max(0.0703125rem, 1.125px));
   }
   .reference-ui :is(.widget-card, .today-section-menu, .widget-reorder-overlay) { --desktop-density-unit: var(--desktop-content-density-unit); }

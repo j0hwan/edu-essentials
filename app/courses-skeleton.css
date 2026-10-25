@@ -109,7 +109,7 @@ html[data-motion="reduced"] .courses-skeleton__surface::after {
 
 .courses-skeleton__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(230px, calc((100% - 48px) / 4))), 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
   gap: 16px;
   min-width: 0;
@@ -136,6 +136,18 @@ html[data-motion="reduced"] .courses-skeleton__surface::after {
   0%, 25% { transform: translateX(-52%); opacity: 0; }
   38% { opacity: 1; }
   66%, 100% { transform: translateX(52%); opacity: 0; }
+}
+
+@media (max-width: 1279px) {
+  .courses-skeleton__cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1023px) {
+  .courses-skeleton__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 539px) {
+  .courses-skeleton__cards { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 800px) {
