@@ -1195,6 +1195,11 @@ test("compact topbar search suggestions open, dismiss, and retain full-search ac
     const searchRow = rootNode.querySelector('.topbar-search-row');
     assert.ok(searchForm?.matches('.topbar-search-slot > form.topbar-search'), "the search form is the expanding shell in its topbar slot");
     assert.ok(searchRow?.contains(input), "the stable search row contains the input");
+    searchForm.style.border = "1px solid";
+    searchRow.getBoundingClientRect = () => ({ height: 38 });
+    searchForm.getBoundingClientRect = () => ({ height: Number.parseFloat(searchForm.style.height) || 40 });
+    const expansion = searchForm.querySelector('.topbar-search-expansion');
+    expansion.getBoundingClientRect = () => ({ height: expansion.childElementCount ? 32 + expansion.querySelectorAll('.quick-search-result').length * 40 : 0 });
     const animationCalls = [];
     searchForm.animate = (frames, options) => {
       animationCalls.push({ frames, options });
@@ -1228,6 +1233,8 @@ test("compact topbar search suggestions open, dismiss, and retain full-search ac
 
     await setQuery("   ");
     assert.equal(suggestions(), null, "blank input closes suggestions");
+    assert.equal(animationCalls.length, 2, "clearing the query animates the shell closed");
+    assert.equal(animationCalls.at(-1).frames.at(-1).height, "40px");
     await setQuery("Saved notes");
     const reopened = suggestions();
     assert.ok(reopened, "typing after blank reopens suggestions");
@@ -1241,6 +1248,7 @@ test("compact topbar search suggestions open, dismiss, and retain full-search ac
     assert.ok(suggestions(), "subsequent typing after Escape reopens suggestions");
     await act(async () => document.body.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true })));
     assert.equal(suggestions(), null, "focus leaving the search closes suggestions");
+    assert.equal(animationCalls.at(-1).frames.at(-1).height, "40px", "outside clicks animate back to the search row");
 
     await setQuery("Saved notes");
     const assignmentResult = [...suggestions().querySelectorAll(".quick-search-result")].find((button) => button.textContent.includes("Saved notes essay 1"));

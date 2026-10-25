@@ -16,41 +16,52 @@ type Props = {
 export default function TopbarSearch({ formRef, open, reducedMotion, onSubmit, onBlur, children, results }: Props) {
   const rowRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const animationRef = useRef<Animation | null>(null);
+  const destinationRef = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     const form = formRef.current;
     const row = rowRef.current;
     const region = resultsRef.current;
-    if (!open || !form || !row || !region || reducedMotion
-      || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-      || typeof form.animate !== "function") return;
-    const styles = window.getComputedStyle(form);
-    const borderHeight = Number.parseFloat(styles.borderTopWidth) + Number.parseFloat(styles.borderBottomWidth);
-    const collapsedHeight = row.getBoundingClientRect().height + borderHeight;
-    const targetHeight = () => row.getBoundingClientRect().height + region.getBoundingClientRect().height + borderHeight;
-    let destination = targetHeight();
-    let active = true;
-    const started = performance.now();
-    let animation = form.animate(createCourseExpansionProgressFrames().map(({ offset, progress }) => ({
-      offset,
-      height: `${Math.max(collapsedHeight, collapsedHeight + (destination - collapsedHeight) * progress)}px`,
-    })), { duration: COURSE_EXPANSION_MOTION_DURATION_MS, easing: COURSE_EXPANSION_MOTION_EASING });
-    animation.onfinish = () => { active = false; };
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
-      const nextHeight = targetHeight();
-      if (!active || Math.abs(nextHeight - destination) < 1) return;
+    if (!form || !row || !region) return;
+    const resize = () => {
+      const styles = window.getComputedStyle(form);
+      const borderHeight = (Number.parseFloat(styles.borderTopWidth) || 0) + (Number.parseFloat(styles.borderBottomWidth) || 0);
+      const collapsedHeight = row.getBoundingClientRect().height + borderHeight;
+      const destination = collapsedHeight + (open ? region.getBoundingClientRect().height : 0);
+      const skipMotion = reducedMotion || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+        || typeof form.animate !== "function";
+      if (destinationRef.current === destination && !skipMotion) return;
       const currentHeight = form.getBoundingClientRect().height;
-      animation.cancel();
-      destination = nextHeight;
-      animation = form.animate([{ height: `${currentHeight}px` }, { height: `${destination}px` }], {
-        duration: Math.max(80, COURSE_EXPANSION_MOTION_DURATION_MS - (performance.now() - started)),
-        easing: "ease-out",
-      });
-      animation.onfinish = () => { active = false; };
-    }) : null;
+      const initialized = destinationRef.current !== null;
+      animationRef.current?.cancel();
+      animationRef.current = null;
+      destinationRef.current = destination;
+      form.style.height = `${destination}px`;
+      if (!initialized || skipMotion || Math.abs(currentHeight - destination) < 1) return;
+      const animation = form.animate(createCourseExpansionProgressFrames().map(({ offset, progress }) => ({
+        offset,
+        height: `${Math.max(collapsedHeight, currentHeight + (destination - currentHeight) * progress)}px`,
+      })), { duration: COURSE_EXPANSION_MOTION_DURATION_MS, easing: COURSE_EXPANSION_MOTION_EASING });
+      animationRef.current = animation;
+      animation.onfinish = () => {
+        if (animationRef.current !== animation) return;
+        animationRef.current = null;
+        animation.cancel();
+      };
+    };
+    resize();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(resize) : null;
+    observer?.observe(row);
     observer?.observe(region);
-    return () => { observer?.disconnect(); animation.cancel(); };
-  }, [formRef, open, reducedMotion]);
+    return () => observer?.disconnect();
+  });
+
+  useLayoutEffect(() => () => {
+    animationRef.current?.cancel();
+    animationRef.current = null;
+    destinationRef.current = null;
+  }, []);
 
   return <div className="topbar-search-slot">
     <form ref={formRef} className="topbar-search" role="search" onSubmit={onSubmit} onBlur={onBlur}>

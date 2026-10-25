@@ -1282,7 +1282,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           results={quickSearchOpen && searchQuery.trim() ? renderQuickSearch() : null}
           onSubmit={(event) => { event.preventDefault(); navigate("search"); }}
           onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setQuickSearchOpen(false); }}>
-          <MessageSquare size={20} aria-hidden="true" />
+          <Search size={20} aria-hidden="true" />
           <input
             ref={topSearchRef}
             aria-label="Search assignments, classes, and files"
