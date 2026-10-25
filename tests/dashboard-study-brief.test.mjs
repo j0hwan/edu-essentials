@@ -1019,6 +1019,7 @@ test("wheel input converts pixel, line, and page units, then returns subthreshol
     await mount({ focusAssignments: assignments(5) });
     const viewport = node.querySelector(".dashboard-focus-viewport");
     setViewportSize(viewport);
+    await timers.advanceFrame(0);
 
     await dispatchWheel(viewport, { deltaX: 0.5 });
     await dispatchWheel(viewport, { deltaX: 1, deltaMode: 1 });
@@ -1059,6 +1060,7 @@ test("wheel intent stays on its first axis through mixed packets", async () => {
     await mount({ focusAssignments: assignments(5) });
     const viewport = node.querySelector(".dashboard-focus-viewport");
     setViewportSize(viewport);
+    await timers.advanceFrame(0);
 
     const verticalStart = await dispatchWheel(viewport, { deltaX: 2, deltaY: 30 });
     const verticalBurst = await dispatchWheel(viewport, { deltaX: 30, deltaY: 0 });
@@ -1578,6 +1580,7 @@ test("pointercancel, resize, blur, reduced motion, and assignment changes restor
         await mount({ focusAssignments: originalAssignments });
         const viewport = node.querySelector(".dashboard-focus-viewport");
         setViewportSize(viewport);
+        await timers.advanceFrame(0);
 
         if (cancelWith === "pointercancel") {
           await dispatchPointer(viewport, "pointerdown", { x: 200, y: 100 });
@@ -1593,6 +1596,8 @@ test("pointercancel, resize, blur, reduced motion, and assignment changes restor
           if (cancelWith === "resize") {
             Object.defineProperty(viewport.querySelector(".dashboard-focus-track"), "clientWidth", { configurable: true, value: 400 });
             await act(async () => window.dispatchEvent(new window.Event("resize")));
+            assert.equal(timers.pendingAnimationFrameCount, 1, "only the summary shape measurement remains scheduled");
+            await timers.advanceFrame(0);
           } else if (cancelWith === "blur") {
             await act(async () => window.dispatchEvent(new window.Event("blur")));
           } else if (cancelWith === "reduced motion") {

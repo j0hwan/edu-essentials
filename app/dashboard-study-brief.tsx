@@ -49,6 +49,7 @@ type Props = {
   chatMessages?: { id: string; question: string; status: string; conversationId?: string; error?: string; result?: { answer: Answer; citations: Citation[]; proposalId: string | null } }[];
   chatBusy?: boolean;
   reducedMotion?: boolean;
+  reflowKey?: string;
 };
 
 export default function DashboardStudyBrief({
@@ -68,6 +69,7 @@ export default function DashboardStudyBrief({
   chatMessages = [],
   chatBusy = false,
   reducedMotion = false,
+  reflowKey,
 }: Props) {
   const [question, setQuestion] = useState("");
   const [askFocused, setAskFocused] = useState(false);
@@ -91,13 +93,18 @@ export default function DashboardStudyBrief({
     const priorities = section.querySelector<HTMLElement>(".dashboard-focus")!;
     const lead = section.querySelector<HTMLElement>(".dashboard-study-lead")!;
     const footer = section.querySelector<HTMLElement>(".dashboard-study-footer")!;
+    let frame: number | null = null;
     const updateShape = () => {
       const bounds = section.getBoundingClientRect();
       if (bounds.width <= 1 || bounds.height <= 1) return;
+      const width = section.offsetWidth || bounds.width;
+      const height = section.offsetHeight || bounds.height;
+      const scaleX = bounds.width / width;
+      const scaleY = bounds.height / height;
       const focusBounds = priorities.getBoundingClientRect();
       const summaryBounds = summary.getBoundingClientRect();
       const tabBounds = section.querySelector<HTMLButtonElement>(".dashboard-study-chat-toggle")?.getBoundingClientRect();
-      const tabCenter = summaryBounds.left - bounds.left + summaryBounds.width / 2;
+      const tabCenter = (summaryBounds.left - bounds.left + summaryBounds.width / 2) / scaleX;
       const styles = window.getComputedStyle(section);
       const radius = Number.parseFloat(styles.borderTopLeftRadius);
       const stacked = focusBounds.left < summaryBounds.right;
@@ -105,30 +112,47 @@ export default function DashboardStudyBrief({
       const collapsedBottom = Math.max(
         focusBounds.bottom,
         lead.getBoundingClientRect().bottom + footer.getBoundingClientRect().height,
-      ) - bounds.top + bottomPadding;
+      ) - bounds.top;
       const shape = dashboardSummaryShape({
-        width: bounds.width,
-        height: bounds.height,
-        split: stacked ? bounds.width : focusBounds.left - bounds.left,
-        baseHeight: stacked ? bounds.height : collapsedBottom,
+        width,
+        height,
+        split: stacked ? width : (focusBounds.left - bounds.left) / scaleX,
+        baseHeight: stacked ? height : collapsedBottom / scaleY + bottomPadding,
         radius,
-        tab: tabBounds ? { center: tabCenter, width: tabBounds.width, height: tabBounds.height, radius } : undefined,
+        tab: tabBounds ? { center: tabCenter, width: tabBounds.width / scaleX, height: tabBounds.height / scaleY, radius } : undefined,
       });
-      path.setAttribute("d", shape);
-      section.style.setProperty("--summary-shell-path", `path("${shape}")`);
-      section.style.setProperty("--summary-tab-center", `${tabCenter}px`);
-      section.style.setProperty("--summary-tab-depth", `${tabBounds?.height ?? 0}px`);
-      section.dataset.shaped = "true";
+      if (path.getAttribute("d") !== shape) path.setAttribute("d", shape);
+      const properties = {
+        "--summary-shell-path": `path("${shape}")`,
+        "--summary-tab-center": `${tabCenter}px`,
+        "--summary-tab-depth": `${tabBounds ? tabBounds.height / scaleY : 0}px`,
+      };
+      for (const [property, value] of Object.entries(properties)) {
+        if (section.style.getPropertyValue(property) !== value) section.style.setProperty(property, value);
+      }
+      if (section.dataset.shaped !== "true") section.dataset.shaped = "true";
+    };
+    const scheduleShape = () => {
+      if (frame !== null) return;
+      if (typeof window.requestAnimationFrame !== "function") {
+        updateShape();
+        return;
+      }
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        updateShape();
+      });
     };
     updateShape();
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(updateShape) : null;
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(scheduleShape) : null;
     for (const element of [section, summary, priorities, lead, footer]) observer?.observe(element, { box: "border-box" });
-    window.addEventListener("resize", updateShape);
+    window.addEventListener("resize", scheduleShape);
     return () => {
       observer?.disconnect();
-      window.removeEventListener("resize", updateShape);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", scheduleShape);
     };
-  }, [showChatToggle]);
+  }, [showChatToggle, reflowKey]);
 
   useLayoutEffect(() => {
     const region = chatRegion.current;

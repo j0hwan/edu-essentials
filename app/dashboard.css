@@ -1,3 +1,7 @@
+@media (min-width: 821px) {
+  .reference-ui .main-content:has(.dashboard-reflow) { transition: none; }
+}
+
 .dashboard-summary {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);

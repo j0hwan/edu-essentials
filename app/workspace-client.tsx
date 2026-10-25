@@ -106,6 +106,7 @@ import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspac
 import ProfileEditor from "./profile-editor";
 import AcademicAssistant, { type AssistantPrompt } from "./academic-assistant";
 import DashboardStudyBrief from "./dashboard-study-brief";
+import AnimatedDashboard from "./animated-dashboard";
 import { useDashboardChat } from "./use-dashboard-chat";
 import CoursesSkeleton from "./courses-skeleton";
 import ClassCardExpansion from "./class-card-expansion";
@@ -1802,8 +1803,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   function renderDashboard() {
     const focusAssignments = dashboardFocus(assignments);
     return (
-      <div className="page dashboard-page">
+      <AnimatedDashboard reflowKey={String(sidebarCollapsed)} reducedMotion={profile.preferences.reducedMotion}>
         <DashboardStudyBrief
+          reflowKey={String(sidebarCollapsed)}
           key={initialProfile.id}
           chatMessages={dashboardChat.messages}
           chatBusy={dashboardChat.busy}
@@ -1856,7 +1858,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         ) : renderAssignmentTable(assignments)}
         </section>
         {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2><p>Your nearest deadlines across every class.</p></div><button className="text-button" onClick={() => setDashboardView("list")}>See all <ArrowRight size={14} /></button></div>{renderAssignmentTable(focusAssignments.slice(0, 5), true)}</section>}
-      </div>
+      </AnimatedDashboard>
     );
   }
 
