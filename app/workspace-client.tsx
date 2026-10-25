@@ -1812,7 +1812,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             <div className="dashboard-classes-actions">
               <button className="secondary-button" onClick={newAssignment}><Plus size={16} />Add assignment</button>
               <button className="secondary-button" onClick={() => setAddClassOpen(true)}><Plus size={16} />Add Class</button>
-              <div className="view-toggle" role="group" aria-label="Dashboard view"><button aria-pressed={dashboardView === "cards"} className={dashboardView === "cards" ? "active" : ""} onClick={() => setDashboardView("cards")}><LayoutGrid size={16} /> Cards</button><button aria-pressed={dashboardView === "list"} className={dashboardView === "list" ? "active" : ""} onClick={() => setDashboardView("list")}><List size={16} /> List</button></div>
+              <button type="button" className="view-toggle" role="switch" aria-label="Dashboard view" aria-checked={dashboardView === "list"} onClick={() => setDashboardView((current) => current === "cards" ? "list" : "cards")}><span className={dashboardView === "cards" ? "active" : ""}><LayoutGrid size={16} /> Cards</span><span className={dashboardView === "list" ? "active" : ""}><List size={16} /> List</span></button>
             </div>
           </div>
         {dashboardView === "cards" ? (
