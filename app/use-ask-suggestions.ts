@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 
 export const ASK_SUGGESTIONS = [
-  "Help me plan my week.",
-  "What should I work on next?",
-  "Break down this assignment.",
-  "Make me a study schedule.",
-  "Help me prepare for an exam.",
+  "Help me plan my week",
+  "What should I work on next",
+  "Break down this assignment",
+  "Make me a study schedule",
+  "Help me prepare for an exam",
 ] as const;
 
 const TYPE_DELAY_MS = 80;
-const HOLD_DELAY_MS = 1400;
+const HOLD_DELAY_MS = 2250;
 const DELETE_DELAY_MS = 35;
 const NEXT_SUGGESTION_DELAY_MS = 350;
 const INITIAL_PLACEHOLDER = "Ask Edu AI…";

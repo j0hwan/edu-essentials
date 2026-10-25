@@ -357,11 +357,11 @@ test("system reduced-motion preference skips typing and completes if enabled dur
 test("starts Ask Edu suggestions after the summary, pauses for input, then types, deletes, and loops five suggestions", async () => {
   const timers = installFakeWindowTimers();
   const suggestions = [
-    "Help me plan my week.",
-    "What should I work on next?",
-    "Break down this assignment.",
-    "Make me a study schedule.",
-    "Help me prepare for an exam.",
+    "Help me plan my week",
+    "What should I work on next",
+    "Break down this assignment",
+    "Make me a study schedule",
+    "Help me prepare for an exam",
   ];
   try {
     await mount();
@@ -443,8 +443,10 @@ test("starts Ask Edu suggestions after the summary, pauses for input, then types
     for (let index = 0; index < suggestions.length; index += 1) {
       assert.equal(input.placeholder, suggestions[index]);
       assert.equal(node.querySelector(".dashboard-study-ask-suggestion-text").textContent, input.placeholder);
+      await timers.advance(2249);
+      assert.equal(input.placeholder, suggestions[index]);
       const next = suggestions[(index + 1) % suggestions.length];
-      await timers.advance(1400 + (suggestions[index].length * 35) + 350 + (next.length * 80));
+      await timers.advance(1 + (suggestions[index].length * 35) + 350 + (next.length * 80));
       assert.equal(input.placeholder, next);
     }
     assert.equal(timers.pendingTimeoutCount, 1);
