@@ -109,7 +109,7 @@ html[data-motion="reduced"] .courses-skeleton__surface::after {
 
 .courses-skeleton__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(230px, calc((100% - 48px) / 4))), 1fr));
   align-items: stretch;
   gap: 16px;
   min-width: 0;

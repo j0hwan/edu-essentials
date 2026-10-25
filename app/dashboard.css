@@ -129,7 +129,7 @@
 .dashboard-classes-actions .secondary-button { min-height: 42px; gap: 6px; background: transparent; }
 .dashboard-page .dashboard-tools { gap: 8px; margin: 0 0 16px; }
 .dashboard-tools .secondary-button { min-height: 30px; padding: 6px 10px; gap: 6px; font-size: 10px; background: transparent; }
-.dashboard-page .class-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.dashboard-page .class-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, max(230px, calc((100% - 48px) / 4))), 1fr)); }
 .dashboard-page .class-card { max-width: 420px; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
 .dashboard-page .dashboard-upcoming { margin-top: 44px; }
 .dashboard-page button:focus-visible, .dashboard-page summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
