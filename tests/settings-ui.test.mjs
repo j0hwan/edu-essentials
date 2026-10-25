@@ -1403,6 +1403,38 @@ test("class cards enlarge in place with all class tools and retain nested assign
   } finally { filesFetcher = undefined; await unmount(); }
 });
 
+test("workspace saving uses one compact notification across pages", async () => {
+  reset();
+  const server = installWorkspaceServer();
+  const workspaceFetcher = fetcher;
+  let releaseSave;
+  const pendingSave = new Promise((resolve) => { releaseSave = resolve; });
+  fetcher = async (url, init = {}) => {
+    if (init.method === "PUT") await pendingSave;
+    return workspaceFetcher(url, init);
+  };
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await editNotes("Keep this save pending while navigating.");
+    let sharedToast;
+    for (const page of ["Courses", "Tasks", "Calendar", "Search", "Files", "Settings"]) {
+      await click(page);
+      const savingToasts = [...rootNode.querySelectorAll(".save-toast-card")].filter((toast) => toast.querySelector(".save-toast-pending-main strong")?.textContent === "Saving workspace…");
+      assert.equal(savingToasts.length, 1, `${page} has one workspace saving notification`);
+      const toast = savingToasts[0];
+      assert.ok(toast.classList.contains("is-centered"), `${page} uses the compact shared layout`);
+      assert.equal(toast.querySelector(".save-toast-actions"), null, `${page} has no empty action row`);
+      if (sharedToast) assert.equal(toast, sharedToast, `${page} retains the same notification element`);
+      sharedToast = toast;
+    }
+    releaseSave();
+    await waitForWorkspaceSave(server, 0);
+  } finally {
+    releaseSave();
+    await unmount();
+  }
+});
+
 test("dashboard actions omit the shortcut row and the class header adds assignments", async () => {
   reset();
   const server = installWorkspaceServer(savedDashboard, [sampleCourse]);

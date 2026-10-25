@@ -550,7 +550,6 @@ html[data-motion="reduced"] .reference-ui .widget-card { transition: none; }
   padding: 0;
   backdrop-filter: none;
 }
-.reference-ui.files-workspace .save-toast-card.is-centered { display: none; }
 .reference-ui.files-workspace :is(.file-organization-dialog.files-action-sheet, .native-document-dialog.files-action-sheet) {
   box-sizing: border-box;
   display: flex;

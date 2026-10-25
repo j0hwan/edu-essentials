@@ -2646,7 +2646,7 @@ html[data-theme="dark"] .tone-blue { background: #1d3546; color: #78c8ff; }
 .toast.save-toast-card .save-toast-header svg { flex: 0 0 auto; color: var(--amber); }
 .save-toast-details { min-width: 0; color: var(--muted); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
 .save-toast-pending { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; }
-.save-toast-card.is-centered { width: fit-content; align-self: flex-end; min-height: 40px; padding: 10px 12px; }
+.save-toast-card.is-centered { width: fit-content; align-self: flex-end; min-height: 0; padding: 10px 12px; }
 .save-toast-pending-main { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 8px; }
 .toast.save-toast-card .save-toast-pending-main > svg { flex: 0 0 auto; color: var(--brand); }
 .save-toast-pending-main > strong { min-width: 0; color: var(--ink); font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
