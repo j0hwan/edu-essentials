@@ -2,6 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Course } from "../lib/academics";
+import { clearCourseImageThumbnail, courseExpansionStorageKey } from "../lib/course-image-thumbnail";
 
 export function useCourseExpansion({ profileId, page, courses, ready, persist = true }: {
   profileId: string;
@@ -10,7 +11,7 @@ export function useCourseExpansion({ profileId, page, courses, ready, persist = 
   ready: boolean;
   persist?: boolean;
 }) {
-  const storageKey = `edu-dashboard-expanded-course:${profileId}`;
+  const storageKey = courseExpansionStorageKey(profileId);
   const [selection, setSelection] = useState<{ profileId: string; page: string; course: Course; restored: boolean } | null>(null);
   const previousContext = useRef<string | null>(null);
 
@@ -25,23 +26,29 @@ export function useCourseExpansion({ profileId, page, courses, ready, persist = 
         const courseId = window.localStorage.getItem(storageKey);
         const course = courses.find((item) => item.id === courseId);
         if (course) nextSelection = { profileId, page, course, restored: true };
-        if (courseId && !course) window.localStorage.removeItem(storageKey);
+        if (!course) {
+          if (courseId) window.localStorage.removeItem(storageKey);
+          clearCourseImageThumbnail(profileId);
+        }
       } catch { /* Course navigation remains available without browser storage. */ }
     }
     setSelection(nextSelection);
   }, [profileId, page, courses, ready, persist, storageKey, selection]);
 
   const clearSavedCourse = useCallback(() => {
-    if (page !== "dashboard" || !persist) return;
+    if (!persist) return;
+    clearCourseImageThumbnail(profileId);
+    if (page !== "dashboard") return;
     try { window.localStorage.removeItem(storageKey); }
     catch { /* Closing remains available without browser storage. */ }
-  }, [page, persist, storageKey]);
+  }, [profileId, page, persist, storageKey]);
 
   const setSelectedClass = useCallback((course: Course | null) => {
     setSelection(course ? { profileId, page, course, restored: false } : null);
     if (!course) { clearSavedCourse(); return; }
     if (page !== "dashboard" || !persist) return;
     try {
+      if (window.localStorage.getItem(storageKey) !== course.id) clearCourseImageThumbnail(profileId);
       window.localStorage.setItem(storageKey, course.id);
     } catch { /* Keep course controls usable if browser storage is unavailable. */ }
   }, [profileId, page, persist, storageKey, clearSavedCourse]);
@@ -49,7 +56,10 @@ export function useCourseExpansion({ profileId, page, courses, ready, persist = 
   const openDashboardCourse = useCallback((course: Course) => {
     setSelection({ profileId, page: "dashboard", course, restored: false });
     if (!persist) return;
-    try { window.localStorage.setItem(storageKey, course.id); }
+    try {
+      if (window.localStorage.getItem(storageKey) !== course.id) clearCourseImageThumbnail(profileId);
+      window.localStorage.setItem(storageKey, course.id);
+    }
     catch { /* The requested course can still open without browser storage. */ }
   }, [profileId, persist, storageKey]);
 

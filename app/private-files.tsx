@@ -50,10 +50,12 @@ function samePrivateImageSource(first: PrivateImageSource, second: PrivateImageS
     && first.blob === second.blob;
 }
 
-export function PrivateImage({ file, store, fadeIn = false }: { file: PrivateFile; store: FileStore; fadeIn?: boolean }) {
+export function PrivateImage({ file, store, fadeIn = false, onDecoded }: { file: PrivateFile; store: FileStore; fadeIn?: boolean; onDecoded?: (image: HTMLImageElement) => void }) {
   const [loadedImage, setLoadedImage] = useState<LoadedPrivateImage | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const fileRef = useRef(file);
+  const onDecodedRef = useRef(onDecoded);
+  const decodedUrlsRef = useRef(new Set<string>());
   const blob = store.blob;
   const source = useMemo<PrivateImageSource>(() => ({
     fileId: file.id,
@@ -65,6 +67,7 @@ export function PrivateImage({ file, store, fadeIn = false }: { file: PrivateFil
   }), [file.id, file.updated_at, file.content_revision, file.trashed_at, file.deleted_at, blob]);
   const sourceRef = useRef(source);
   useLayoutEffect(() => { fileRef.current = file; }, [file]);
+  useLayoutEffect(() => { onDecodedRef.current = onDecoded; }, [onDecoded]);
   useLayoutEffect(() => { sourceRef.current = source; }, [source]);
 
   useEffect(() => {
@@ -93,15 +96,25 @@ export function PrivateImage({ file, store, fadeIn = false }: { file: PrivateFil
   const currentImage = loadedImage && samePrivateImageSource(loadedImage, source) ? loadedImage : null;
   useLayoutEffect(() => {
     const image = imageRef.current;
-    if (!fadeIn || !currentImage || currentImage.ready || !image) return;
+    if ((!fadeIn && !onDecoded) || !currentImage || (fadeIn && currentImage.ready && (!onDecoded || decodedUrlsRef.current.has(currentImage.url))) || !image) return;
     const src = currentImage.url;
     let cancelled = false;
-    const reveal = () => {
+    const isCurrent = () => {
       if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
-      setLoadedImage((current) => current?.url === src ? { ...current, ready: true } : current);
+      return true;
+    };
+    const notifyDecoded = () => {
+      if (!isCurrent() || image.naturalWidth <= 0 || !onDecodedRef.current || decodedUrlsRef.current.has(src)) return;
+      decodedUrlsRef.current.add(src);
+      try { onDecodedRef.current(image); } catch { /* An optional decode observer cannot interrupt image display. */ }
+    };
+    const reveal = () => {
+      if (!isCurrent()) return;
+      notifyDecoded();
+      if (fadeIn) setLoadedImage((current) => current?.url === src ? { ...current, ready: true } : current);
     };
     const decode = () => {
-      if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
+      if (!isCurrent()) return;
       if (typeof image.decode === "function") void image.decode().then(reveal, reveal);
       else reveal();
     };
@@ -114,7 +127,7 @@ export function PrivateImage({ file, store, fadeIn = false }: { file: PrivateFil
       cancelled = true;
       image.removeEventListener("load", decode);
     };
-  }, [fadeIn, currentImage]);
+  }, [fadeIn, currentImage, onDecoded]);
 
   if (!currentImage || file.trashed_at || file.deleted_at) return null;
   const className = `private-class-image${fadeIn ? ` private-class-image-fade${currentImage.ready ? " is-ready" : ""}` : ""}`;

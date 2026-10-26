@@ -77,6 +77,8 @@
 .file-view-grid .private-file-list li { padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
 .file-view-grid .private-file-list li > .text-button, .file-view-grid .private-file-list li > span { flex-basis: 100%; }
 .private-class-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.private-class-image-thumbnail { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: blur(16px); transform: scale(1.1); }
+.private-class-image-thumbnail + .private-class-image { z-index: 1; }
 @property --course-image-progress {
   syntax: "<number>";
   inherits: false;

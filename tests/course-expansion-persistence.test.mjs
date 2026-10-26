@@ -17,6 +17,7 @@ const [{ createElement, act }, { createRoot }, { useCourseExpansion }] = await P
 
 const rootNode = document.getElementById("root");
 const storageKey = (profileId) => `edu-dashboard-expanded-course:${profileId}`;
+const thumbnailKey = (profileId) => `edu-dashboard-course-thumbnail:${profileId}`;
 const courseA = { id: "course-a", code: "BIO 101", name: "Biology" };
 const courseB = { id: "course-b", code: "HIST 202", name: "History" };
 let root;
@@ -163,15 +164,39 @@ test("resetSelectedClass hides the expansion while retaining its saved choice", 
 test("clearSavedCourse removes storage immediately while keeping the visible course for closing", async () => {
   await mount();
   await act(async () => latest.setSelectedClass(courseA));
+  window.localStorage.setItem(thumbnailKey("profile-one"), "cached thumbnail");
   assert.equal(latest.selectedClass?.id, courseA.id);
 
   await act(async () => latest.clearSavedCourse());
   assert.equal(window.localStorage.getItem(storageKey("profile-one")), null, "the saved choice is removed immediately");
+  assert.equal(window.localStorage.getItem(thumbnailKey("profile-one")), null, "the thumbnail is removed at close intent, before the exit animation");
   assert.equal(latest.selectedClass?.id, courseA.id, "the current detail stays visible for its close animation");
 
   await render({ page: "home" });
   await render({ page: "dashboard" });
   assert.equal(latest.selectedClass, null, "navigation does not restore a course after its saved choice was cleared");
+});
+
+test("navigation keeps the expanded-course thumbnail while explicit close deletes it", async () => {
+  await mount();
+  await act(async () => latest.setSelectedClass(courseA));
+  window.localStorage.setItem(thumbnailKey("profile-one"), "cached thumbnail");
+  await render({ page: "home" });
+  assert.equal(window.localStorage.getItem(thumbnailKey("profile-one")), "cached thumbnail");
+  await render({ page: "dashboard" });
+  assert.equal(latest.selectedClass?.id, courseA.id);
+  assert.equal(window.localStorage.getItem(thumbnailKey("profile-one")), "cached thumbnail");
+  await act(async () => latest.setSelectedClass(null));
+  assert.equal(window.localStorage.getItem(thumbnailKey("profile-one")), null);
+});
+
+test("expanding another course removes the previous course thumbnail", async () => {
+  await mount({ courses: [courseA, courseB] });
+  await act(async () => latest.setSelectedClass(courseA));
+  window.localStorage.setItem(thumbnailKey("profile-one"), "cached thumbnail");
+  await act(async () => latest.setSelectedClass(courseB));
+  assert.equal(window.localStorage.getItem(thumbnailKey("profile-one")), null);
+  assert.equal(window.localStorage.getItem(storageKey("profile-one")), courseB.id);
 });
 
 test("persist=false keeps selection in memory without writing localStorage", async () => {
