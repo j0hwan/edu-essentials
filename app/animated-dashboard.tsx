@@ -6,7 +6,7 @@ const legendLabels = ".dashboard-focus-counts > span";
 
 type Rect = { left: number; top: number; width: number; height: number };
 type Plan = { element: Element; from: Rect; to: Rect };
-type Props = { reflowKey: string; reducedMotion?: boolean; restoredCourse?: boolean; children: ReactNode };
+type Props = { reflowKey: string; reducedMotion?: boolean; restoredCourse?: boolean; imagesPending?: boolean; children: ReactNode };
 type State = { restoredCourse: boolean };
 
 export default class AnimatedDashboard extends Component<Props, State> {
@@ -146,7 +146,7 @@ export default class AnimatedDashboard extends Component<Props, State> {
   }
 
   render() {
-    return <div ref={(node) => { this.root = node; }} className="page dashboard-page dashboard-reflow" data-restored-course={this.state.restoredCourse ? "true" : undefined} data-reduced-motion={this.props.reducedMotion ? "true" : undefined}>{this.props.children}</div>;
+    return <div ref={(node) => { this.root = node; }} className="page dashboard-page dashboard-reflow" data-restored-course={this.state.restoredCourse ? "true" : undefined} data-reduced-motion={this.props.reducedMotion ? "true" : undefined} data-images-pending={this.props.imagesPending ? "true" : undefined} aria-hidden={this.props.imagesPending ? "true" : undefined} inert={this.props.imagesPending}>{this.props.children}</div>;
   }
 }
 

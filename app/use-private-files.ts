@@ -7,6 +7,7 @@ import { uploadFileWithProgress, type FileUploadOptions } from "../lib/file-uplo
 type ProfileSession = { profileId: string; generation: number };
 type KeyedValue<T> = { key: string; value: T };
 type BusyValue = { key: string; count: number };
+const FILE_LIST_TIMEOUT_MS = 15_000;
 
 function sessionKey(session: ProfileSession): string {
   return `${session.generation}:${session.profileId}`;
@@ -62,7 +63,11 @@ export function usePrivateFiles(profileId: string) {
     }
     setLoadingState((current) => isCurrent() ? { key, value: true } : current);
     try {
-      const data = await (await request("/api/files", { signal })).json() as { files?: PrivateFile[] };
+      // Keep the file-list wait bounded even when the caller supplies cancellation.
+      const timeoutSignal = AbortSignal.timeout(FILE_LIST_TIMEOUT_MS);
+      const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+      const data = await (await request("/api/files", { signal: requestSignal })).json() as { files?: PrivateFile[] };
+      requestSignal.throwIfAborted();
       if (!Array.isArray(data.files)) throw new Error("Unable to load your file list.");
       if (!signal?.aborted && isCurrent() && versions.current.get(key) === version) {
         setFilesState((current) => isCurrent() ? { key, value: data.files! } : current);

@@ -2,6 +2,15 @@
   .reference-ui .main-content:has(.dashboard-reflow) { transition: none; }
 }
 
+.dashboard-page[data-images-pending="true"] {
+  height: 0;
+  min-height: 0;
+  padding-block: 0;
+  overflow: hidden;
+  visibility: hidden;
+  animation: none !important;
+}
+
 .dashboard-page[data-restored-course="true"] {
   animation: dashboard-restoration-background-in 360ms ease-out 220ms both;
 }

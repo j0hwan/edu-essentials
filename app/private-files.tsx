@@ -40,6 +40,15 @@ type PrivateImageSource = {
 };
 
 type LoadedPrivateImage = PrivateImageSource & { url: string; ready: boolean };
+type PrivateImageRequest = {
+  source: PrivateImageSource;
+  controller: AbortController;
+  owned: string;
+  settled: boolean;
+  watchdog: ReturnType<typeof setTimeout> | null;
+};
+
+const PRIVATE_IMAGE_SETTLE_TIMEOUT_MS = 15_000;
 
 function samePrivateImageSource(first: PrivateImageSource, second: PrivateImageSource): boolean {
   return first.fileId === second.fileId
@@ -50,12 +59,48 @@ function samePrivateImageSource(first: PrivateImageSource, second: PrivateImageS
     && first.blob === second.blob;
 }
 
-export function PrivateImage({ file, store, fadeIn = false, onDecoded }: { file: PrivateFile; store: FileStore; fadeIn?: boolean; onDecoded?: (image: HTMLImageElement) => void }) {
+function isCurrentPrivateImageRequest(request: PrivateImageRequest, activeRequestRef: { current: PrivateImageRequest | null }, sourceRef: { current: PrivateImageSource }): boolean {
+  return activeRequestRef.current === request
+    && !request.controller.signal.aborted
+    && samePrivateImageSource(sourceRef.current, request.source);
+}
+
+function settlePrivateImageRequest(
+  request: PrivateImageRequest,
+  activeRequestRef: { current: PrivateImageRequest | null },
+  sourceRef: { current: PrivateImageSource },
+  onSettledRef: { current: (() => void) | undefined },
+): void {
+  if (request.settled || !isCurrentPrivateImageRequest(request, activeRequestRef, sourceRef)) return;
+  request.settled = true;
+  if (request.watchdog !== null) clearTimeout(request.watchdog);
+  request.watchdog = null;
+  try { onSettledRef.current?.(); } catch { /* An optional settlement observer cannot interrupt image display. */ }
+}
+
+function startPrivateImageWatchdog(
+  request: PrivateImageRequest,
+  activeRequestRef: { current: PrivateImageRequest | null },
+  sourceRef: { current: PrivateImageSource },
+  onSettledRef: { current: (() => void) | undefined },
+): void {
+  if (!onSettledRef.current || request.settled || request.watchdog !== null) return;
+  request.watchdog = setTimeout(() => {
+    request.watchdog = null;
+    if (!isCurrentPrivateImageRequest(request, activeRequestRef, sourceRef)) return;
+    settlePrivateImageRequest(request, activeRequestRef, sourceRef, onSettledRef);
+    request.controller.abort();
+  }, PRIVATE_IMAGE_SETTLE_TIMEOUT_MS);
+}
+
+export function PrivateImage({ file, store, fadeIn = false, onDecoded, onSettled }: { file: PrivateFile; store: FileStore; fadeIn?: boolean; onDecoded?: (image: HTMLImageElement) => void; onSettled?: () => void }) {
   const [loadedImage, setLoadedImage] = useState<LoadedPrivateImage | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const fileRef = useRef(file);
   const onDecodedRef = useRef(onDecoded);
+  const onSettledRef = useRef(onSettled);
   const decodedUrlsRef = useRef(new Set<string>());
+  const activeRequestRef = useRef<PrivateImageRequest | null>(null);
   const blob = store.blob;
   const source = useMemo<PrivateImageSource>(() => ({
     fileId: file.id,
@@ -68,6 +113,13 @@ export function PrivateImage({ file, store, fadeIn = false, onDecoded }: { file:
   const sourceRef = useRef(source);
   useLayoutEffect(() => { fileRef.current = file; }, [file]);
   useLayoutEffect(() => { onDecodedRef.current = onDecoded; }, [onDecoded]);
+  useLayoutEffect(() => {
+    onSettledRef.current = onSettled;
+    const activeRequest = activeRequestRef.current;
+    if (onSettled) {
+      if (activeRequest) startPrivateImageWatchdog(activeRequest, activeRequestRef, sourceRef, onSettledRef);
+    }
+  }, [onSettled]);
   useLayoutEffect(() => { sourceRef.current = source; }, [source]);
 
   useEffect(() => {
@@ -76,19 +128,29 @@ export function PrivateImage({ file, store, fadeIn = false, onDecoded }: { file:
       setLoadedImage(null);
       return;
     }
-    const controller = new AbortController();
-    let owned = "";
+    const request: PrivateImageRequest = { source: requestedSource, controller: new AbortController(), owned: "", settled: false, watchdog: null };
+    activeRequestRef.current = request;
     setLoadedImage(null);
-    void blob(fileRef.current, controller.signal).then((data) => {
-      if (controller.signal.aborted || !samePrivateImageSource(sourceRef.current, requestedSource)) return;
-      owned = URL.createObjectURL(data);
-      setLoadedImage({ ...requestedSource, url: owned, ready: !fadeIn });
-    }).catch(() => {});
+    startPrivateImageWatchdog(request, activeRequestRef, sourceRef, onSettledRef);
+    void blob(fileRef.current, request.controller.signal).then((data) => {
+      if (!isCurrentPrivateImageRequest(request, activeRequestRef, sourceRef)) return;
+      try {
+        request.owned = URL.createObjectURL(data);
+        setLoadedImage({ ...requestedSource, url: request.owned, ready: !fadeIn });
+      } catch {
+        settlePrivateImageRequest(request, activeRequestRef, sourceRef, onSettledRef);
+      }
+    }).catch(() => {
+      settlePrivateImageRequest(request, activeRequestRef, sourceRef, onSettledRef);
+    });
     return () => {
-      controller.abort();
-      if (owned) {
-        URL.revokeObjectURL(owned);
-        setLoadedImage((current) => current?.url === owned ? null : current);
+      request.controller.abort();
+      if (request.watchdog !== null) clearTimeout(request.watchdog);
+      request.watchdog = null;
+      if (activeRequestRef.current === request) activeRequestRef.current = null;
+      if (request.owned) {
+        URL.revokeObjectURL(request.owned);
+        setLoadedImage((current) => current?.url === request.owned ? null : current);
       }
     };
   }, [file.id, file.updated_at, file.content_revision, file.trashed_at, file.deleted_at, blob, fadeIn]);
@@ -96,11 +158,14 @@ export function PrivateImage({ file, store, fadeIn = false, onDecoded }: { file:
   const currentImage = loadedImage && samePrivateImageSource(loadedImage, source) ? loadedImage : null;
   useLayoutEffect(() => {
     const image = imageRef.current;
-    if ((!fadeIn && !onDecoded) || !currentImage || (fadeIn && currentImage.ready && (!onDecoded || decodedUrlsRef.current.has(currentImage.url))) || !image) return;
+    const observesSettlement = !!onSettledRef.current;
+    const request = activeRequestRef.current;
+    if (!currentImage || !request || request.owned !== currentImage.url) return;
+    if ((!fadeIn && !onDecoded && !observesSettlement) || (fadeIn && currentImage.ready && (!onDecoded || decodedUrlsRef.current.has(currentImage.url)) && (!observesSettlement || request.settled)) || !image) return;
     const src = currentImage.url;
     let cancelled = false;
     const isCurrent = () => {
-      if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
+      if (cancelled || imageRef.current !== image || image.src !== src || request.controller.signal.aborted || activeRequestRef.current !== request || !samePrivateImageSource(sourceRef.current, currentImage)) return;
       return true;
     };
     const notifyDecoded = () => {
@@ -113,19 +178,46 @@ export function PrivateImage({ file, store, fadeIn = false, onDecoded }: { file:
       notifyDecoded();
       if (fadeIn) setLoadedImage((current) => current?.url === src ? { ...current, ready: true } : current);
     };
+    const failImage = () => {
+      if (!isCurrent()) return;
+      const failedUrl = request.owned;
+      if (failedUrl) {
+        request.owned = "";
+        URL.revokeObjectURL(failedUrl);
+        setLoadedImage((current) => current?.url === failedUrl ? null : current);
+      }
+      settlePrivateImageRequest(request, activeRequestRef, sourceRef, onSettledRef);
+    };
     const decode = () => {
       if (!isCurrent()) return;
-      if (typeof image.decode === "function") void image.decode().then(reveal, reveal);
-      else reveal();
+      const finish = () => {
+        if (!isCurrent()) return;
+        if (image.naturalWidth <= 0) {
+          failImage();
+          return;
+        }
+        settlePrivateImageRequest(request, activeRequestRef, sourceRef, onSettledRef);
+        reveal();
+      };
+      if (typeof image.decode === "function") {
+        try { void image.decode().then(finish, finish); }
+        catch { finish(); }
+      } else {
+        finish();
+      }
     };
+    const onError = failImage;
     if (image.complete) {
       if (image.naturalWidth > 0) decode();
+      else failImage();
     } else {
       image.addEventListener("load", decode);
+      image.addEventListener("error", onError);
     }
     return () => {
       cancelled = true;
       image.removeEventListener("load", decode);
+      image.removeEventListener("error", onError);
     };
   }, [fadeIn, currentImage, onDecoded]);
 
