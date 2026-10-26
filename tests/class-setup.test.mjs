@@ -34,7 +34,7 @@ const button = (text) => [...host.querySelectorAll("button")].find((node) => nod
 async function click(text) { assert.ok(button(text), `Missing button ${text}`); await act(async () => button(text).click()); }
 async function submit() { await act(async () => host.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }))); }
 async function change(label, value) {
-  const node = [...host.querySelectorAll("label")].find((item) => item.textContent.trim() === label)?.querySelector("input,textarea");
+  const node = [...host.querySelectorAll("label")].find((item) => item.textContent.replace(/\s*\*$/, "").trim() === label)?.querySelector("input,textarea");
   assert.ok(node, `Missing field ${label}`);
   const prototype = node.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
   await act(async () => {
@@ -51,6 +51,27 @@ async function file(kind, value) {
 }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = undefined; });
 after(() => { URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; dom.window.close(); });
+
+test("required fields have visible asterisks and setup omits the removed introductory copy", async () => {
+  await mount();
+  const removedCopy = /NEW CLASS|Start with the essentials|Meeting times use your saved time zone|Add holidays, breaks|Give your class a look of its own/;
+  const verifyLabels = () => {
+    assert.doesNotMatch(host.textContent, removedCopy);
+    for (const input of host.querySelectorAll("input")) {
+      const marker = input.closest("label")?.querySelector('[aria-hidden="true"]');
+      assert.equal(Boolean(marker), input.required, `${input.closest("label")?.textContent} marks only required inputs`);
+      if (marker) assert.equal(marker.textContent.trim(), "*");
+    }
+  };
+  verifyLabels();
+  assert.deepEqual([...host.querySelectorAll("input:required")].map((input) => input.closest("label").textContent.trim()), ["Course code *", "Class name *"]);
+  await submit(); verifyLabels();
+  assert.match(host.querySelector(".class-setup-week-label").textContent, /Meeting days \*/);
+  await click("Monday"); await click("Add exception"); verifyLabels();
+  await change("Exception date 1", "2026-11-02");
+  await submit(); verifyLabels();
+  assert.match(host.textContent, /Storage only/);
+});
 
 test("manual setup separates information, seven-day schedule, and appearance; Back preserves fields", async () => {
   await mount();

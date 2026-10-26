@@ -1,5 +1,4 @@
 .class-setup { width: min(760px, 100%); }
-.class-setup-eyebrow { color: var(--muted); font-size: 10px; letter-spacing: .12em; margin: 0 0 8px; }
 .class-setup-progress { display: flex; list-style: none; padding: 0; margin: 26px 0; gap: 12px; }
 .class-setup-progress li { display: flex; align-items: center; flex: 1; gap: 8px; color: var(--muted); padding-bottom: 14px; border-bottom: 2px solid var(--border); }
 .class-setup-progress li.is-active { color: var(--ink); border-color: var(--brand); }
@@ -11,6 +10,7 @@
 .class-setup-meeting { border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
 .class-setup-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .class-setup-section-heading h3 { margin: 0; }
+.class-setup-week-label { margin: 16px 0 -10px; font-size: 14px; }
 .class-setup-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 18px 0; }
 .class-setup-week button { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; cursor: pointer; }
 .class-setup-week button > span { font-size: 20px; font-weight: 600; }
