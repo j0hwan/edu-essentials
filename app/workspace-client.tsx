@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import CourseIcon from "./course-icon";
 import { usePathname, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
@@ -1999,7 +2000,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       <div className="class-card-media" data-course-morph="visual" aria-hidden="true" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
         {fileStore.files.filter((file) => file.course_id === course.id && file.kind === "class-image" && file.state === "ready" && !file.trashed_at).sort((first, second) => second.created_at.localeCompare(first.created_at)).slice(0, 1).map((file) => <PrivateImage key={file.id} file={file} store={fileStore} />)}
       </div>
-      <span className="course-watermark" data-course-morph="watermark" aria-hidden="true">{course.initials}</span><span className="course-pill" data-course-morph="code" style={{ color: course.color }}>{course.code}</span><BookOpen data-course-morph="icon" size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" />
+      <span className="course-watermark" data-course-morph="watermark" aria-hidden="true">{course.initials}</span><span className="course-pill" data-course-morph="code" style={{ color: course.color }}>{course.code}</span><CourseIcon icon={extraData.courseDetails[course.id]?.icon} data-course-morph="icon" size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" />
       {close && <button className="secondary-button" onClick={close}>Close class <X size={15} /></button>}
     </div>;
   }

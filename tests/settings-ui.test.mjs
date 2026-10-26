@@ -575,6 +575,42 @@ async function saveAndReload(workspaceProps = {}) {
 }
 const cards = () => [...rootNode.querySelectorAll(".widget-grid > .widget-card[data-widget-id]")];
 
+test("class icon selection updates cards and expanded headers and survives save/reload", async () => {
+  reset();
+  const server = installWorkspaceServer(savedDashboard, [sampleCourse]);
+  const openCourses = async () => act(async () => rootNode.querySelector('.sidebar a[href="/dashboard"]').dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await openCourses();
+    const card = () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`);
+    assert.ok(card().querySelector('[data-course-morph="icon"].lucide-book-open'));
+    await act(async () => card().click());
+    await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Edit class");
+    await clickAria("Atom", rootNode.querySelector(".course-icon-picker"));
+    await click("Save class");
+    assert.ok(card().querySelector('[data-course-morph="icon"].lucide-atom'));
+    await saveAndReload();
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].icon, "atom");
+    await openCourses();
+    assert.ok(card().querySelector('[data-course-morph="icon"].lucide-atom'));
+    await act(async () => card().click());
+    assert.ok(rootNode.querySelector('.expanded-class-header [data-course-morph="icon"].lucide-atom'));
+    await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Edit class");
+    assert.equal(rootNode.querySelector('.course-icon-picker [aria-label="Atom"]').getAttribute("aria-pressed"), "true");
+    await click("Close editor");
+    await click("Add Class");
+    await click("Manual entry");
+    await edit("Course code", "ART 101");
+    await edit("Class name", "Art");
+    await clickAria("Art", rootNode.querySelector(".course-icon-picker"));
+    await click("Save class");
+    assert.ok(rootNode.querySelector('.class-card [data-course-morph="icon"].lucide-palette'));
+    await saveAndReload();
+    const added = server.courses.find((course) => course.code === "ART 101");
+    assert.equal(server.dashboard.d.courseDetails[added.id].icon, "palette");
+  } finally { if (root) await unmount(); }
+});
+
 test("native document creation, draft protection, retry and reload integrate with the saved workspace", async () => {
   reset();
   const profile = { ...baseProfile, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
