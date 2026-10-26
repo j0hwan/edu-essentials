@@ -58,6 +58,7 @@ import { useCourseExpansion } from "./use-course-expansion";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
 import AcademicEditor from "./academic-editor";
+import ClassSetup, { type ClassSetupUploads } from "./class-setup";
 import TopbarSearch from "./topbar-search";
 import SyllabusReview from "./syllabus-review";
 import { SyllabusAttachment, SyllabusTextPreview, type SyllabusAttachmentValue } from "./course-syllabus";
@@ -102,7 +103,7 @@ import StudyPanel from "./study-panel";
 import { useStudyStats } from "./use-study-stats";
 import { emptyStudy, settleTimer, timerAction, goalPercent, durationLabel, completedInWeek, detachStudyCourse, segmentSeconds, type StudyData, type TimerKind } from "../lib/study";
 import { academicSnapshot, validateAcademicEdit } from "../lib/academic-snapshot";
-import { dayKey, dateLabel, addDays, weekStart, assignmentStatus, legacyEventTime, emptyCourse, emptyCourseDetails, type Course, type CourseDetails, type SyllabusDraft } from "../lib/academics";
+import { dayKey, dateLabel, addDays, weekStart, assignmentStatus, legacyEventTime, emptyCourse, emptyCourseDetails, meetingOccursOn, type Course, type CourseDetails, type SyllabusDraft } from "../lib/academics";
 import { experimentalData, type ExperimentalDensity } from "../lib/experimental-data";
 import OnboardingFlow from "./onboarding-flow";
 import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
@@ -518,6 +519,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [syllabusAttachment, setSyllabusAttachment] = useState<{ courseId: string; folderId: string | null } | null>(null);
   const [syllabusTextCourseId, setSyllabusTextCourseId] = useState<string | null>(null);
   const [syllabusPreviewFileId, setSyllabusPreviewFileId] = useState<string | null>(null);
+  const [classSetup, setClassSetup] = useState<{ course: Course; profileId: string; generation: number } | null>(null);
   const workspaceLoadGeneration = useRef(0);
   const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: FilesBrowserPreferences; widgetAppearance?: WidgetAppearanceState }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: DEFAULT_FILES_BROWSER_PREFERENCES });
   const [now, setNow] = useState(() => new Date());
@@ -735,6 +737,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     }
     void hydrateWorkspace();
     return () => { controller.abort(); workspaceLoadGeneration.current = loadGeneration + 1; autosave.stop(); };
+        setClassSetup(null);
   }, [reloadAttempt, accountFetch, autosave, initialProfile.id, resetSelectedClass]);
 
   useEffect(() => {
@@ -958,6 +961,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
 
   const exitExperimentalMode = () => {
     if (experimentalRestoring) return;
+    setClassSetup(null);
     setExperimentalRestoring(true);
     setExperimentalMenuOpen(false);
     setReloadAttempt((attempt) => attempt + 1);
@@ -1149,6 +1153,43 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const createReview = (file?: PrivateFile, sourceText = "") => {
     const draft: SyllabusDraft = { id: uid("review"), sourceText, sourceName: file?.name ?? "", ...(file ? { sourceFileId: file.id } : {}), course: emptyCourse(uid("course")), items: [] };
     setSyllabusDraft(draft); setAddClassOpen(false);
+  const persistClassSetup = async (course: Course, details: CourseDetails, generation: number) => {
+    if (generation !== workspaceLoadGeneration.current) throw new Error("The workspace changed. Reopen class setup in the original workspace.");
+    const nextCourses = [...courses.filter((current) => current.id !== course.id), course];
+    const courseDetails = { ...extraData.courseDetails, [course.id]: details };
+    const dashboard = encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData, courseDetails });
+    const snapshot = canonicalJson(academicSnapshot(nextCourses, dashboard));
+    if (!commitAcademic(nextCourses, { courseDetails })) throw new Error("Could not save this class. Check the workspace message and retry.");
+    if (!experimentalMode) {
+      autosave.change(snapshot);
+      await autosave.flushLatest(true);
+      if (generation !== workspaceLoadGeneration.current) throw new Error("The workspace changed while saving. Reopen the saved class to continue.");
+      const saved = autosave.getSnapshot();
+      if (!saved.ready || saved.dirty || saved.status !== "saved") throw new Error(saved.message || "Class save is incomplete. Your setup is still here; retry saving.");
+    }
+  };
+  const persistClassSetupRef = useRef(persistClassSetup);
+  useLayoutEffect(() => { persistClassSetupRef.current = persistClassSetup; });
+  const saveClassSetup = async (course: Course, details: CourseDetails, uploads: ClassSetupUploads) => {
+    if (!classSetup || classSetup.course.id !== course.id || classSetup.profileId !== initialProfile.id || classSetup.profileId !== profile.id || classSetup.generation !== workspaceLoadGeneration.current) throw new Error("This class setup belongs to an earlier workspace session. Close it and start again.");
+    if (profilePending || (!experimentalMode && !autosave.getSnapshot().ready)) throw new Error("Wait for your workspace to finish loading, then retry.");
+    if (experimentalMode && (uploads.image || uploads.syllabus)) throw new Error("File uploads are unavailable in this workspace.");
+    const generation = classSetup.generation;
+    await persistClassSetupRef.current(course, details, generation);
+    try {
+      if (uploads.image) await fileStore.upload(uploads.image.file, { name: uploads.image.file.name, courseId: course.id, assignmentId: "", kind: "class-image" }, uploads.image.id);
+      if (generation !== workspaceLoadGeneration.current) throw new Error("The workspace changed during upload.");
+      if (uploads.syllabus) {
+        const file = await fileStore.upload(uploads.syllabus.file, { name: uploads.syllabus.file.name, courseId: course.id, assignmentId: "", kind: "syllabus" }, uploads.syllabus.id);
+        await persistClassSetupRef.current(course, { ...details, syllabusName: file.name, syllabusFileId: file.id }, generation);
+      }
+    } catch (failure) {
+      throw new Error(`The class was saved, but attachments may be incomplete. Retry to finish without creating another class. ${failure instanceof Error ? failure.message : "Upload failed."}`);
+    }
+    if (generation !== workspaceLoadGeneration.current) throw new Error("The workspace changed. Reopen the saved class to continue.");
+    setClassSetup(null);
+    flash("Class created");
+  };
   };
   const approveReview = (draft: SyllabusDraft) => {
     const course = { ...draft.course, initials: draft.course.code.slice(0, 2).toUpperCase() };
@@ -1405,6 +1446,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         queue={fileUploads}
         currentProfileId={initialProfile.id}
         currentSessionGeneration={fileActionSession.generation}
+      {classSetup && <ClassSetup key={`${classSetup.profileId}:${classSetup.generation}:${classSetup.course.id}`} initial={classSetup.course} today={today} canUpload={canWriteFiles} onSave={saveClassSetup} onClose={() => setClassSetup(null)} />}
         defaults={uploadDialog}
         mode={pendingFolderUpload ? "folder" : uploadDialog.mode}
         courses={courses}
@@ -1466,7 +1508,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
 
   function renderHome() {
     const featuredAssignments = assignments.filter((a) => a.dateKey === today && a.status !== "done");
-    const nextClass = courses.flatMap((course) => (extraData.courseDetails[course.id]?.meetings ?? []).filter((meeting) => today >= meeting.from && today <= meeting.until && meeting.days.includes(new Date(today + "T12:00:00Z").getUTCDay()) && meeting.end > localTime).map((meeting) => ({ course, meeting }))).sort((a, b) => a.meeting.start.localeCompare(b.meeting.start))[0];
+    const nextClass = courses.flatMap((course) => (extraData.courseDetails[course.id]?.meetings ?? []).filter((meeting) => meetingOccursOn(meeting, today) && meeting.end > localTime).map((meeting) => ({ course, meeting }))).sort((a, b) => a.meeting.start.localeCompare(b.meeting.start))[0];
     const timeLabel = (time: string) => /^\d{2}:\d{2}$/.test(time) ? `${Number(time.slice(0, 2)) % 12 || 12}:${time.slice(3)} ${Number(time.slice(0, 2)) >= 12 ? "PM" : "AM"}` : time;
     const schedule = manualEvents.filter((event) => event.dateKey === today).sort((a, b) => a.time.localeCompare(b.time)).map((event) => {
       const course = courseFor(courses, event.courseId);
@@ -1479,7 +1521,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       };
     });
     for (const course of courses) for (const meeting of extraData.courseDetails[course.id]?.meetings ?? []) {
-      if (today >= meeting.from && today <= meeting.until && meeting.days.includes(new Date(today + "T12:00:00Z").getUTCDay())) schedule.push({ time: meeting.start, title: course.name, detail: meeting.location || course.room, color: course.color, onOpen: () => setSelectedClass(course) });
+      if (meetingOccursOn(meeting, today)) schedule.push({ time: meeting.start, title: course.name, detail: meeting.location || course.room, color: course.color, onOpen: () => setSelectedClass(course) });
     }
     schedule.sort((a, b) => a.time.localeCompare(b.time));
     const futureAssignments = assignments.filter((assignment) => assignment.dateKey > today && assignment.status !== "done").slice(0, 3);
@@ -1801,7 +1843,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     const { type } = widget;
     if (type === "today") {
       const time = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
-      const classesLeft = courses.filter((c) => (extraData.courseDetails[c.id]?.meetings ?? []).some((m) => today >= m.from && today <= m.until && m.days.includes(new Date(today + "T12:00:00Z").getUTCDay()) && m.end > time)).length;
+      const classesLeft = courses.filter((c) => (extraData.courseDetails[c.id]?.meetings ?? []).some((meeting) => meetingOccursOn(meeting, today) && meeting.end > time)).length;
       const endOfWeek = addDays(weekStart(today, monday), 6);
       const weekTasks = assignments.filter((a) => a.status !== "done" && a.dateKey >= today && a.dateKey <= endOfWeek).length;
       const newFiles = experimentalMode ? 0 : fileStore.files.filter((f) => f.created_at.slice(0, 10) >= weekStart(today, monday)).length;
@@ -2064,7 +2106,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             <span className="add-class-choice-description" id="add-class-import-description">Upload or paste your syllabus, then review your class details and assignments.</span>
             <ArrowRight className="add-class-choice-arrow" size={18} aria-hidden="true" />
           </button>
-          <button className="add-class-choice add-class-choice-manual" aria-label="Manual entry" aria-describedby="add-class-manual-description" onClick={() => { setEditor({ course: emptyCourse(uid("course")), details: emptyCourseDetails() }); setAddClassOpen(false); }}>
+          <button className="add-class-choice add-class-choice-manual" aria-label="Manual entry" aria-describedby="add-class-manual-description" onClick={() => { setClassSetup({ course: emptyCourse(uid("course")), profileId: profile.id, generation: workspaceLoadGeneration.current }); setAddClassOpen(false); }}>
             <span className="add-class-choice-icon"><Pencil size={24} aria-hidden="true" /></span>
             <span className="add-class-choice-title">Manual entry</span>
             <span className="add-class-choice-description" id="add-class-manual-description">Start with your class details and add assignments as you go.</span>

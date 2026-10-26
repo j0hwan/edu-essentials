@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, ArrowRight, CircleAlert } from "lucide-react";
-import { addDays, dateLabel, isDate, type Course, type CourseDetails } from "../lib/academics";
+import { addDays, dateLabel, isDate, meetingOccursOn, type Course, type CourseDetails } from "../lib/academics";
 import { calendarDays, calendarTime, placeCalendarItems, timeMinutes, type CalendarView } from "../lib/calendar-layout";
 import type { SavedAssignment, SavedEvent } from "../lib/workspace-codec";
 import "./calendar.css";
@@ -96,7 +96,7 @@ export default function AcademicCalendar({ courses, assignments, events, details
     // Generate only the visible range plus the sidebar's next 30 days.
     const dates = new Set([...days, selected, ...Array.from({ length: 30 }, (_, i) => addDays(selected, i + 1))]);
     for (const date of dates) for (const c of courses) if (matches(c.id)) {
-      for (const m of details[c.id]?.meetings ?? []) if (date >= m.from && date <= m.until && m.days.includes(new Date(date + "T12:00:00Z").getUTCDay())) {
+      for (const m of details[c.id]?.meetings ?? []) if (meetingOccursOn(m, date)) {
         put({ id: `class-${c.id}-${m.id}`, date, time: m.start, endTime: m.end, title: c.name || c.code, subtitle: [c.code, m.location || c.room].filter(Boolean).join(" · "), color: c.color, kind: "class", allDay: false, source: c });
       }
     }

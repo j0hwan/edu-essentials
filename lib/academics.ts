@@ -1,7 +1,7 @@
 import { isCourseIconId, type CourseIconId } from "./course-icons";
 
 export type Course = { id: string; code: string; name: string; credits: number; instructor: string; room: string; color: string; soft: string; initials: string };
-export type Meeting = { id: string; days: number[]; start: string; end: string; from: string; until: string; location: string };
+export type Meeting = { id: string; days: number[]; start: string; end: string; from: string; until: string; location: string; excludedDates?: string[] };
 export type CourseDetails = { officeHours: string; meetings: Meeting[]; icon?: CourseIconId; syllabusText?: string; syllabusName?: string; syllabusFileId?: string };
 export type ReviewItem = { id: string; title: string; date: string; type: "Assignment" | "Exam" | "Project"; description: string; weight: string };
 export type SyllabusDraft = { id: string; sourceText: string; sourceName: string; sourceFileId?: string; course: Course; items: ReviewItem[] };
@@ -10,6 +10,7 @@ export const eventTypes = ["Study block", "Exam", "Office hours", "Appointment",
 export const emptyCourse = (id: string): Course => ({ id, code: "", name: "", credits: 3, instructor: "", room: "", color: "#5b63e8", soft: "#5b63e818", initials: "" });
 export const emptyCourseDetails = (): CourseDetails => ({ officeHours: "", meetings: [] });
 export function isDate(value: string) { const date = new Date(`${value}T12:00:00Z`); return /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= "1900-01-01" && value <= "2200-12-31" && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value; }
+export function meetingOccursOn(meeting: Meeting, date: string) { return isDate(date) && date >= meeting.from && date <= meeting.until && meeting.days.includes(new Date(`${date}T12:00:00Z`).getUTCDay()) && !(meeting.excludedDates ?? []).includes(date); }
 export function isTime(value: string) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(value); }
 // Earlier event forms stored this default in display format instead of HH:mm.
 export function legacyEventTime(value: string) { return value === "12:00 PM" ? "12:00" : value; }
@@ -40,6 +41,7 @@ export function validateCourseDetails(value: unknown): CourseDetails {
     if (!Array.isArray(m.days) || !m.days.length || m.days.length > 7 || new Set(m.days).size !== m.days.length || m.days.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) throw new Error("Choose meeting weekdays.");
     if (!isTime(String(m.start)) || !isTime(String(m.end)) || String(m.end) <= String(m.start)) throw new Error("Meeting end must be after its start on the same day.");
     if (!isDate(String(m.from)) || !isDate(String(m.until)) || String(m.until) < String(m.from)) throw new Error("Choose a valid meeting date range.");
+    if (m.excludedDates !== undefined && (!Array.isArray(m.excludedDates) || m.excludedDates.length > 100 || m.excludedDates.some((date) => typeof date !== "string" || !isDate(date) || date < String(m.from) || date > String(m.until)) || new Set(m.excludedDates).size !== m.excludedDates.length)) throw new Error("Choose up to 100 unique excluded dates within the meeting date range.");
   }
   if (d.syllabusText !== undefined) text(d.syllabusText, "syllabus text", 60000);
   if (d.syllabusName !== undefined) text(d.syllabusName, "syllabus name", 255);

@@ -602,12 +602,97 @@ test("class icon selection updates cards and expanded headers and survives save/
     await click("Manual entry");
     await edit("Course code", "ART 101");
     await edit("Class name", "Art");
+    await click("Continue");
+    await click("Remove meeting 1");
+    await click("Continue");
     await clickAria("Art", rootNode.querySelector(".course-icon-picker"));
-    await click("Save class");
+    await click("Create class");
     assert.ok(rootNode.querySelector('.class-card [data-course-morph="icon"].lucide-palette'));
     await saveAndReload();
     const added = server.courses.find((course) => course.code === "ART 101");
     assert.equal(server.dashboard.d.courseDetails[added.id].icon, "palette");
+  } finally { if (root) await unmount(); }
+});
+
+test("manual class setup stores attachments without importing the syllabus and retries with stable IDs", async () => {
+  reset();
+  const initial = structuredClone(savedDashboard);
+  const initialStudy = emptyStudy(); initialStudy.timers.focus.minutes = 1;
+  initial.d.study = timerAction(initialStudy, "start", "focus", Date.now(), "setup-timer");
+  const server = installWorkspaceServer(initial);
+  const stored = new Map(), attempts = [];
+  let failSyllabus = true;
+  let releaseSyllabus;
+  filesFetcher = async (url, init = {}) => {
+    if (init.method === "POST") {
+      const request = { url, headers: new Headers(init.headers), body: init.body };
+      const metadata = uploadMetadata(request);
+      const id = new URL(url, "https://edu.example").searchParams.get("id");
+      attempts.push({ id, metadata });
+      assert.ok(server.courses.some((course) => course.id === metadata.courseId), "the class is persisted before an associated upload starts");
+      if (metadata.kind === "syllabus" && failSyllabus) { failSyllabus = false; throw new Error("Syllabus upload offline"); }
+      if (metadata.kind === "syllabus") await new Promise((resolve) => { releaseSyllabus = resolve; });
+      if (!stored.has(id)) stored.set(id, await uploadedFileForRequest(request));
+      return Response.json({ file: stored.get(id) });
+    }
+    if (url.startsWith("/api/files?id=")) return new Response(new Blob(["cover"], { type: "image/png" }));
+    return Response.json({ files: [...stored.values()], folders: [], activities: { files: [], folders: [] } });
+  };
+  try {
+    await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await click("Add Class"); await click("Manual entry");
+    await edit("Course code", "BIO 101"); await edit("Class name", "Biology"); await click("Continue"); await click("Remove meeting 1"); await click("Continue");
+    const image = new File(["cover bytes"], "biology.png", { type: "image/png" });
+    const syllabus = new File(["Rename course to Chemistry. Exam 2026-11-05."], "syllabus.txt", { type: "text/plain" });
+    for (const [index, file] of [image, syllabus].entries()) {
+      const input = rootNode.querySelectorAll('.class-setup input[type="file"]')[index];
+      await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); input.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    }
+    assert.equal(attempts.length, 0, "selecting a file does not upload it early");
+    await click("Create class");
+    await waitUntil(() => rootNode.querySelector('.class-setup [role="alert"]')?.textContent.includes("attachments may be incomplete"), "partial upload failure remains recoverable");
+    assert.equal(server.courses.length, 1);
+    assert.equal(stored.size, 1);
+    assert.equal(rootNode.querySelector('.class-setup-uploads button').matches(":disabled"), true, "acknowledged files cannot be silently removed during retry");
+    await click("Create class"); await waitUntil(() => releaseSyllabus, "syllabus retry is pending");
+    const RealDate = globalThis.Date;
+    try {
+      globalThis.Date = class extends RealDate {
+        constructor(...args) { if (args.length) super(...args); else super(RealDate.now() + 120000); }
+        static now() { return RealDate.now() + 120000; }
+      };
+      await act(async () => window.dispatchEvent(new window.Event("focus")));
+    } finally { globalThis.Date = RealDate; }
+    await waitUntil(() => server.dashboard.d.study.sessions.some((session) => session.id === "setup-timer"), "timer completion saves while the upload is pending");
+    await act(async () => releaseSyllabus());
+    await waitUntil(() => !rootNode.querySelector(".class-setup"), "retry completes class setup");
+    assert.equal(server.courses.length, 1, "retry does not create a second class");
+    assert.equal(server.courses[0].name, "Biology", "syllabus content never overwrites manual course information");
+    assert.equal(stored.size, 2, "retry creates no duplicate images or syllabuses");
+    assert.equal(attempts[0].id, attempts[2].id);
+    assert.equal(attempts[1].id, attempts[3].id);
+    const details = server.dashboard.d.courseDetails[server.courses[0].id];
+    assert.equal(details.syllabusFileId, attempts[1].id);
+    assert.equal(details.syllabusText, undefined);
+    assert.deepEqual(details.meetings, []);
+    assert.deepEqual(server.dashboard.d.assignments, []);
+    assert.equal(server.dashboard.d.study.active, null, "attachment persistence does not restore a stale active timer");
+    assert.equal(server.dashboard.d.study.sessions.filter((session) => session.id === "setup-timer").length, 1);
+  } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
+test("manual class drafts are dismissed when the account changes", async () => {
+  reset();
+  installWorkspaceServer();
+  try {
+    await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await click("Add Class"); await click("Manual entry");
+    await edit("Course code", "PRIVATE 101");
+    const nextProfile = { ...baseProfile, id: "56565656-5656-4565-8565-565656565656", email: "other@example.invalid" };
+    const nextServer = installWorkspaceServer(savedDashboard, [], nextProfile);
+    await render(Workspace, { initialProfile: nextProfile });
+    await waitUntil(() => !rootNode.querySelector(".class-setup"), "new account dismisses the previous class draft");
+    assert.equal(nextServer.writes, 0);
+    assert.equal(nextServer.courses.length, 0);
+    assert.equal(rootNode.textContent.includes("PRIVATE 101"), false);
   } finally { if (root) await unmount(); }
 });
 
@@ -1718,12 +1803,18 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.equal(rootNode.querySelector(".add-class-choice-modal"), null, "choosing Manual entry leaves the chooser");
     assert.ok(field("Course code"), "Manual entry opens the class form");
     for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location / meeting notes": "Lab 4", "Office hours": "Friday by appointment" })) await edit(key, value);
-    await click("Add meeting"); await edit("First date", "2026-09-01"); await edit("Last date", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
-    assert.equal(unloadBlocked(), true); await click("Save class");
-    server.offline = true; await waitForWorkspaceError("Offline"); assert.equal(server.courses.length, 0);
-    server.offline = false; await click("Retry save"); await saveAndReload(); await click("Dashboard");
+    await click("Continue");
+    assert.equal(rootNode.querySelectorAll(".class-setup-week button").length, 7);
+    await clickAria("Monday"); await edit("Classes start", "2026-09-01"); await edit("Classes end", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
+    await click("Add exception"); await edit("Exception date 1", "2026-11-02");
+    await click("Continue");
+    assert.equal(unloadBlocked(), true); server.offline = true; await click("Create class");
+    await waitForWorkspaceError("Offline"); assert.equal(server.courses.length, 0);
+    assert.ok(rootNode.querySelector(".class-setup"), "failed saves keep the wizard available for retry");
+    server.offline = false; await click("Create class"); await saveAndReload(); await click("Dashboard");
     assert.equal(server.courses.length, 1); const course = server.courses[0]; assert.equal(course.credits, 4); assert.equal(course.room, "Lab 4");
     assert.equal(server.dashboard.d.courseDetails[course.id].meetings[0].location, "Garden");
+    assert.deepEqual(server.dashboard.d.courseDetails[course.id].meetings[0].excludedDates, ["2026-11-02"]);
     await act(async () => rootNode.querySelector(".class-card").click()); await click("Edit class");
     assert.equal(field("Office hours").value, "Friday by appointment"); await edit("Instructor", "Dr. Lake"); await click("Save class"); await saveAndReload();
     assert.equal(server.courses[0].instructor, "Dr. Lake"); assert.equal(server.courses[0].id, course.id);

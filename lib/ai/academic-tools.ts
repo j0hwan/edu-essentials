@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { addDays, assignmentStatus, dayKey, isDate, dateLabel, type Course } from "../academics";
+import { addDays, assignmentStatus, dayKey, isDate, dateLabel, meetingOccursOn, type Course } from "../academics";
 import { academicSnapshot } from "../academic-snapshot";
 import { decodeWorkspaceState, encodeWorkspaceState, type CompactWorkspaceState, type SavedAssignment, type SavedEvent } from "../workspace-codec";
 import { emptyStudy, gradeAverage, studyStats } from "../study";
@@ -71,7 +71,7 @@ export function academicTool(context: AcademicContext, name: string, args: unkno
   const events = (data?.manualEvents ?? []).filter((e) => e.dateKey >= dates.from && e.dateKey <= dates.through && (dates.courseId === undefined || e.courseId === dates.courseId)).map((e) => cite(`event:${e.id}`, e.title, e));
   for (let date = dates.from; date <= dates.through; date = addDays(date, 1)) for (const c of context.courses) {
     if (dates.courseId !== undefined && c.id !== dates.courseId) continue;
-    for (const m of data?.courseDetails?.[c.id]?.meetings ?? []) if (date >= m.from && date <= m.until && m.days.includes(new Date(`${date}T12:00:00Z`).getUTCDay())) events.push(cite(`meeting:${m.id}:${date}`, `${c.code} class meeting`, { courseId: c.id, dateKey: date, time: m.start, end: m.end, location: m.location }));
+    for (const m of data?.courseDetails?.[c.id]?.meetings ?? []) if (meetingOccursOn(m, date)) events.push(cite(`meeting:${m.id}:${date}`, `${c.code} class meeting`, { courseId: c.id, dateKey: date, time: m.start, end: m.end, location: m.location }));
   }
   return page(events);
 }
@@ -108,7 +108,7 @@ export function buildProposal(context: AcademicContext, operations: Operation[],
         if (!e.time || e.durationMinutes === undefined) warnings.add(`The duration of “${e.title}” is unknown. Check for a conflict.`);
         else if (start < minutes(e.time) + e.durationMinutes && end > minutes(e.time)) warnings.add(`Overlaps “${e.title}”.`);
       }
-      for (const course of context.courses) for (const m of data.courseDetails?.[course.id]?.meetings ?? []) if (after.dateKey >= m.from && after.dateKey <= m.until && m.days.includes(new Date(`${after.dateKey}T12:00:00Z`).getUTCDay()) && start < minutes(m.end) && end > minutes(m.start)) warnings.add(`Overlaps ${course.code} class meeting.`);
+      for (const course of context.courses) for (const m of data.courseDetails?.[course.id]?.meetings ?? []) if (meetingOccursOn(m, after.dateKey) && start < minutes(m.end) && end > minutes(m.start)) warnings.add(`Overlaps ${course.code} class meeting.`);
       if (index < 0) data.manualEvents.push(after); else data.manualEvents[index] = after;
       changes.push({ kind: op.kind, before, after });
     }
