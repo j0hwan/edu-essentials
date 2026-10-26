@@ -166,10 +166,10 @@ async function edit(label, value) {
   });
 }
 async function click(text) {
-  let control = [...rootNode.querySelectorAll("button,a")].find((node) => node.textContent.trim() === text);
+  let control = [...rootNode.querySelectorAll("button,a")].find((node) => node.textContent.trim() === text || node.getAttribute("aria-label") === text);
   if (!control && ["Retry save", "Retry after signing in", "Download unsaved work", "Reload saved workspace", "Retry loading"].includes(text) && workspaceSaveStatusTrigger()?.dataset.saveState === "error") {
     const dialog = await openWorkspaceSaveError();
-    control = [...dialog.querySelectorAll("button,a")].find((node) => node.textContent.trim() === text);
+    control = [...dialog.querySelectorAll("button,a")].find((node) => node.textContent.trim() === text || node.getAttribute("aria-label") === text);
   }
   assert.ok(control, `Missing control ${text}`);
   await act(async () => {
@@ -542,7 +542,7 @@ async function clickAria(label, container = rootNode) {
   assert.ok(button, `Missing button ${label}`); await act(async () => button.click());
 }
 async function clickIn(container, text) {
-  const button = [...container.querySelectorAll("button")].find((node) => node.textContent.trim() === text);
+  const button = [...container.querySelectorAll("button")].find((node) => node.textContent.trim() === text || node.getAttribute("aria-label") === text);
   assert.ok(button, `Missing button ${text}`); await act(async () => button.click());
 }
 function installWorkspaceServer(initial = savedDashboard, courses = [], profile = baseProfile) {
@@ -1699,8 +1699,24 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.ok(!rootNode.querySelector(".dashboard-classes-heading").textContent.includes("View every assignment"));
     await clickAria("Dashboard view"); await click("Add Class");
     assert.ok(rootNode.querySelector('[role="dialog"][aria-label="Add a class"]'));
-    await clickIn(rootNode.querySelector('[aria-label="Add a class"]'), "Close");
+    const chooser = rootNode.querySelector(".add-class-choice-modal");
+    assert.ok(chooser, "Add Class opens the redesigned class chooser");
+    assert.match(chooser.textContent, /Choose how you’d like to set up your class\./);
+    const choices = [...chooser.querySelectorAll(".add-class-choices > button")];
+    assert.equal(choices.length, 2, "the chooser presents two class setup cards");
+    assert.deepEqual(choices.map((button) => button.querySelector(".add-class-choice-title")?.textContent.trim()), ["Import syllabus", "Manual entry"]);
+    assert.deepEqual(choices.map((button) => button.getAttribute("aria-label")), ["Import syllabus", "Manual entry"]);
+    assert.ok(choices[1].classList.contains("add-class-choice-manual"), "manual entry keeps its dashed-card styling hook");
+    for (const choice of choices) {
+      const description = choice.querySelector(".add-class-choice-description");
+      assert.ok(description?.textContent.trim(), "each choice description is visible");
+      assert.equal(choice.getAttribute("aria-describedby"), description.id, "each choice exposes its description to assistive technology");
+    }
+    await clickIn(chooser, "Close");
+    assert.equal(rootNode.querySelector(".add-class-choice-modal"), null, "Close dismisses the chooser");
     await clickAria("Dashboard view"); await click("Add Class"); await click("Manual entry");
+    assert.equal(rootNode.querySelector(".add-class-choice-modal"), null, "choosing Manual entry leaves the chooser");
+    assert.ok(field("Course code"), "Manual entry opens the class form");
     for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location / meeting notes": "Lab 4", "Office hours": "Friday by appointment" })) await edit(key, value);
     await click("Add meeting"); await edit("First date", "2026-09-01"); await edit("Last date", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
     assert.equal(unloadBlocked(), true); await click("Save class");

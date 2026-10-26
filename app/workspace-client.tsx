@@ -2045,7 +2045,31 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }
 
   function renderAddClassDialog() {
-    return <div className="modal-backdrop"><section className="small-modal" role="dialog" aria-modal="true" aria-label="Add a class"><div className="modal-header"><h2>Add a class</h2><button className="secondary-button" onClick={() => setAddClassOpen(false)}>Close</button></div><div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ course: emptyCourse(uid("course")), details: emptyCourseDetails() }); setAddClassOpen(false); }}>Manual entry</button><button className="secondary-button" onClick={newReview}>Import syllabus</button></div></section></div>;
+    return <div className="modal-backdrop">
+      <section className="small-modal add-class-choice-modal" role="dialog" aria-modal="true" aria-label="Add a class" aria-describedby="add-class-choice-description">
+        <div className="modal-header">
+          <div>
+            <h2>Add a class</h2>
+            <p id="add-class-choice-description">Choose how you’d like to set up your class.</p>
+          </div>
+          <button className="secondary-button" onClick={() => setAddClassOpen(false)}>Close</button>
+        </div>
+        <div className="add-class-choices">
+          <button className="add-class-choice add-class-choice-import" aria-label="Import syllabus" aria-describedby="add-class-import-description" onClick={newReview}>
+            <span className="add-class-choice-icon"><Upload size={24} aria-hidden="true" /></span>
+            <span className="add-class-choice-title">Import syllabus</span>
+            <span className="add-class-choice-description" id="add-class-import-description">Upload or paste your syllabus, then review your class details and assignments.</span>
+            <ArrowRight className="add-class-choice-arrow" size={18} aria-hidden="true" />
+          </button>
+          <button className="add-class-choice add-class-choice-manual" aria-label="Manual entry" aria-describedby="add-class-manual-description" onClick={() => { setEditor({ course: emptyCourse(uid("course")), details: emptyCourseDetails() }); setAddClassOpen(false); }}>
+            <span className="add-class-choice-icon"><Pencil size={24} aria-hidden="true" /></span>
+            <span className="add-class-choice-title">Manual entry</span>
+            <span className="add-class-choice-description" id="add-class-manual-description">Start with your class details and add assignments as you go.</span>
+            <ArrowRight className="add-class-choice-arrow" size={18} aria-hidden="true" />
+          </button>
+        </div>
+      </section>
+    </div>;
   }
 
 }
