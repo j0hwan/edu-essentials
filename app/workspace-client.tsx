@@ -1823,7 +1823,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   function renderDashboard() {
     const focusAssignments = dashboardFocus(assignments);
     return (
-      <AnimatedDashboard reflowKey={String(sidebarCollapsed)} reducedMotion={profile.preferences.reducedMotion}>
+      <AnimatedDashboard reflowKey={String(sidebarCollapsed)} reducedMotion={profile.preferences.reducedMotion} restoredCourse={skipOpeningAnimation}>
         <DashboardStudyBrief
           reflowKey={String(sidebarCollapsed)}
           key={initialProfile.id}

@@ -1421,7 +1421,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
         if (event.target === event.currentTarget && !suspended) close();
       }}
     />
-    <div ref={dialogRef} className="class-card-expansion-dialog" role="dialog" aria-modal={suspended ? undefined : "true"} aria-label="Class details" tabIndex={-1} inert={suspended}>
+    <div ref={dialogRef} className="class-card-expansion-dialog" data-restored={skipOpeningAnimation ? "true" : undefined} role="dialog" aria-modal={suspended ? undefined : "true"} aria-label="Class details" tabIndex={-1} inert={suspended}>
       <div ref={previewRef} className="class-card-expansion-preview" aria-hidden="true" inert hidden />
       <div ref={sharedRef} className="class-card-expansion-shared-layer" aria-hidden="true" inert />
       <div ref={contentRef} className="class-card-expansion-content"><ExpansionContent render={children} close={close} /></div>

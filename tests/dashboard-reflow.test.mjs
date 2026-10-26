@@ -61,7 +61,7 @@ function setup(options = {}) {
     window.SVGElement.prototype.animate = animate;
   }
   const root = createRoot(document.getElementById("root"));
-  const render = (reflowKey, step, label = "initial", reducedMotion) => act(async () => {
+  const render = (reflowKey, step, label = "initial", reducedMotion, restoredCourse = false) => act(async () => {
     const details = options.details ? [
       createElement("div", { className: "dashboard-focus-counts", "data-target": "b", key: "counts" }, ...["overdue", "due today", "done this week"].map((label) => createElement("span", { "data-target": "b", key: label }, label))),
       createElement("button", { className: "dashboard-focus-item", key: "assignment" },
@@ -73,7 +73,7 @@ function setup(options = {}) {
         createElement("button", { className: "dashboard-focus-page-button", "data-target": "b" }, "next"),
       ),
     ] : [];
-    root.render(createElement(Dashboard, { reflowKey, reducedMotion }, createElement("section", { "data-step": step },
+    root.render(createElement(Dashboard, { reflowKey, reducedMotion, restoredCourse }, createElement("section", { "data-step": step },
       createElement("div", { className: "dashboard-study-brief", "data-target": "a" }, label, ...details),
       createElement("div", { className: "dashboard-classes-heading", "data-target": "a" },
         createElement("div", { className: "dashboard-classes-actions", "data-target": "b" },
@@ -268,6 +268,25 @@ test("legend reversal captures intermediate label sizes and spacing before cance
 test("dashboard keeps its desktop right gutter independent of sidebar footprint", async () => {
   const css = await readFile(new URL("../app/reference-ui.css", import.meta.url), "utf8");
   assert.match(css, /\.reference-ui \.main-content:has\(\.dashboard-reflow\)\s*\{\s*padding-right:\s*var\(--page-gutter\);\s*\}/);
+});
+
+test("restored-course motion opt-in latches on the dashboard until that dashboard unmounts", async () => {
+  const first = setup();
+  try {
+    await first.render("open", 0);
+    const page = document.querySelector(".dashboard-page");
+    assert.equal(page?.getAttribute("data-restored-course"), null, "ordinary dashboards do not opt into the delayed fade");
+    await first.render("open", 0, "restored", undefined, true);
+    assert.equal(page?.getAttribute("data-restored-course"), "true", "a restored course enables the dashboard fade");
+    await first.render("open", 0, "closed", undefined, false);
+    assert.equal(page?.getAttribute("data-restored-course"), "true", "closing the restored course does not replay the default page entrance");
+  } finally { await first.cleanup(); }
+
+  const next = setup();
+  try {
+    await next.render("open", 0);
+    assert.equal(document.querySelector(".dashboard-page")?.getAttribute("data-restored-course"), null, "a fresh dashboard mount resets the latch");
+  } finally { await next.cleanup(); }
 });
 
 test("reflow uses shared timing and captures position and size with individual properties", async () => {

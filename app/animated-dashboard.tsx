@@ -6,10 +6,17 @@ const legendLabels = ".dashboard-focus-counts > span";
 
 type Rect = { left: number; top: number; width: number; height: number };
 type Plan = { element: Element; from: Rect; to: Rect };
-type Props = { reflowKey: string; reducedMotion?: boolean; children: ReactNode };
-type State = Record<string, never>;
+type Props = { reflowKey: string; reducedMotion?: boolean; restoredCourse?: boolean; children: ReactNode };
+type State = { restoredCourse: boolean };
 
 export default class AnimatedDashboard extends Component<Props, State> {
+  state: State = { restoredCourse: false };
+
+  static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
+    // Preserve the entry treatment after closing so the background does not animate a second time.
+    return props.restoredCourse && !state.restoredCourse ? { restoredCourse: true } : null;
+  }
+
   private root: HTMLDivElement | null = null;
   private animations: Animation[] = [];
   private motionPreference: MediaQueryList | null = null;
@@ -139,7 +146,7 @@ export default class AnimatedDashboard extends Component<Props, State> {
   }
 
   render() {
-    return <div ref={(node) => { this.root = node; }} className="page dashboard-page dashboard-reflow">{this.props.children}</div>;
+    return <div ref={(node) => { this.root = node; }} className="page dashboard-page dashboard-reflow" data-restored-course={this.state.restoredCourse ? "true" : undefined} data-reduced-motion={this.props.reducedMotion ? "true" : undefined}>{this.props.children}</div>;
   }
 }
 
