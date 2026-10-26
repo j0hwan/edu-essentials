@@ -335,6 +335,7 @@
     transition: margin-left var(--shell-reflow-duration) var(--shell-reflow-easing), padding-right var(--shell-reflow-duration) var(--shell-reflow-easing);
     min-height: calc(100svh - 70 * max(0.0703125rem, 1.125px));
   }
+  .reference-ui .main-content:has(.dashboard-reflow) { padding-right: var(--page-gutter); }
   .reference-ui :is(.widget-card, .today-section-menu, .widget-reorder-overlay) { --desktop-density-unit: var(--desktop-content-density-unit); }
   .reference-ui .topbar-icon { width: calc(38 * var(--desktop-density-unit)); height: calc(38 * var(--desktop-density-unit)); }
   .reference-ui .topbar-icon > svg { width: calc(18 * var(--desktop-density-unit)); height: calc(18 * var(--desktop-density-unit)); }
