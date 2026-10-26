@@ -18,6 +18,8 @@ import "./class-card-expansion.css";
 type Props = {
   courseId: string;
   onClose: () => void;
+  onCloseStart?: () => void;
+  skipOpeningAnimation?: boolean;
   suspended: boolean;
   closeControlRef?: RefObject<(() => void) | null>;
   children: (close: () => void) => ReactNode;
@@ -495,7 +497,7 @@ function fadeInFrames(fromOpacity: string): Keyframe[] {
   ];
 }
 
-export default function ClassCardExpansion({ courseId, onClose, suspended, closeControlRef, children }: Props) {
+export default function ClassCardExpansion({ courseId, onClose, onCloseStart, skipOpeningAnimation = false, suspended, closeControlRef, children }: Props) {
   const [visible, setVisible] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -508,6 +510,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
   const nestedDialogRef = useRef<HTMLElement | null>(null);
   const wasSuspendedRef = useRef(suspended);
   const onCloseRef = useRef(onClose);
+  const onCloseStartRef = useRef(onCloseStart);
 
   useEffect(() => {
     const scrollArea = contentRef.current?.querySelector<HTMLElement>(".expanded-class-body");
@@ -535,7 +538,8 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
 
   useLayoutEffect(() => {
     onCloseRef.current = onClose;
-  }, [onClose]);
+    onCloseStartRef.current = onCloseStart;
+  }, [onClose, onCloseStart]);
 
   const close = useCallback(() => closeRef.current(), []);
 
@@ -601,7 +605,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
       detailContent.style.width = `${Math.max(1, rect.width - horizontalBorder)}px`;
       detailContent.style.height = `${Math.max(1, rect.height - verticalBorder)}px`;
     };
-    if (anchor && canAnimate) pinDetailLayout(destination);
+    if (anchor && canAnimate && !skipOpeningAnimation) pinDetailLayout(destination);
 
     if (source) {
       sourceSnapshot = {
@@ -614,12 +618,14 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
       previewLayer.appendChild(staticPreview);
       if (anchor && canAnimate) {
         morphPairs = collectMorphPairs(source, staticPreview, detailContent);
-        for (const pair of morphPairs) {
-          if (pair.sourcePreview) pair.sourcePreview.style.visibility = "hidden";
-          pair.target.style.setProperty("visibility", "hidden");
-          createMorphWrapper(pair, "opening", shared);
+        if (!skipOpeningAnimation) {
+          for (const pair of morphPairs) {
+            if (pair.sourcePreview) pair.sourcePreview.style.visibility = "hidden";
+            pair.target.style.setProperty("visibility", "hidden");
+            createMorphWrapper(pair, "opening", shared);
+          }
+          openingMorphPending = morphPairs.length > 0;
         }
-        openingMorphPending = morphPairs.length > 0;
       }
       source.style.setProperty("visibility", "hidden");
       source.setAttribute("aria-hidden", "true");
@@ -628,7 +634,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
 
     bodyOverflow = { value: document.body.style.getPropertyValue("overflow"), priority: document.body.style.getPropertyPriority("overflow") };
     document.body.style.setProperty("overflow", "hidden");
-    previewLayer.hidden = !source || !anchor;
+    previewLayer.hidden = skipOpeningAnimation || !source || !anchor;
 
     const dialogBorder = () => {
       const style = window.getComputedStyle(expansionDialog);
@@ -1069,7 +1075,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
         detailContent.style.opacity = "1";
         detailContent.style.filter = "none";
       };
-      if (!canAnimate || !anchor) {
+      if (!canAnimate || !anchor || skipOpeningAnimation) {
         clearVisualStyles();
         return;
       }
@@ -1179,6 +1185,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
     function requestClose() {
       if (released || closing) return;
       closing = true;
+      onCloseStartRef.current?.();
       for (const cleanup of [...imageHandoffCleanups]) cleanup();
       const from = expansionDialog.getBoundingClientRect();
       const detailRect = detailContent.getBoundingClientRect();
@@ -1308,7 +1315,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
         sidebarObserver.observe(sidebar);
       }
     }
-    if (canAnimate && anchor) {
+    if (canAnimate && anchor && !skipOpeningAnimation) {
       if (source && sourceRect && openingMorphPending) animateMorphs("opening", sourceRect, destination);
       const measuredDetailRect = detailContent.getBoundingClientRect();
       const detailWorldLeft = hasArea(measuredDetailRect)
@@ -1324,7 +1331,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, close
     }
     revealContent();
     return release;
-  }, [courseId, visible]);
+  }, [courseId, visible, skipOpeningAnimation]);
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;

@@ -1,6 +1,6 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Private authenticated blob URLs cannot use the public image optimizer. */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fileKinds, fileMetadata, fileSize, MAX_FILE_BYTES, type FileMetadata, type PrivateFile } from "../lib/files";
 import type { Course } from "../lib/academics";
 import type { SavedAssignment } from "../lib/workspace-codec";
@@ -30,11 +30,113 @@ export function FileEditor({ store, courses, assignments, initial, defaults, onC
     <p className="form-hint">Private to your account · maximum 25 MiB per file. Newest class image is used on its class card. Save new classes or assignments before attaching a file.</p>{!canWrite && <p role="alert">Save or resolve pending workspace changes first.</p>}{error && <p role="alert" className="auth-error">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={() => downloadDraft("eduessentials-file-details.json", metadata)}>Download file details draft</button><button className="primary-button" disabled={!canWrite || store.busy}>{store.busy ? "Saving file…" : upload ? "Upload / retry file" : "Save file details"}</button></div></fieldset></form></div>;
 }
 
-export function PrivateImage({ file, store }: { file: PrivateFile; store: FileStore }) {
-  const [url, setUrl] = useState("");
+type PrivateImageSource = {
+  fileId: string;
+  updatedAt: string;
+  contentRevision: number;
+  trashedAt: string | null;
+  deletedAt: string | null;
+  blob: FileStore["blob"];
+};
+
+type LoadedPrivateImage = PrivateImageSource & { url: string; ready: boolean };
+
+function samePrivateImageSource(first: PrivateImageSource, second: PrivateImageSource): boolean {
+  return first.fileId === second.fileId
+    && first.updatedAt === second.updatedAt
+    && first.contentRevision === second.contentRevision
+    && first.trashedAt === second.trashedAt
+    && first.deletedAt === second.deletedAt
+    && first.blob === second.blob;
+}
+
+export function PrivateImage({ file, store, fadeIn = false }: { file: PrivateFile; store: FileStore; fadeIn?: boolean }) {
+  const [loadedImage, setLoadedImage] = useState<LoadedPrivateImage | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const fileRef = useRef(file);
   const blob = store.blob;
-  useEffect(() => { if (file.trashed_at) return; const controller = new AbortController(); let owned = ""; void blob(file, controller.signal).then((data) => { if (!controller.signal.aborted) { owned = URL.createObjectURL(data); setUrl(owned); } }).catch(() => {}); return () => { controller.abort(); if (owned) URL.revokeObjectURL(owned); }; }, [file.id, file.updated_at, blob, file]);
-  return !file.trashed_at && url ? <img className="private-class-image" src={url} alt={file.name} /> : null;
+  const source = useMemo<PrivateImageSource>(() => ({
+    fileId: file.id,
+    updatedAt: file.updated_at,
+    contentRevision: file.content_revision,
+    trashedAt: file.trashed_at,
+    deletedAt: file.deleted_at ?? null,
+    blob,
+  }), [file.id, file.updated_at, file.content_revision, file.trashed_at, file.deleted_at, blob]);
+  const sourceRef = useRef(source);
+  useLayoutEffect(() => { fileRef.current = file; }, [file]);
+  useLayoutEffect(() => { sourceRef.current = source; }, [source]);
+
+  useEffect(() => {
+    const requestedSource = sourceRef.current;
+    if (requestedSource.trashedAt || requestedSource.deletedAt) {
+      setLoadedImage(null);
+      return;
+    }
+    const controller = new AbortController();
+    let owned = "";
+    setLoadedImage(null);
+    void blob(fileRef.current, controller.signal).then((data) => {
+      if (controller.signal.aborted || !samePrivateImageSource(sourceRef.current, requestedSource)) return;
+      owned = URL.createObjectURL(data);
+      setLoadedImage({ ...requestedSource, url: owned, ready: !fadeIn });
+    }).catch(() => {});
+    return () => {
+      controller.abort();
+      if (owned) {
+        URL.revokeObjectURL(owned);
+        setLoadedImage((current) => current?.url === owned ? null : current);
+      }
+    };
+  }, [file.id, file.updated_at, file.content_revision, file.trashed_at, file.deleted_at, blob, fadeIn]);
+
+  const currentImage = loadedImage && samePrivateImageSource(loadedImage, source) ? loadedImage : null;
+  useLayoutEffect(() => {
+    const image = imageRef.current;
+    if (!fadeIn || !currentImage || currentImage.ready || !image) return;
+    const src = currentImage.url;
+    let cancelled = false;
+    let firstFrame = 0;
+    let revealFrame = 0;
+    let fallbackTimer = 0;
+    const revealAfterPaint = () => {
+      if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
+      const reveal = () => {
+        firstFrame = 0;
+        if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
+        setLoadedImage((current) => current?.url === src ? { ...current, ready: true } : current);
+      };
+      if (typeof window.requestAnimationFrame === "function") {
+        firstFrame = window.requestAnimationFrame(() => {
+          firstFrame = 0;
+          revealFrame = window.requestAnimationFrame(reveal);
+        });
+      } else {
+        fallbackTimer = window.setTimeout(reveal, 32);
+      }
+    };
+    const decode = () => {
+      if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
+      if (typeof image.decode === "function") void image.decode().then(revealAfterPaint, revealAfterPaint);
+      else revealAfterPaint();
+    };
+    if (image.complete) {
+      if (image.naturalWidth > 0) decode();
+    } else {
+      image.addEventListener("load", decode);
+    }
+    return () => {
+      cancelled = true;
+      image.removeEventListener("load", decode);
+      if (firstFrame) window.cancelAnimationFrame(firstFrame);
+      if (revealFrame) window.cancelAnimationFrame(revealFrame);
+      if (fallbackTimer) window.clearTimeout(fallbackTimer);
+    };
+  }, [fadeIn, currentImage]);
+
+  if (!currentImage || file.trashed_at || file.deleted_at) return null;
+  const className = `private-class-image${fadeIn ? ` private-class-image-fade${currentImage.ready ? " is-ready" : ""}` : ""}`;
+  return <img ref={imageRef} className={className} src={currentImage.url} alt={file.name} />;
 }
 export function FilePreview({ file, store, onClose, onEdit, onReview, onOpened, canWrite }: { file: PrivateFile; store: FileStore; onClose: () => void; onEdit: () => void; onReview?: (file: PrivateFile, text: string) => void; onOpened?: (file: PrivateFile) => void; canWrite: boolean }) {
   const [url, setUrl] = useState(""), [text, setText] = useState(""), [error, setError] = useState(""), [attempt, setAttempt] = useState(0);

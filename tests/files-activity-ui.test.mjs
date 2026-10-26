@@ -442,6 +442,84 @@ test("background PrivateImage reads its blob without creating a Recent event", a
   assert.equal(requests.length, 0, "background image loading is not an explicit file open");
 });
 
+test("opt-in PrivateImage waits for decode and a paint boundary before revealing a course image", async () => {
+  reset();
+  const bytes = deferred(), decoded = deferred();
+  const imagePrototype = window.HTMLImageElement.prototype;
+  const originalComplete = Object.getOwnPropertyDescriptor(imagePrototype, "complete");
+  const originalNaturalWidth = Object.getOwnPropertyDescriptor(imagePrototype, "naturalWidth");
+  const originalDecode = Object.getOwnPropertyDescriptor(imagePrototype, "decode");
+  Object.defineProperty(imagePrototype, "complete", { configurable: true, value: false });
+  Object.defineProperty(imagePrototype, "naturalWidth", { configurable: true, value: 120 });
+  Object.defineProperty(imagePrototype, "decode", { configurable: true, value: () => decoded.promise });
+  try {
+    await render(createElement(PrivateImage, { file: file(FILE_ID, { name: "Card.png", mime_type: "image/png", kind: "class-image" }), store: { blob: async () => bytes.promise }, fadeIn: true }));
+    await act(async () => { bytes.resolve(new Blob(["course image"], { type: "image/png" })); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    const image = rootNode.querySelector("img.private-class-image-fade");
+    assert.ok(image);
+    assert.equal(image.classList.contains("is-ready"), false, "the image remains transparent before it has decoded");
+
+    await act(async () => { image.dispatchEvent(new Event("load")); });
+    assert.equal(image.classList.contains("is-ready"), false, "the load event alone does not reveal an image while decode is pending");
+    await act(async () => { decoded.resolve(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+    assert.equal(image.classList.contains("is-ready"), true, "the decoded image becomes visible after opacity zero has had a paint boundary");
+  } finally {
+    if (originalComplete) Object.defineProperty(imagePrototype, "complete", originalComplete); else delete imagePrototype.complete;
+    if (originalNaturalWidth) Object.defineProperty(imagePrototype, "naturalWidth", originalNaturalWidth); else delete imagePrototype.naturalWidth;
+    if (originalDecode) Object.defineProperty(imagePrototype, "decode", originalDecode); else delete imagePrototype.decode;
+  }
+});
+
+test("opt-in PrivateImage fences stale account and source work, then revokes its current URL on unmount", async () => {
+  reset();
+  const accountABytes = deferred(), accountBBytes = deferred(), nextSourceBytes = deferred(), decodeB = deferred();
+  const imagePrototype = window.HTMLImageElement.prototype;
+  const originalComplete = Object.getOwnPropertyDescriptor(imagePrototype, "complete");
+  const originalNaturalWidth = Object.getOwnPropertyDescriptor(imagePrototype, "naturalWidth");
+  const originalDecode = Object.getOwnPropertyDescriptor(imagePrototype, "decode");
+  Object.defineProperty(imagePrototype, "complete", { configurable: true, value: false });
+  Object.defineProperty(imagePrototype, "naturalWidth", { configurable: true, value: 120 });
+  Object.defineProperty(imagePrototype, "decode", { configurable: true, value: () => decodeB.promise });
+  const created = [], revoked = [];
+  const originalCreateObjectURL = URL.createObjectURL, originalRevokeObjectURL = URL.revokeObjectURL;
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => { const url = `blob:course-fade-${created.length + 1}`; created.push(url); return url; } });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: (url) => revoked.push(url) });
+  let accountASignal;
+  const originalFile = file(FILE_ID, { name: "Card.png", mime_type: "image/png", kind: "class-image" });
+  try {
+    await render(createElement(PrivateImage, { file: originalFile, store: { blob: async (_file, signal) => { accountASignal = signal; return accountABytes.promise; } }, fadeIn: true }));
+    await waitUntil(() => !!accountASignal, "the first account's image request");
+    await render(createElement(PrivateImage, { file: originalFile, store: { blob: async () => accountBBytes.promise }, fadeIn: true }));
+    assert.equal(accountASignal.aborted, true, "switching blob stores aborts the previous account request");
+    await act(async () => { accountBBytes.resolve(new Blob(["account B image"], { type: "image/png" })); });
+    await waitUntil(() => !!rootNode.querySelector("img.private-class-image-fade"), "the current account image");
+    const accountBImage = rootNode.querySelector("img.private-class-image-fade");
+    await act(async () => { accountBImage.dispatchEvent(new Event("load")); });
+
+    await act(async () => { accountABytes.resolve(new Blob(["stale account A image"], { type: "image/png" })); });
+    assert.deepEqual(created, ["blob:course-fade-1"], "a late response from the old account cannot create an image URL");
+    assert.equal(accountBImage.classList.contains("is-ready"), false);
+
+    await render(createElement(PrivateImage, { file: file("22222222-2222-4222-8222-222222222222", { name: "New card.png", mime_type: "image/png", kind: "class-image" }), store: { blob: async () => nextSourceBytes.promise }, fadeIn: true }));
+    assert.equal(rootNode.querySelector("img.private-class-image-fade"), null, "a newly selected source cannot show the previous file while it loads");
+    await act(async () => { decodeB.resolve(); });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.equal(rootNode.querySelector("img.private-class-image-fade"), null, "a late decode from the old source cannot restore its image");
+    assert.ok(revoked.includes("blob:course-fade-1"), "changing source releases the previous private URL");
+
+    await act(async () => { nextSourceBytes.resolve(new Blob(["new course image"], { type: "image/png" })); });
+    await waitUntil(() => !!rootNode.querySelector("img.private-class-image-fade"), "the replacement course image");
+    await unmount();
+    assert.ok(revoked.includes("blob:course-fade-2"), "unmount releases the current private URL");
+  } finally {
+    if (originalComplete) Object.defineProperty(imagePrototype, "complete", originalComplete); else delete imagePrototype.complete;
+    if (originalNaturalWidth) Object.defineProperty(imagePrototype, "naturalWidth", originalNaturalWidth); else delete imagePrototype.naturalWidth;
+    if (originalDecode) Object.defineProperty(imagePrototype, "decode", originalDecode); else delete imagePrototype.decode;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
+  }
+});
+
 test("the actual Recent derivation uses an acknowledged open timestamp rather than modification time", async () => {
   reset();
   const files = [file(FILE_ID, { updated_at: "2026-10-01T00:00:00.000Z" }), file(OTHER_ID, { updated_at: "2026-10-08T00:00:00.000Z" })];

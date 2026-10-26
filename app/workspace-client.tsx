@@ -54,6 +54,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
 import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
+import { useCourseExpansion } from "./use-course-expansion";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
 import AcademicEditor from "./academic-editor";
@@ -508,13 +509,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [notes, setNotes] = useState("");
   const noteFocusRef = useRef<string | null>(null);
   const [dashboardView, setDashboardView] = useState<"cards" | "list">("cards");
-  const [selectedClass, setSelectedClass] = useState<Course | null>(null);
   const closeExpandedClassRef = useRef<(() => void) | null>(null);
-  const [classNavigationOrigin, setClassNavigationOrigin] = useState<string | null>(null);
-  if (classNavigationOrigin !== null && classNavigationOrigin !== pathname) {
-    setSelectedClass(null);
-    setClassNavigationOrigin(null);
-  }
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [addClassOpen, setAddClassOpen] = useState(false);
   const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent } | null>(null);
@@ -596,6 +591,13 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return result.revision;
   }));
   const saveState = useSyncExternalStore(autosave.subscribe, autosave.getSnapshot, autosave.getSnapshot);
+  const { selectedClass, setSelectedClass, resetSelectedClass, clearSavedCourse, openDashboardCourse, skipOpeningAnimation } = useCourseExpansion({
+    profileId: initialProfile.id,
+    page,
+    courses,
+    ready: saveState.ready && profile.id === initialProfile.id,
+    persist: !experimentalMode && !onboardingTest,
+  });
   const persistenceStatus = saveState.status;
   const canWriteFiles = !experimentalMode && saveState.ready && !saveState.dirty && !undoBusy;
   const refreshFiles = fileStore.refresh;
@@ -725,14 +727,14 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         setActiveWorkspaceId(decoded.activeWorkspaceId); setNotes(decoded.notes);
         setAssignments(details.assignments); setManualEvents(details.manualEvents);
         setDashboardView(details.dashboardView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: [], study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences, widgetAppearance: details.widgetAppearance }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setAppearanceOpen(false); setEditor(null); setSyllabusDraft(null);
-        setSelectedClass(null); setSelectedAssignment(null); setSyllabusAttachment(null); setSyllabusTextCourseId(null); setSyllabusPreviewFileId(null);
+        resetSelectedClass(); setSelectedAssignment(null); setSyllabusAttachment(null); setSyllabusTextCourseId(null); setSyllabusPreviewFileId(null);
         setExperimentalMode(null); setExperimentalMenuOpen(false); setExperimentalRestoring(false);
         autosave.hydrate(canonicalJson({ courses: [...(data.courses ?? [])].sort((a, b) => a.id.localeCompare(b.id)), dashboard: encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, details) }), data.revision ?? null);
       } catch (error) { if (!controller.signal.aborted) { setExperimentalRestoring(false); autosave.loadFailed(error); } }
     }
     void hydrateWorkspace();
     return () => { controller.abort(); workspaceLoadGeneration.current = loadGeneration + 1; autosave.stop(); };
-  }, [reloadAttempt, accountFetch, autosave, initialProfile.id]);
+  }, [reloadAttempt, accountFetch, autosave, initialProfile.id, resetSelectedClass]);
 
   useEffect(() => {
     if (experimentalMode || onboardingTest) return;
@@ -894,7 +896,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     setSidebarOpen(false);
     setExperimentalMenuOpen(false);
     setSelectedAssignment(null);
-    setSelectedClass(null);
+    resetSelectedClass();
   };
 
   const flash = (message: string) => setToast(message);
@@ -906,7 +908,6 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       closeExpandedClassRef.current?.();
       return;
     }
-    if (selectedClass) setClassNavigationOrigin(pathname);
     setSidebarOpen(false);
     setExperimentalMenuOpen(false);
   };
@@ -1813,7 +1814,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       return <div className="reference-alerts">{next ? <button className="alert-upcoming" onClick={() => setSelectedAssignment(next)}><AlertOctagon size={22} /><span><strong>{next.title}</strong><small>{courseFor(courses, next.courseId).code} · {next.dateKey === today ? "Today" : next.dateKey === addDays(today, 1) ? "Tomorrow" : next.due}</small></span><ChevronRight size={15} /></button> : <div className="alert-upcoming"><Bell size={22} /><span><strong>No upcoming deadlines</strong><small>You’re all caught up</small></span></div>}<button className="alert-status" onClick={() => navigate("tasks")}><CheckCircle2 size={23} /><span>{overdueAssignments.length ? `${overdueAssignments.length} overdue ${overdueAssignments.length === 1 ? "task" : "tasks"}` : "No overdue work"}</span>{overdueAssignments.length > 0 && <ChevronRight size={15} />}</button></div>;
     }
     if (type === "mini-calendar") return <div className="mini-cal"><div className="mini-cal-month"><strong>{dateLabel(addDays(today, miniWeekOffset), { month: "long", year: "numeric" })}</strong><div><button aria-label="Previous week" onClick={() => setMiniWeekOffset((offset) => offset - 7)}><ChevronLeft size={16} /></button><button aria-label="Next week" onClick={() => setMiniWeekOffset((offset) => offset + 7)}><ChevronRight size={16} /></button><button className="mini-today" onClick={() => setMiniWeekOffset(0)}>Today</button></div></div><div className="mini-days">{Array.from({ length: 7 }, (_, i) => addDays(weekStart(today, profile.week_starts_on === "Monday"), i + miniWeekOffset)).map((date) => <button key={date} aria-label={dateLabel(date, { weekday: "long", month: "long", day: "numeric" })} className={date === today ? "today" : ""} onClick={() => navigate("calendar")}><small>{dateLabel(date, { weekday: "short" })}</small><strong>{Number(date.slice(-2))}</strong>{(assignments.some((a) => a.dateKey === date) || manualEvents.some((e) => e.dateKey === date)) && <i />}</button>)}</div></div>;
-    if (type === "class-links") return <div className="class-link-grid">{courses.slice(0, 4).map((course) => <button key={course.id} onClick={() => { navigate("dashboard"); setSelectedClass(course); }}><CourseStamp course={course} small /><span><strong>{course.code}</strong><small>{course.name}</small></span><ChevronRight size={14} /></button>)}</div>;
+    if (type === "class-links") return <div className="class-link-grid">{courses.slice(0, 4).map((course) => <button key={course.id} onClick={() => { navigate("dashboard"); openDashboardCourse(course); }}><CourseStamp course={course} small /><span><strong>{course.code}</strong><small>{course.name}</small></span><ChevronRight size={14} /></button>)}</div>;
     if (type === "notes") return <div className="notes-widget"><textarea id={`note-${widget.instanceId}`} aria-label="Quick notes" placeholder="Write a quick reminder…" value={widget.note ?? ""} maxLength={MAX_NOTES_LENGTH} onChange={(event) => updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: event.target.value } : item))} /><div className="reference-note-footer"><span className="note-label"><FileText size={13} /> Quick note</span><button className="clear-note" disabled={!widget.note} onClick={() => { if (window.confirm("Clear this note's text?")) updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: "" } : item)); }} aria-label="Clear notes"><Trash2 size={13} /></button><button className="primary-button save-note" disabled={persistenceStatus === "saving"} onClick={() => experimentalMode ? flash("Preview note updated — nothing saved to your account") : void autosave.flush()}><Save size={14} />{persistenceStatus === "saving" ? "Saving…" : "Save note"}</button></div></div>;
     if (type === "quote") return <div className="quote-widget"><QuoteIcon size={24} /><blockquote>Small, focused steps turn heavy weeks into manageable days.</blockquote><span>— Your Edu AI reminder</span></div>;
     return <div className="spacer-widget"><span>Spacer</span><p>This tile creates breathing room. Resize it to shape your layout.</p></div>;
@@ -1998,7 +1999,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   function renderClassVisual(course: Course, close?: () => void) {
     return <div className={`class-card-visual${close ? " expanded-class-header" : ""}`}>
       <div className="class-card-media" data-course-morph="visual" aria-hidden="true" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
-        {fileStore.files.filter((file) => file.course_id === course.id && file.kind === "class-image" && file.state === "ready" && !file.trashed_at).sort((first, second) => second.created_at.localeCompare(first.created_at)).slice(0, 1).map((file) => <PrivateImage key={file.id} file={file} store={fileStore} />)}
+        {fileStore.files.filter((file) => file.course_id === course.id && file.kind === "class-image" && file.state === "ready" && !file.trashed_at).sort((first, second) => second.created_at.localeCompare(first.created_at)).slice(0, 1).map((file) => <PrivateImage key={file.id} file={file} store={fileStore} fadeIn={!!close && skipOpeningAnimation} />)}
       </div>
       <span className="course-watermark" data-course-morph="watermark" aria-hidden="true">{course.initials}</span><span className="course-pill" data-course-morph="code" style={{ color: course.color }}>{course.code}</span><CourseIcon icon={extraData.courseDetails[course.id]?.icon} data-course-morph="icon" size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" />
       {close && <button className="secondary-button" onClick={close}>Close class <X size={15} /></button>}
@@ -2011,11 +2012,11 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     const hasSyllabusPreview = Boolean(syllabusFile || details.syllabusText);
     const average = study.grades.find((g) => g.courseId === course.id && g.system === activeGpaSystem && g.term === activeTerm);
     const studySeconds = study.sessions.filter((s) => s.courseId === course.id).reduce((sum, s) => sum + segmentSeconds(s.segments), 0);
-    return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} closeControlRef={closeExpandedClassRef} onClose={() => setSelectedClass(null)} suspended={!!(selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || studyOpen || editor || syllabusDraft)}>{(close) => <>
+    return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} skipOpeningAnimation={skipOpeningAnimation} closeControlRef={closeExpandedClassRef} onCloseStart={clearSavedCourse} onClose={() => setSelectedClass(null)} suspended={!!(selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || studyOpen || editor || syllabusDraft)}>{(close) => <>
       {renderClassVisual(course, close)}
       <div className="expanded-class-body">
         <div className="expanded-class-heading"><div><h2><span className="expanded-class-code">{course.code} · </span><span data-course-morph="name">{course.name}</span></h2><p><span data-course-morph="credits">{course.credits} credits</span> · {course.room || "No location entered"}</p></div></div>
-        <div className="expanded-class-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}><Pencil size={15} />Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); setSelectedClass(null); navigate("calendar"); }}><CalendarDays size={15} />View schedule</button><button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}><Plus size={15} />Add assignment</button></div>
+        <div className="expanded-class-actions"><button className="primary-button" onClick={() => { setEditor({ course, details }); setSelectedClass(null); }}><Pencil size={15} />Edit class</button><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); navigate("calendar"); }}><CalendarDays size={15} />View schedule</button><button className="secondary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}><Plus size={15} />Add assignment</button></div>
         <section className="expanded-class-section expanded-class-progress"><h3>Progress</h3><p>{durationLabel(studySeconds)} recorded study · {items.filter((assignment) => assignment.status === "done").length} / {items.length} assignments complete</p><p>{average ? `Grade: ${average.value.toFixed(2)} / ${average.max}` : "No matching grade entered"} · {activeTerm || "Unspecified term"}</p><button className="text-button" onClick={() => { setSelectedClass(null); setStudyOpen(true); }}>Study history & grades <ArrowRight size={14} /></button></section>
         <div className="expanded-class-grid">
           <section className="expanded-class-section"><h3>Instructor</h3><p>{course.instructor ? <span data-course-morph="instructor">{course.instructor}</span> : "No instructor entered"}</p><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p></section>

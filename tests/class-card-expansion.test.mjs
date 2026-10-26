@@ -98,9 +98,11 @@ function setup({ withSource = true, courseId = "course[1]", reduced = null } = {
     return animation;
   };
 
-  const render = async ({ suspended = false, onClose = () => {}, closeControlRef, children } = {}) => act(async () => root.render(h(ClassCardExpansion, {
+  const render = async ({ suspended = false, onClose = () => {}, onCloseStart, skipOpeningAnimation = false, closeControlRef, children } = {}) => act(async () => root.render(h(ClassCardExpansion, {
     courseId,
     onClose,
+    onCloseStart,
+    skipOpeningAnimation,
     closeControlRef,
     suspended,
     children: children ?? ((close) => h("div", { className: "test-class-details" },
@@ -345,6 +347,48 @@ test("expansion animates from the matched source into a bounded in-place modal a
     await render({ children: (close) => h("div", null, h("button", { onClick: close }, "Close class"), h("button", null, "Updated")), onClose: () => {} });
     assert.equal(callsFor(".class-card-expansion-dialog").length, oldShapeCount);
   } finally {
+    await cleanup();
+  }
+});
+
+test("restored expansion skips opening animations and keeps the animated close path", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  const restoreRects = installMorphRectMocks();
+  try {
+    await render({
+      skipOpeningAnimation: true,
+      children: (close) => h("div", { className: "expanded-class-header" },
+        h("h2", null, h("span", { "data-course-morph": "name" }, "World History")),
+        h("button", { type: "button", onClick: close }, "Close class"),
+      ),
+    });
+
+    const dialog = document.querySelector(".class-card-expansion-dialog");
+    const preview = document.querySelector(".class-card-expansion-preview");
+    const content = document.querySelector(".class-card-expansion-content");
+    assert.equal(dialog.style.left, "18px");
+    assert.equal(dialog.style.top, "18px");
+    assert.equal(dialog.style.width, "1164px");
+    assert.equal(dialog.style.height, "864px");
+    assert.equal(content.style.opacity, "1", "restored details are visible immediately");
+    assert.equal(content.style.transform, "", "restored details mount in their final position");
+    assert.equal(preview.hidden, true, "the source preview is not mounted visibly during restoration");
+    assert.equal(document.querySelectorAll(".class-card-expansion-morph").length, 0, "matched course elements do not create opening morph layers");
+    assert.equal(calls.length, 0, "restoration starts no shell, preview, detail-position, or content-fade animation");
+    assert.equal(source.style.visibility, "hidden", "the compact source remains hidden while its details are open");
+    assert.equal(source.hasAttribute("inert"), true);
+    assert.equal(document.activeElement.textContent, "Close class", "restored expansion still moves focus into the details");
+
+    const closeButton = [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Close class"));
+    await act(async () => closeButton.click());
+    const closingShape = callsFor(".class-card-expansion-dialog").at(-1);
+    assert.ok(closingShape, "closing a restored course still animates the dialog shell");
+    assert.equal(closingShape.options.duration, 420);
+    assert.equal(closingShape.options.easing, "linear");
+    assert.equal(dialog.dataset.closing, "true");
+  } finally {
+    restoreRects();
     await cleanup();
   }
 });
@@ -1033,9 +1077,10 @@ test("close reverses from the live dialog rectangle, restores exact source style
   const { source, render, cleanup } = setup();
   const sourceContainer = source.parentElement;
   let closed = 0;
+  let closeStarted = 0;
   try {
     source.focus();
-    await render({ onClose: () => {
+    await render({ onCloseStart: () => { closeStarted += 1; }, onClose: () => {
       closed += 1;
       assert.equal(document.querySelector(".class-card-expansion-dialog")?.style.visibility, "hidden");
       window.setTimeout(() => sourceContainer.removeAttribute("inert"), 10);
@@ -1045,6 +1090,7 @@ test("close reverses from the live dialog rectangle, restores exact source style
     dialogRectOverride = { left: 55, top: 70, width: 710, height: 620 };
     const closeButton = [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Close class"));
     await act(async () => closeButton.click());
+    assert.equal(closeStarted, 1, "the close intent is reported before the exit animation finishes");
 
     const shapes = callsFor(".class-card-expansion-dialog");
     const exit = shapes.at(-1);
