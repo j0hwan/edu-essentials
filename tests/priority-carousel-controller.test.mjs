@@ -128,6 +128,28 @@ test("equal horizontal swipes can repeat at the 70ms atomic arrival boundary", (
   assertSettling(controller, 2);
 });
 
+test("arrow navigation settles over 320ms in either direction", () => {
+  const { controller, clock } = createHarness({ pageCount: 4, width: 320 });
+
+  assert.equal(controller.navigate(1).accepted, true);
+  assertSettling(controller, 1);
+  clock.frame(70);
+  assert.equal(controller.getSnapshot().page, 0, "the 70ms gesture duration does not finish arrow navigation");
+  assert.equal(controller.getSnapshot().selectedPage, 1);
+  assert.equal(controller.getSnapshot().phase.type, "settling");
+  clock.frame(250);
+  assert.equal(controller.getSnapshot().page, 1);
+  assert.deepEqual(controller.getSnapshot().phase, { type: "idle" });
+
+  assert.equal(controller.navigate(-1).accepted, true);
+  clock.frame(70);
+  assert.equal(controller.getSnapshot().page, 1);
+  assert.equal(controller.getSnapshot().selectedPage, 0);
+  clock.frame(250);
+  assert.equal(controller.getSnapshot().page, 0);
+  assert.deepEqual(controller.getSnapshot().phase, { type: "idle" });
+});
+
 test("a decaying consumed tail survives the quiet boundary without starting another page", () => {
   const { controller, clock } = createHarness({ pageCount: 4 });
 
@@ -284,9 +306,9 @@ test("vertical-first wheel input stays native across a page arrival", () => {
   const { controller, clock } = createHarness({ pageCount: 4 });
 
   assert.equal(controller.navigate(1).accepted, true);
-  clock.advance(10);
+  clock.advance(250);
   assertWheel(controller, 2, 30, false);
-  clock.frame(60);
+  clock.frame(70);
   assert.equal(controller.getSnapshot().page, 1);
   clock.advance(1);
   assertWheel(controller, 80, 30, false);
@@ -386,7 +408,7 @@ test("wheel takeover and page navigation quarantine held pointers until their re
   const navigation = navigationHarness.controller.navigate(1);
   assert.equal(navigation.accepted, true);
   assert.ok(navigation.releasePointerIds.includes(12));
-  navigationHarness.clock.frame(70);
+  navigationHarness.clock.frame(320);
   assert.equal(navigationHarness.controller.getSnapshot().page, 1);
   assert.equal(navigationHarness.controller.pointerMove({ pointerId: 12, x: 100, y: 100 }).preventDefault, false);
   assert.equal(navigationHarness.controller.getSnapshot().selectedPage, 1);

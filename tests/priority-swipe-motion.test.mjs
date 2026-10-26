@@ -4,6 +4,7 @@ import { clientModule } from "./helpers/client-modules.mjs";
 
 const {
   PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS,
+  PRIORITY_ARROW_NAVIGATION_DURATION_MS,
   PRIORITY_SLIDE_DURATION_MS,
   advancePriorityOffset,
   getPriorityPreviewOffset,
@@ -17,6 +18,42 @@ test("priority slide has a 70ms base duration and a 12px/ms speed cap", () => {
   assert.equal(PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS, 12);
   assert.equal(getPrioritySlideDuration(-120, -328), 70);
   assert.equal(getPrioritySlideDuration(0, -1000), 125);
+});
+
+test("arrow navigation uses a 320ms smoothstep duration in both directions", () => {
+  assert.equal(PRIORITY_ARROW_NAVIGATION_DURATION_MS, 320);
+  assert.equal(getPrioritySlideDuration(0, -328, PRIORITY_ARROW_NAVIGATION_DURATION_MS), 320);
+  assert.equal(getPrioritySlideDuration(0, 328, PRIORITY_ARROW_NAVIGATION_DURATION_MS), 320);
+  for (const target of [-328, 328]) {
+    const sample = (elapsedMs) => samplePrioritySlide({
+      position: 0,
+      target,
+      elapsedMs,
+      durationMs: PRIORITY_ARROW_NAVIGATION_DURATION_MS,
+    });
+    assert.equal(sample(70).done, false);
+    assert.equal(sample(70).position, target * (0.21875 ** 2) * (3 - 2 * 0.21875));
+    assert.deepEqual(sample(320), { position: target, done: true });
+  }
+});
+
+test("arrow duration still grows for wide panels to retain the speed cap", () => {
+  const durationMs = getPrioritySlideDuration(0, -4008, PRIORITY_ARROW_NAVIGATION_DURATION_MS);
+  assert.equal(durationMs, 501);
+  assert.ok(durationMs >= PRIORITY_ARROW_NAVIGATION_DURATION_MS);
+  let priorPosition = 0;
+  let maxSampledSpeed = 0;
+  for (let elapsedMs = 1; elapsedMs <= durationMs; elapsedMs += 1) {
+    const sample = samplePrioritySlide({
+      position: 0,
+      target: -4008,
+      elapsedMs,
+      durationMs: PRIORITY_ARROW_NAVIGATION_DURATION_MS,
+    });
+    maxSampledSpeed = Math.max(maxSampledSpeed, Math.abs(sample.position - priorPosition));
+    priorPosition = sample.position;
+  }
+  assert.ok(maxSampledSpeed <= PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS);
 });
 
 test("gesture preview is capped independently from raw intent used for page selection", () => {

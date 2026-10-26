@@ -1,5 +1,6 @@
 import {
   advancePriorityOffset,
+  PRIORITY_ARROW_NAVIGATION_DURATION_MS,
   getPriorityPreviewOffset,
   getPrioritySlideDuration,
   samplePrioritySlide,
@@ -439,7 +440,7 @@ export class PriorityCarouselController {
       this.setOffset(0);
       this.setSnapshot({ ...this.snapshot, phase: emptyPhase(), motionVisible: false });
     }
-    releasePointerIds.push(...this.startSettle(pageDelta));
+    releasePointerIds.push(...this.startSettle(pageDelta, PRIORITY_ARROW_NAVIGATION_DURATION_MS));
     return { accepted: true, releasePointerIds: [...new Set(releasePointerIds)] };
   }
 
@@ -539,7 +540,7 @@ export class PriorityCarouselController {
     });
   }
 
-  private startSettle(pageDelta: PriorityPageDelta) {
+  private startSettle(pageDelta: PriorityPageDelta, requestedDurationMs?: number) {
     if (this.motion) return [];
     const releasePointerIds = this.retirePointer();
     const page = this.snapshot.page;
@@ -576,7 +577,7 @@ export class PriorityCarouselController {
       targetOffset,
       initialPosition: position,
       startedAt: finite(this.options.now()),
-      durationMs: getPrioritySlideDuration(position, targetOffset),
+      durationMs: getPrioritySlideDuration(position, targetOffset, requestedDurationMs),
     };
     this.motion = motion;
     this.setSnapshot({

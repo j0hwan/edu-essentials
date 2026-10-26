@@ -1111,6 +1111,9 @@ test("a vertical wheel start before a page-button click stays native and leaves 
     assert.equal(priorityCommittedPage(), 1);
     assert.equal(priorityTransitioning(), true);
     await timers.advanceFrame(70);
+    assert.equal(priorityCommittedPage(), 1, "arrow paging remains in motion after the shorter gesture duration");
+    assert.equal(priorityTransitioning(), true);
+    await timers.advanceFrame(250);
     assert.equal(priorityCommittedPage(), 2);
     assert.deepEqual(priorityNumbers(), ["03", "04"]);
   } finally {
@@ -1207,7 +1210,7 @@ test("a large wheel packet stays within the preview cap and input spam cannot al
     await click(node.querySelector('[aria-label="Next priorities"]'));
     assert.equal(priorityPage(), 3, "a fresh button click works after its earlier click was ignored during settling");
     assert.equal(priorityCommittedPage(), 2);
-    await timers.advanceFrame(70);
+    await timers.advanceFrame(320);
     assert.equal(priorityCommittedPage(), 3);
     assert.deepEqual(priorityNumbers(), ["05", "06"]);
   } finally {

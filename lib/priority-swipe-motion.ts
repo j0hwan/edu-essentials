@@ -1,6 +1,7 @@
 export type PriorityPageDelta = -1 | 0 | 1;
 
 export const PRIORITY_SLIDE_DURATION_MS = 70;
+export const PRIORITY_ARROW_NAVIGATION_DURATION_MS = 320;
 export const PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS = 12;
 
 const PRIORITY_PREVIEW_MAX_PX = 64;
@@ -18,12 +19,12 @@ export function getPriorityPreviewOffset(intent: number, pageDistance: number) {
 }
 
 /** Keep the peak speed of a smoothstep slide at or below the configured limit. */
-export function getPrioritySlideDuration(position: number, target: number) {
+export function getPrioritySlideDuration(position: number, target: number, requestedDurationMs = PRIORITY_SLIDE_DURATION_MS) {
   const start = Number.isFinite(position) ? position : 0;
   const destination = Number.isFinite(target) ? target : start;
   const distance = Math.abs(destination - start);
   return Math.max(
-    PRIORITY_SLIDE_DURATION_MS,
+    Number.isFinite(requestedDurationMs) ? Math.max(0, requestedDurationMs) : PRIORITY_SLIDE_DURATION_MS,
     Math.ceil(1.5 * distance / PRIORITY_MAX_SLIDE_SPEED_PX_PER_MS),
   );
 }
