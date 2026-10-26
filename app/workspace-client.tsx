@@ -50,7 +50,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
 import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
@@ -508,6 +508,12 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const noteFocusRef = useRef<string | null>(null);
   const [dashboardView, setDashboardView] = useState<"cards" | "list">("cards");
   const [selectedClass, setSelectedClass] = useState<Course | null>(null);
+  const closeExpandedClassRef = useRef<(() => void) | null>(null);
+  const [classNavigationOrigin, setClassNavigationOrigin] = useState<string | null>(null);
+  if (classNavigationOrigin !== null && classNavigationOrigin !== pathname) {
+    setSelectedClass(null);
+    setClassNavigationOrigin(null);
+  }
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [addClassOpen, setAddClassOpen] = useState(false);
   const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent } | null>(null);
@@ -892,6 +898,18 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
 
   const flash = (message: string) => setToast(message);
 
+  const handleSidebarNavigation = (event: ReactMouseEvent<HTMLAnchorElement>, destination: PageId) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (selectedClass && destination === "dashboard") {
+      event.preventDefault();
+      closeExpandedClassRef.current?.();
+      return;
+    }
+    if (selectedClass) setClassNavigationOrigin(pathname);
+    setSidebarOpen(false);
+    setExperimentalMenuOpen(false);
+  };
+
   const applyExperimentalData = (density: ExperimentalDensity) => {
     if (fileUploads.dirty || fileUploads.busy || pendingFolderUpload) { flash("Finish or dismiss retained uploads before loading preview data."); return; }
     if (nativeDocumentDialog) { flash("Close the text editor before loading preview data."); return; }
@@ -1203,7 +1221,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <Link key={item.id} href={`/${item.id}`} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label={item.label} title={item.label} aria-current={page === item.id ? "page" : undefined}>
+              <Link key={item.id} href={`/${item.id}`} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={(event) => handleSidebarNavigation(event, item.id)} aria-label={item.label} title={item.label} aria-current={page === item.id ? "page" : undefined}>
                 <Icon size={19} strokeWidth={2.1} />
                 <span>{item.label}</span>
                 {item.id === "dashboard" && <span className="nav-count">{courses.length}</span>}
@@ -1244,8 +1262,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         </div>
 
         <div className="sidebar-bottom">
-          <Link href="/settings" className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
-          <Link href="/settings" className="profile-card" onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label={`${studentName} — profile settings`} title={`${studentName} — profile settings`}>
+          <Link href="/settings" className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={(event) => handleSidebarNavigation(event, "settings")} aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
+          <Link href="/settings" className="profile-card" onClick={(event) => handleSidebarNavigation(event, "settings")} aria-label={`${studentName} — profile settings`} title={`${studentName} — profile settings`}>
             <span className="avatar">{studentName.slice(0, 1).toUpperCase()}</span>
             <span><strong>{studentName}</strong><small>{profileMajor || "Student workspace"}</small></span>
             <MoreHorizontal size={18} />
@@ -1992,7 +2010,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     const hasSyllabusPreview = Boolean(syllabusFile || details.syllabusText);
     const average = study.grades.find((g) => g.courseId === course.id && g.system === activeGpaSystem && g.term === activeTerm);
     const studySeconds = study.sessions.filter((s) => s.courseId === course.id).reduce((sum, s) => sum + segmentSeconds(s.segments), 0);
-    return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} onClose={() => setSelectedClass(null)} suspended={!!(selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || studyOpen || editor || syllabusDraft)}>{(close) => <>
+    return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} closeControlRef={closeExpandedClassRef} onClose={() => setSelectedClass(null)} suspended={!!(selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || studyOpen || editor || syllabusDraft)}>{(close) => <>
       {renderClassVisual(course, close)}
       <div className="expanded-class-body">
         <div className="expanded-class-heading"><div><h2><span className="expanded-class-code">{course.code} · </span><span data-course-morph="name">{course.name}</span></h2><p><span data-course-morph="credits">{course.credits} credits</span> · {course.room || "No location entered"}</p></div></div>

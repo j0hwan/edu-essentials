@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   createCourseExpansionHorizontalFrames,
   createCourseExpansionProgressFrames,
@@ -19,6 +19,7 @@ type Props = {
   courseId: string;
   onClose: () => void;
   suspended: boolean;
+  closeControlRef?: RefObject<(() => void) | null>;
   children: (close: () => void) => ReactNode;
 };
 
@@ -494,7 +495,7 @@ function fadeInFrames(fromOpacity: string): Keyframe[] {
   ];
 }
 
-export default function ClassCardExpansion({ courseId, onClose, suspended, children }: Props) {
+export default function ClassCardExpansion({ courseId, onClose, suspended, closeControlRef, children }: Props) {
   const [visible, setVisible] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -539,6 +540,14 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
   const close = useCallback(() => closeRef.current(), []);
 
   useLayoutEffect(() => {
+    if (!closeControlRef) return;
+    closeControlRef.current = close;
+    return () => {
+      if (closeControlRef.current === close) closeControlRef.current = null;
+    };
+  }, [close, closeControlRef]);
+
+  useLayoutEffect(() => {
     if (!visible) return;
     const dialog = dialogRef.current;
     const preview = previewRef.current;
@@ -563,6 +572,8 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     let sidebarObserver: ResizeObserver | null = null;
     const sidebar = document.querySelector<HTMLElement>(".sidebar");
     let sidebarRight = getSidebarRight();
+    const backdrop = expansionDialog.parentElement;
+    backdrop?.style.setProperty("--course-expansion-sidebar-right", `${sidebarRight}px`);
     const contentAnimations = new Set<Animation>();
     const source = Array.from(document.querySelectorAll<HTMLElement>("[data-course-card-id]"))
       .find((candidate) => candidate.getAttribute("data-course-card-id") === courseId) ?? null;
@@ -1225,6 +1236,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
       const nextRight = getSidebarRight();
       if (nextRight === sidebarRight) return;
       sidebarRight = nextRight;
+      backdrop?.style.setProperty("--course-expansion-sidebar-right", `${sidebarRight}px`);
       // Follow the sidebar transition directly so the dialog cannot lag behind its edge.
       const nextRect = currentExpansionRect();
       cancelShape();
@@ -1236,6 +1248,7 @@ export default function ClassCardExpansion({ courseId, onClose, suspended, child
     function handleResize() {
       if (released) return;
       sidebarRight = getSidebarRight();
+      backdrop?.style.setProperty("--course-expansion-sidebar-right", `${sidebarRight}px`);
       const from = expansionDialog.getBoundingClientRect();
       const detailWorldLeft = detailContent.getBoundingClientRect().left;
       if (closing) {

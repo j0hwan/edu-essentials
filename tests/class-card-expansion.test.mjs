@@ -98,9 +98,10 @@ function setup({ withSource = true, courseId = "course[1]", reduced = null } = {
     return animation;
   };
 
-  const render = async ({ suspended = false, onClose = () => {}, children } = {}) => act(async () => root.render(h(ClassCardExpansion, {
+  const render = async ({ suspended = false, onClose = () => {}, closeControlRef, children } = {}) => act(async () => root.render(h(ClassCardExpansion, {
     courseId,
     onClose,
+    closeControlRef,
     suspended,
     children: children ?? ((close) => h("div", { className: "test-class-details" },
       h("button", { type: "button", onClick: close }, "Close class"),
@@ -345,6 +346,31 @@ test("expansion animates from the matched source into a bounded in-place modal a
     assert.equal(callsFor(".class-card-expansion-dialog").length, oldShapeCount);
   } finally {
     await cleanup();
+  }
+});
+
+test("closeControlRef publishes the Close class callback and clears it on cleanup", async () => {
+  const { source, render, cleanup } = setup();
+  const closeControlRef = { current: null };
+  let childClose;
+  try {
+    source.focus();
+    await render({ closeControlRef, children: (close) => {
+      childClose = close;
+      return h("button", { type: "button", onClick: close }, "Close class");
+    } });
+    assert.equal(closeControlRef.current, childClose, "the ref exposes the exact callback passed to Close class");
+    const openingShape = callsFor(".class-card-expansion-dialog")[0];
+    await act(async () => closeControlRef.current());
+    assert.equal(openingShape.animation.cancelled, true, "the callback replaces the in-flight opening animation");
+    const closingShape = callsFor(".class-card-expansion-dialog").at(-1);
+    assert.equal(closingShape.options.duration, 420, "the ref uses the animated close path");
+    assert.equal(closingShape.options.easing, "linear");
+    assert.equal(closingShape.options.fill, "both");
+    assert.equal(document.querySelector(".class-card-expansion-dialog").dataset.closing, "true");
+  } finally {
+    await cleanup();
+    assert.equal(closeControlRef.current, null, "unmount cleanup clears the published callback");
   }
 });
 
@@ -1448,6 +1474,7 @@ test("sidebar ResizeObserver ignores the initial size and applies changed bounds
     assert.equal(observer.targets[0], document.querySelector(".sidebar"));
     const initialShape = callsFor(".class-card-expansion-dialog")[0];
     assert.equal(document.querySelector(".class-card-expansion-dialog").style.left, "264px");
+    assert.equal(document.querySelector(".class-card-expansion-backdrop").style.getPropertyValue("--course-expansion-sidebar-right"), "246px", "the dismissal hit area starts beyond the measured sidebar");
 
     observer.notify();
     assert.equal(initialShape.animation.cancelled, false, "an unchanged initial observation leaves the opening animation alone");
@@ -1458,6 +1485,7 @@ test("sidebar ResizeObserver ignores the initial size and applies changed bounds
     assert.equal(initialShape.animation.cancelled, true);
     assert.equal(callsFor(".class-card-expansion-dialog").length, 1, "sidebar resize directly applies the new bounds");
     assert.equal(document.querySelector(".class-card-expansion-dialog").style.left, "338px");
+    assert.equal(document.querySelector(".class-card-expansion-backdrop").style.getPropertyValue("--course-expansion-sidebar-right"), "320px", "the hit area offset follows sidebar reflow");
 
     sidebarRect = { left: 0, top: 0, width: 360, height: 900 };
     await act(async () => window.dispatchEvent(new window.Event("resize")));
@@ -1465,6 +1493,7 @@ test("sidebar ResizeObserver ignores the initial size and applies changed bounds
     assert.equal(callsFor(".class-card-expansion-dialog").length, 2);
     assert.equal(windowResizeShape.animation.cancelled, false);
     assert.equal(document.querySelector(".class-card-expansion-dialog").style.left, "378px");
+    assert.equal(document.querySelector(".class-card-expansion-backdrop").style.getPropertyValue("--course-expansion-sidebar-right"), "360px", "the hit area offset follows window resize");
 
     observer.notify();
     assert.equal(windowResizeShape.animation.cancelled, false, "the observer sees the edge already cached by the window resize");

@@ -2,11 +2,13 @@
   position: fixed;
   z-index: 200;
   inset: 0;
+  left: var(--course-expansion-sidebar-right, 0px);
   background: rgba(12, 18, 30, 0.035);
 }
 
 .class-card-expansion-backdrop[data-suspended="true"] {
   z-index: 180;
+  left: 0;
   background: transparent;
 }
 

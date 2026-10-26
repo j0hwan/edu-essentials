@@ -978,6 +978,49 @@ test("sidebar collapse keeps accessible navigation, persists locally and does no
   } finally { if (root) await unmount(); window.localStorage.removeItem("edu-sidebar-collapsed"); }
 });
 
+test("Courses closes an expanded course; other sidebar navigation waits for route commit", async () => {
+  window.localStorage.removeItem("edu-sidebar-collapsed");
+  reset(); installWorkspaceServer(savedDashboard, [sampleCourse]);
+  const clickSidebar = async (label, { defer = false } = {}) => {
+    const link = rootNode.querySelector(`.sidebar a[aria-label="${label}"]`);
+    assert.ok(link, `The sidebar contains ${label}`);
+    if (defer) link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    await act(async () => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+    return link;
+  };
+  const openCourse = async () => {
+    const card = rootNode.querySelector(".class-card");
+    assert.ok(card, "Courses displays the sample course card");
+    await act(async () => card.click());
+  };
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await clickSidebar("Courses");
+    await openCourse();
+    assert.ok(rootNode.querySelector('[role="dialog"][aria-label="Class details"]'), "the course is open");
+
+    await clickSidebar("Courses");
+    assert.equal(window.location.pathname, "/dashboard", "Courses closes the course without leaving the current route");
+    assert.equal(Boolean(rootNode.querySelector('[role="dialog"][aria-label="Class details"]')), false, "Courses closes the open course");
+
+    for (const [label, pathname] of [["Home", "/home"], ["Calendar", "/calendar"], ["Tasks", "/tasks"], ["Files", "/files"], ["Settings", "/settings"]]) {
+      if (window.location.pathname !== "/dashboard") {
+        const courses = rootNode.querySelector('.sidebar a[aria-label="Courses"]');
+        await act(async () => courses.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+      }
+      await openCourse();
+      assert.ok(rootNode.querySelector('[role="dialog"][aria-label="Class details"]'), `${label}: course is open before navigation`);
+      const link = await clickSidebar(label, { defer: true });
+      assert.equal(window.location.pathname, "/dashboard", `${label}: prevented native link leaves the current route in place`);
+      assert.equal(Boolean(rootNode.querySelector('[role="dialog"][aria-label="Class details"]')), true, `${label}: expanded course remains until route commit`);
+      window.history.pushState({}, "", link.getAttribute("href"));
+      await act(async () => window.dispatchEvent(new window.PopStateEvent("popstate")));
+      assert.equal(window.location.pathname, pathname, `${label} navigates on its first click`);
+      assert.equal(Boolean(rootNode.querySelector('[role="dialog"][aria-label="Class details"]')), false, `${label}: course is removed after route commit`);
+    }
+  } finally { if (root) await unmount(); }
+});
+
 test("sidebar toggle works when browser storage is blocked", async () => {
   const storageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
   Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("Storage blocked"); } });
