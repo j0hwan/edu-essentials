@@ -38,7 +38,7 @@ const html = `<!doctype html>
         </div>
         <nav class="main-nav">
           <a class="nav-item active" href="/home" aria-label="Home"><svg aria-hidden="true" width="20" height="20"></svg><span>Home</span></a>
-          <a class="nav-item" href="/dashboard" aria-label="Courses"><svg aria-hidden="true" width="20" height="20"></svg><span>Courses</span></a>
+          <a class="nav-item" href="/dashboard" aria-label="Dashboard"><svg aria-hidden="true" width="20" height="20"></svg><span>Dashboard</span></a>
           <a class="nav-item" href="/calendar" aria-label="Calendar"><svg aria-hidden="true" width="20" height="20"></svg><span>Calendar</span></a>
           <a class="nav-item" href="/tasks" aria-label="Tasks"><svg aria-hidden="true" width="20" height="20"></svg><span>Tasks</span></a>
           <a class="nav-item" href="/files" aria-label="Files"><svg aria-hidden="true" width="20" height="20"></svg><span>Files</span></a>
@@ -330,7 +330,7 @@ function assertProfileContained(snapshot, context, { collapsed = false, mobile =
 
 async function assertKeyboardNavigation(page, context) {
   await page.locator(".sidebar-toggle").focus();
-  const expectedLabels = ["Home", "Courses", "Calendar", "Tasks", "Files", "Ask Edu", "Experimental mode", "Upload syllabus"];
+  const expectedLabels = ["Home", "Dashboard", "Calendar", "Tasks", "Files", "Ask Edu", "Experimental mode", "Upload syllabus"];
   for (const expected of expectedLabels) {
     await page.keyboard.press("Tab");
     const focused = await page.evaluate(() => {
@@ -354,7 +354,7 @@ async function assertKeyboardNavigation(page, context) {
       assert.ok(focused.scrollTop > 0, `${context}: short sidebar scrolls its navigation to reveal ${expected}`);
     }
   }
-  for (const expected of ["Experimental mode", "Ask Edu", "Files", "Tasks", "Calendar", "Courses", "Home"]) {
+  for (const expected of ["Experimental mode", "Ask Edu", "Files", "Tasks", "Calendar", "Dashboard", "Home"]) {
     await page.keyboard.press("Shift+Tab");
     const focused = await page.evaluate(() => {
       const element = document.activeElement;

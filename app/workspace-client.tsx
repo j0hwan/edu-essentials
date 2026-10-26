@@ -165,7 +165,7 @@ type WorkspaceResponse = {
 
 const navItems: { id: PageId; label: string; icon: typeof House }[] = [
   { id: "home", label: "Home", icon: House },
-  { id: "dashboard", label: "Courses", icon: BookOpen },
+  { id: "dashboard", label: "Dashboard", icon: BookOpen },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "tasks", label: "Tasks", icon: CheckCircle2 },
   { id: "files", label: "Files", icon: FolderOpen },

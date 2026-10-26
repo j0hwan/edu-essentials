@@ -106,8 +106,8 @@ async function clickLink(href) {
 }
 
 function assertCoursesSkeleton() {
-  const skeleton = rootNode.querySelector('.courses-skeleton[role="status"][aria-label="Loading courses"]');
-  assert.ok(skeleton, "the Courses page exposes its accessible loading skeleton");
+  const skeleton = rootNode.querySelector('.courses-skeleton[role="status"][aria-label="Loading dashboard"]');
+  assert.ok(skeleton, "the Dashboard page exposes its accessible loading skeleton");
   assert.equal(skeleton.getAttribute("aria-busy"), "true");
   assert.equal(skeleton.querySelectorAll(".courses-skeleton__class").length, 4, "four course placeholders reserve the expected grid shape");
   assert.equal(skeleton.querySelectorAll("button, a, input, select, textarea, [tabindex]:not([tabindex='-1'])").length, 0, "the loading decoration has no actionable or focusable controls");
@@ -117,7 +117,7 @@ function assertCoursesSkeleton() {
   return skeleton;
 }
 
-test("Courses shows a dedicated skeleton during a held workspace read, then reveals saved classes", async () => {
+test("Dashboard shows a dedicated skeleton during a held workspace read, then reveals saved classes", async () => {
   rootNode.replaceChildren();
   const api = installWorkspaceFetch();
   let root;
@@ -126,7 +126,7 @@ test("Courses shows a dedicated skeleton during a held workspace read, then reve
     await waitFor(() => api.getCalls === 1, "the held workspace read");
 
     assertCoursesSkeleton();
-    assert.equal(rootNode.querySelector(".workspace-loading"), null, "Courses does not show the generic Loading workspace view");
+    assert.equal(rootNode.querySelector(".workspace-loading"), null, "Dashboard does not show the generic Loading workspace view");
     assert.equal(rootNode.querySelector(".dashboard-study-brief"), null, "sample AI content is not shown while real workspace data is loading");
     assert.equal(rootNode.querySelector("[data-course-card-id]"), null, "live course cards are not shown before hydration");
     assert.equal(rootNode.querySelector(".dashboard-classes"), null, "interactive class controls are not shown before hydration");
@@ -142,7 +142,7 @@ test("Courses shows a dedicated skeleton during a held workspace read, then reve
   }
 });
 
-test("a failed Courses read shows the error, and retry restores the skeleton until saved data arrives", async () => {
+test("a failed Dashboard read shows the error, and retry restores the skeleton until saved data arrives", async () => {
   rootNode.replaceChildren();
   const api = installWorkspaceFetch({ failReads: 1 });
   let root;
@@ -156,7 +156,7 @@ test("a failed Courses read shows the error, and retry restores the skeleton unt
     await act(async () => retry.click());
     await waitFor(() => api.getCalls === 2, "the retry workspace read");
     assertCoursesSkeleton();
-    assert.equal(rootNode.querySelector(".workspace-loading"), null, "retry uses the Courses skeleton instead of the generic loader");
+    assert.equal(rootNode.querySelector(".workspace-loading"), null, "retry uses the Dashboard skeleton instead of the generic loader");
 
     await act(async () => { api.releaseNext(); await Promise.resolve(); });
     await waitFor(() => rootNode.querySelector('[data-course-card-id="course-loading-test"]'), "the saved course after retry");
@@ -167,7 +167,7 @@ test("a failed Courses read shows the error, and retry restores the skeleton unt
   }
 });
 
-test("a held Courses skeleton does not leak after navigating to Home or another page", async () => {
+test("a held Dashboard skeleton does not leak after navigating to Home or another page", async () => {
   rootNode.replaceChildren();
   const api = installWorkspaceFetch();
   let root;
@@ -179,12 +179,12 @@ test("a held Courses skeleton does not leak after navigating to Home or another 
     await clickLink("/home");
     await waitFor(() => window.location.pathname === "/home", "navigation to Home");
     await waitFor(() => rootNode.querySelector(".home-skeleton"), "Home's own loading skeleton");
-    assert.equal(rootNode.querySelector(".courses-skeleton"), null, "the Courses skeleton leaves when Home is selected");
+    assert.equal(rootNode.querySelector(".courses-skeleton"), null, "the Dashboard skeleton leaves when Home is selected");
     assert.equal(rootNode.querySelector(".workspace-loading"), null, "Home keeps its own loading presentation");
 
     await clickLink("/calendar");
     await waitFor(() => window.location.pathname === "/calendar", "navigation to Calendar");
-    assert.equal(rootNode.querySelector(".courses-skeleton"), null, "the Courses skeleton does not leak to Calendar");
+    assert.equal(rootNode.querySelector(".courses-skeleton"), null, "the Dashboard skeleton does not leak to Calendar");
     assert.match(rootNode.querySelector(".workspace-loading")?.textContent ?? "", /Loading your workspace/);
     assert.equal(api.getCalls, 1, "navigation does not start a second workspace read");
   } finally {
@@ -193,7 +193,7 @@ test("a held Courses skeleton does not leak after navigating to Home or another 
   }
 });
 
-test("Courses skeleton supports the reduced-motion rendering option", async () => {
+test("Dashboard skeleton supports the reduced-motion rendering option", async () => {
   rootNode.replaceChildren();
   const { default: CoursesSkeleton } = await import(await clientModule("app/courses-skeleton.tsx"));
   let root;

@@ -98,7 +98,7 @@ At desktop widths, the shell uses an outer `--ui-unit` of **1.125px at a 16px ro
 The current order is:
 
 1. **Brand:** EduEssentials wordmark and collapse/expand button. Desktop has no visible brand icon or tagline in this row.
-2. **Primary links:** Home, Courses, Calendar, Tasks, Files, Ask Edu.
+2. **Primary links:** Home, Dashboard, Calendar, Tasks, Files, Ask Edu.
 3. **Experimental mode:** quieter utility trigger below primary links, with a separate preview-data menu.
 4. **Upload syllabus:** utility action below a thin horizontal divider.
 5. **Bottom utilities:** Settings, then the profile strip with initial avatar, name, and major or “Student workspace.”
@@ -131,7 +131,7 @@ The actual shortcut handler supports **Ctrl+K and Cmd+K**; the baseline badge re
 
 At **820px and below**, the desktop sidebar becomes an off-canvas drawer. At a 16px root size it is 220px wide, inset 8px from the left, top, and bottom. It opens from the mobile menu button and closes through the explicit X, the scrim, or selection of a navigation link. The desktop collapse control is hidden.
 
-The fixed header is 58px high and contains menu, compact brand, and notifications. The global search remains below it. The fixed bottom navigation contains **Home, Courses, Calendar, Tasks, Settings**. Files and Ask Edu remain reachable through the drawer; the bottom bar does not include every sidebar destination.
+The fixed header is 58px high and contains menu, compact brand, and notifications. The global search remains below it. The fixed bottom navigation contains **Home, Dashboard, Calendar, Tasks, Settings**. Files and Ask Edu remain reachable through the drawer; the bottom bar does not include every sidebar destination.
 
 The main area uses 20px side gutters and 80px bottom padding at the normal root size. Preserve safe-area padding on bottom navigation. Do not place a sticky feature control behind either fixed bar.
 

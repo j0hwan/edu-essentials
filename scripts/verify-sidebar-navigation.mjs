@@ -55,7 +55,7 @@ const workspace = {
   d: { assignments: [], manualEvents: [], dashboardView: "cards" },
 };
 const destinations = [
-  ["Courses", "/dashboard", "main > .dashboard-page", "Your classes"],
+  ["Dashboard", "/dashboard", "main > .dashboard-page", "Your classes"],
   ["Calendar", "/calendar", "main > .calendar-page > .planner-heading h1", null],
   ["Tasks", "/tasks", "main > .page:not([hidden]) > .page-heading h1", "Tasks"],
   ["Files", "/files", "main > div:not([hidden]) > .files-page > .page-heading h1", "Your private files"],

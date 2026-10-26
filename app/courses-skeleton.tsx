@@ -7,10 +7,10 @@ export function CoursesSkeleton({ reducedMotion = false }: CoursesSkeletonProps)
     <div
       className={`page dashboard-page courses-skeleton${reducedMotion ? " courses-skeleton--reduced" : ""}`}
       role="status"
-      aria-label="Loading courses"
+      aria-label="Loading dashboard"
       aria-busy="true"
     >
-      <span className="courses-skeleton__status">Loading courses</span>
+      <span className="courses-skeleton__status">Loading dashboard</span>
       <div className="courses-skeleton__decoration" aria-hidden="true" inert>
         <div className="courses-skeleton__brief courses-skeleton__surface" />
 
