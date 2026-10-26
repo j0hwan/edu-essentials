@@ -1806,7 +1806,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await click("Continue");
     assert.equal(rootNode.querySelectorAll(".class-setup-week button").length, 7);
     await clickAria("Monday"); await edit("Classes start", "2026-09-01"); await edit("Classes end", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
-    await click("Add exception"); await edit("Exception date 1", "2026-11-02");
+    await click("Skip dates (0)"); await click("Add exception"); await edit("Exception date 1", "2026-11-02");
     await click("Continue");
     assert.equal(unloadBlocked(), true); server.offline = true; await click("Create class");
     await waitForWorkspaceError("Offline"); assert.equal(server.courses.length, 0);

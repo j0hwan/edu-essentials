@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, ChevronRight, CircleCheck, FileText, ImagePlus, Plus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, ChevronRight, CircleCheck, FileText, ImagePlus, Plus, Trash2, X } from "lucide-react";
 import { addDays, emptyCourseDetails, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { MAX_FILE_BYTES } from "../lib/files";
@@ -15,6 +15,15 @@ export type ClassSetupUploads = { image?: ClassSetupUpload; syllabus?: ClassSetu
 const steps = ["Course information", "Class schedule", "Make it yours"];
 const stepLabels = ["Info", "Schedule", "Customize"];
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const formatMeetingTime = (time: string) => {
+  if (!time) return "Set time";
+  const [hours, minutes] = time.split(":").map(Number);
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+};
+const isMeetingComplete = (meeting: Meeting) => {
+  try { validateCourseDetails({ officeHours: "", meetings: [meeting] }); return true; }
+  catch { return false; }
+};
 
 export default function ClassSetup({ initial, today, canUpload, onSave, onClose }: {
   initial: Course; today: string; canUpload: boolean;
@@ -24,6 +33,8 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
   const [course, setCourse] = useState(initial);
   const [initialDetails] = useState<CourseDetails>(() => ({ ...emptyCourseDetails(), meetings: [{ id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: initial.room }] }));
   const [details, setDetails] = useState<CourseDetails>(initialDetails);
+  const [selectedMeetingId, setSelectedMeetingId] = useState(initialDetails.meetings[0].id);
+  const [expandedSkipDates, setExpandedSkipDates] = useState<string[]>([]);
   const [step, setStep] = useState(0);
   const [uploads, setUploads] = useState<ClassSetupUploads>({});
   const [imagePreview, setImagePreview] = useState("");
@@ -33,6 +44,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
   const [attemptedSave, setAttemptedSave] = useState(false);
   const saving = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const meetingFocusRef = useRef<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const closeRef = useRef<() => void>(() => {});
   const dirty = JSON.stringify(course) !== JSON.stringify(initial) || JSON.stringify(details) !== JSON.stringify(initialDetails) || Boolean(uploads.image || uploads.syllabus);
@@ -55,10 +67,34 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
     return () => { document.removeEventListener("keydown", keydown); if (previous?.isConnected) previous.focus(); };
   }, []);
   useEffect(() => { headingRef.current?.focus(); }, [step]);
+  useEffect(() => {
+    if (meetingFocusRef.current === null) return;
+    const target = [...(formRef.current?.querySelectorAll<HTMLButtonElement>(".class-setup-meeting-select") ?? [])].find((button) => button.dataset.meetingId === meetingFocusRef.current);
+    (target ?? formRef.current?.querySelector<HTMLButtonElement>(".class-setup-add-meeting"))?.focus();
+    meetingFocusRef.current = null;
+  }, [details.meetings]);
   useEffect(() => () => { if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current); }, []);
 
   const changeCourse = (patch: Partial<Course>) => setCourse((current) => ({ ...current, ...patch }));
   const changeMeeting = (id: string, patch: Partial<Meeting>) => setDetails((current) => ({ ...current, meetings: current.meetings.map((meeting) => meeting.id === id ? { ...meeting, ...patch } : meeting) }));
+  const selectedMeeting = details.meetings.find((meeting) => meeting.id === selectedMeetingId) ?? details.meetings[0];
+  const selectedMeetingIndex = details.meetings.findIndex((meeting) => meeting.id === selectedMeeting?.id);
+  const removeMeeting = (id: string) => {
+    const index = details.meetings.findIndex((meeting) => meeting.id === id);
+    const meetings = details.meetings.filter((meeting) => meeting.id !== id);
+    setDetails((current) => ({ ...current, meetings }));
+    const nextSelectedId = selectedMeeting?.id === id ? meetings[Math.min(index, meetings.length - 1)]?.id ?? "" : selectedMeeting?.id ?? "";
+    setSelectedMeetingId(nextSelectedId);
+    meetingFocusRef.current = nextSelectedId;
+    setExpandedSkipDates((current) => current.filter((meetingId) => meetingId !== id));
+    setError("");
+  };
+  const addMeeting = () => {
+    const meeting = { id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: course.room };
+    setDetails((current) => ({ ...current, meetings: [...current.meetings, meeting] }));
+    setSelectedMeetingId(meeting.id);
+    setError("");
+  };
   const field = (label: string, value: string | number, onChange: (value: string) => void, type = "text", required = false, maxLength = 160) => <label><span>{label}{required && <span aria-hidden="true"> *</span>}</span><input type={type} value={value} required={required} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} {...(type === "number" ? { min: 0, max: 30, step: 1 } : {})} /></label>;
   const selectFile = (kind: keyof ClassSetupUploads, file?: File) => {
     setError("");
@@ -77,7 +113,15 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
     setError("");
     try {
       const validated = validateCourse({ ...course, initials: course.code.slice(0, 2).toUpperCase(), soft: `${course.color}18` });
-      if (step === 1 || step === 2) validateCourseDetails(details);
+      if (step === 1 || step === 2) {
+        const invalidMeeting = details.meetings.find((meeting) => !isMeetingComplete(meeting));
+        if (invalidMeeting) {
+          setSelectedMeetingId(invalidMeeting.id);
+          setExpandedSkipDates((current) => current.includes(invalidMeeting.id) ? current : [...current, invalidMeeting.id]);
+          setStep(1);
+        }
+        validateCourseDetails(details);
+      }
       if (step < 2) { setStep(step + 1); return; }
       saving.current = true; setBusy(true); setAttemptedSave(true);
       await onSave(validated, details, uploads);
@@ -85,7 +129,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
     finally { saving.current = false; setBusy(false); }
   };
 
-  return <div className="modal-backdrop"><form ref={formRef} className="add-class-modal academic-editor class-setup" role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+  return <div className="modal-backdrop"><form ref={formRef} className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <h2 className="class-setup-accessible-title" id="class-setup-title" ref={headingRef} tabIndex={-1}>{steps[step]}</h2>
     <div className="modal-header class-setup-header">
       <ol className="class-setup-progress" aria-label="Class setup progress">{steps.map((label, index) => <li key={label} aria-label={`${label}${index < step ? ", completed" : ""}`} aria-current={step === index ? "step" : undefined} className={index < step ? "is-complete" : undefined}>
@@ -97,7 +141,45 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
     </div>
     <fieldset className="class-setup-body" disabled={busy}>
       {step === 0 && <><div className="settings-form-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30)}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true)}{field("Credits", course.credits, (value) => changeCourse({ credits: Number(value) }), "number")}{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }))}{field("Location / meeting notes", course.room, (room) => changeCourse({ room }))}<label>Office hours (Zoom link, location, etc.)<textarea maxLength={2000} value={details.officeHours} onChange={(event) => setDetails({ ...details, officeHours: event.target.value })} /></label></div></>}
-      {step === 1 && <>{details.meetings.map((meeting, index) => <section className="class-setup-meeting" key={meeting.id} aria-label={`Meeting ${index + 1}`}><div className="class-setup-section-heading"><h3>Meeting {index + 1}</h3><button className="text-button" type="button" onClick={() => setDetails({ ...details, meetings: details.meetings.filter((current) => current.id !== meeting.id) })}>Remove meeting {index + 1}</button></div><p className="class-setup-week-label">Meeting days <span aria-hidden="true">*</span></p><div className="class-setup-week" role="group" aria-label={`Weekdays for meeting ${index + 1}`}>{weekdays.map((day, dayIndex) => <button type="button" key={day} aria-label={day} aria-pressed={meeting.days.includes(dayIndex)} onClick={() => changeMeeting(meeting.id, { days: meeting.days.includes(dayIndex) ? meeting.days.filter((value) => value !== dayIndex) : [...meeting.days, dayIndex].sort() })}><small>{day.slice(0, 3)}</small><span>{day.slice(0, 1)}</span><Check size={14} aria-hidden="true" /></button>)}</div><div className="settings-form-grid">{field("Start time", meeting.start, (start) => changeMeeting(meeting.id, { start }), "time", true)}{field("End time", meeting.end, (end) => changeMeeting(meeting.id, { end }), "time", true)}{field("Classes start", meeting.from, (from) => changeMeeting(meeting.id, { from }), "date", true)}{field("Classes end", meeting.until, (until) => changeMeeting(meeting.id, { until }), "date", true)}{field("Meeting location", meeting.location, (location) => changeMeeting(meeting.id, { location }))}</div><h4>Exceptions · no class on these dates</h4>{(meeting.excludedDates ?? []).map((date, exceptionIndex) => <div className="class-setup-exception" key={exceptionIndex}><label><span>Exception date {exceptionIndex + 1}<span aria-hidden="true"> *</span></span><input type="date" required min={meeting.from} max={meeting.until} value={date} onChange={(event) => changeMeeting(meeting.id, { excludedDates: meeting.excludedDates!.map((current, currentIndex) => currentIndex === exceptionIndex ? event.target.value : current) })} /></label><button type="button" className="secondary-button" aria-label={`Remove exception ${exceptionIndex + 1}`} onClick={() => changeMeeting(meeting.id, { excludedDates: meeting.excludedDates!.filter((_, currentIndex) => currentIndex !== exceptionIndex) })}><X size={16} /></button></div>)}<button type="button" className="secondary-button" disabled={(meeting.excludedDates?.length ?? 0) >= 100} onClick={() => changeMeeting(meeting.id, { excludedDates: [...(meeting.excludedDates ?? []), ""] })}><Plus size={14} />Add exception</button></section>)}<button type="button" className="secondary-button" disabled={details.meetings.length >= 30} onClick={() => setDetails({ ...details, meetings: [...details.meetings, { id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: course.room }] })}><Plus size={16} />Add meeting</button></>}
+      {step === 1 && <div className="class-setup-schedule">
+        <aside className="class-setup-meetings" aria-label="Class meetings">
+          <h3>Meetings ({details.meetings.length})</h3>
+          <div className="class-setup-meeting-list">
+            {details.meetings.map((meeting, index) => <div className={`class-setup-meeting-card${selectedMeeting?.id === meeting.id ? " is-selected" : ""}`} key={meeting.id}>
+              <button type="button" className="class-setup-meeting-select" data-meeting-id={meeting.id} aria-label={`Select meeting ${index + 1}`} aria-describedby={`meeting-days-${meeting.id} meeting-time-${meeting.id} meeting-status-${meeting.id}`} aria-pressed={selectedMeeting?.id === meeting.id} aria-controls="class-setup-meeting-editor" onClick={() => setSelectedMeetingId(meeting.id)}>
+                <strong>Meeting {index + 1}</strong>
+                <span id={`meeting-days-${meeting.id}`}>{meeting.days.length ? meeting.days.map((day) => weekdays[day].slice(0, 3)).join(", ") : "Choose meeting days"}</span>
+                <span id={`meeting-time-${meeting.id}`}>{formatMeetingTime(meeting.start)} – {formatMeetingTime(meeting.end)}</span>
+                <span id={`meeting-status-${meeting.id}`} className="class-setup-accessible-title">{isMeetingComplete(meeting) ? "Complete" : "Incomplete"}</span>
+                {isMeetingComplete(meeting) && <CircleCheck className="class-setup-meeting-complete" size={18} aria-label="Complete" />}
+              </button>
+              <button type="button" className="class-setup-meeting-delete" aria-label={`Delete meeting ${index + 1}`} onClick={() => removeMeeting(meeting.id)}><Trash2 size={17} aria-hidden="true" /></button>
+            </div>)}
+          </div>
+          <button type="button" className="secondary-button class-setup-add-meeting" disabled={details.meetings.length >= 30} onClick={addMeeting}><Plus size={18} aria-hidden="true" />Add meeting</button>
+        </aside>
+        {selectedMeeting ? <section className="class-setup-meeting" id="class-setup-meeting-editor" key={selectedMeeting.id} aria-label={`Meeting ${selectedMeetingIndex + 1}`}>
+          <div className="class-setup-section-heading"><h3>Meeting {selectedMeetingIndex + 1}</h3><button className="text-button" type="button" aria-label={`Remove meeting ${selectedMeetingIndex + 1}`} onClick={() => removeMeeting(selectedMeeting.id)}>Remove meeting</button></div>
+          <p className="class-setup-meeting-description">Add the times this class meets.</p>
+          <p className="class-setup-week-label">Meeting days <span aria-hidden="true">*</span></p>
+          <div className="class-setup-week" role="group" aria-label={`Weekdays for meeting ${selectedMeetingIndex + 1}`}>{weekdays.map((day, dayIndex) => <button type="button" key={day} aria-label={day} aria-pressed={selectedMeeting.days.includes(dayIndex)} onClick={() => changeMeeting(selectedMeeting.id, { days: selectedMeeting.days.includes(dayIndex) ? selectedMeeting.days.filter((value) => value !== dayIndex) : [...selectedMeeting.days, dayIndex].sort() })}>{day.slice(0, 3)}</button>)}</div>
+          <div className="settings-form-grid class-setup-meeting-fields">
+            {field("Start time", selectedMeeting.start, (start) => changeMeeting(selectedMeeting.id, { start }), "time", true)}
+            {field("End time", selectedMeeting.end, (end) => changeMeeting(selectedMeeting.id, { end }), "time", true)}
+            {field("Classes start", selectedMeeting.from, (from) => changeMeeting(selectedMeeting.id, { from }), "date", true)}
+            {field("Classes end", selectedMeeting.until, (until) => changeMeeting(selectedMeeting.id, { until }), "date", true)}
+            {field("Meeting location", selectedMeeting.location, (location) => changeMeeting(selectedMeeting.id, { location }))}
+          </div>
+          <div className="class-setup-skip-dates">
+            <button type="button" className="secondary-button class-setup-skip-toggle" aria-expanded={expandedSkipDates.includes(selectedMeeting.id)} aria-controls="class-setup-skip-content" onClick={() => setExpandedSkipDates((current) => current.includes(selectedMeeting.id) ? current.filter((id) => id !== selectedMeeting.id) : [...current, selectedMeeting.id])}><CalendarDays size={19} aria-hidden="true" /><span>Skip dates ({selectedMeeting.excludedDates?.length ?? 0})</span><ChevronDown size={19} aria-hidden="true" /></button>
+            {expandedSkipDates.includes(selectedMeeting.id) && <div className="class-setup-skip-content" id="class-setup-skip-content">
+              <p className="form-hint">No class on these dates.</p>
+              {(selectedMeeting.excludedDates ?? []).map((date, exceptionIndex) => <div className="class-setup-exception" key={exceptionIndex}><label><span>Exception date {exceptionIndex + 1}<span aria-hidden="true"> *</span></span><input type="date" required min={selectedMeeting.from} max={selectedMeeting.until} value={date} onChange={(event) => changeMeeting(selectedMeeting.id, { excludedDates: selectedMeeting.excludedDates!.map((current, currentIndex) => currentIndex === exceptionIndex ? event.target.value : current) })} /></label><button type="button" className="secondary-button" aria-label={`Remove exception ${exceptionIndex + 1}`} onClick={() => changeMeeting(selectedMeeting.id, { excludedDates: selectedMeeting.excludedDates!.filter((_, currentIndex) => currentIndex !== exceptionIndex) })}><X size={16} aria-hidden="true" /></button></div>)}
+              <button type="button" className="secondary-button" disabled={(selectedMeeting.excludedDates?.length ?? 0) >= 100} onClick={() => changeMeeting(selectedMeeting.id, { excludedDates: [...(selectedMeeting.excludedDates ?? []), ""] })}><Plus size={14} aria-hidden="true" />Add exception</button>
+            </div>}
+          </div>
+        </section> : <section className="class-setup-schedule-empty" id="class-setup-meeting-editor"><CalendarDays size={32} aria-hidden="true" /><h3>No scheduled meetings</h3><p>Add a meeting for live classes, or continue without one for an asynchronous course.</p></section>}
+      </div>}
       {step === 2 && <><div className="class-setup-preview" style={{ borderColor: course.color, backgroundColor: `${course.color}18` }}>{uploads.image && imagePreview ? <div className="class-setup-cover" role="img" aria-label="Selected class cover" style={{ backgroundImage: `url(${imagePreview})` }} /> : <CourseIcon icon={details.icon} size={36} style={{ color: course.color }} />}<div><strong>{course.code}</strong><span>{course.name}</span></div></div>{field("Class color", course.color, (color) => changeCourse({ color }), "color")}<fieldset className="course-icon-picker"><legend>Class icon</legend><div className="course-icon-options">{courseIconOptions.map((option) => <button key={option.id} type="button" aria-label={option.label} aria-pressed={(details.icon ?? DEFAULT_COURSE_ICON) === option.id} onClick={() => setDetails({ ...details, icon: option.id })}><CourseIcon icon={option.id} size={24} style={{ color: course.color }} />{(details.icon ?? DEFAULT_COURSE_ICON) === option.id && <Check className="course-icon-selected" size={14} />}</button>)}</div></fieldset><fieldset className="class-setup-uploads" disabled={attemptedSave}><legend className="class-setup-upload-legend">Optional files</legend>{(["image", "syllabus"] as const).map((kind) => <section key={kind}>{kind === "image" ? <ImagePlus size={22} /> : <FileText size={22} />}<label>{kind === "image" ? "Class image (optional)" : "Syllabus (optional)"}<input type="file" disabled={!canUpload || busy} accept={kind === "image" ? "image/png,image/jpeg,image/webp,image/gif" : undefined} onChange={(event) => { selectFile(kind, event.target.files?.[0]); event.target.value = ""; }} /></label><p className="form-hint">{kind === "image" ? "PNG, JPEG, WebP, or GIF. Up to 25 MiB." : "Storage only. Uploading will not change your course, schedule, or assignments."}</p>{uploads[kind] && <div className="class-setup-file"><span>{uploads[kind]!.file.name}</span><button type="button" className="text-button" onClick={() => setUploads((current) => ({ ...current, [kind]: undefined }))}>Remove {kind}</button></div>}</section>)}</fieldset>{!canUpload && <p className="form-hint">File uploads are unavailable until your workspace is saved. You can still create this class and attach files later.</p>}</>}
     </fieldset>
     {error && <p role="alert" className="auth-error">{error}</p>}

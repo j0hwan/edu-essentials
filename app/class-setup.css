@@ -9,17 +9,40 @@
 .class-setup-progress .class-setup-step-separator { color: var(--muted); margin-left: 2px; }
 .class-setup-body { padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
 .class-setup-body > .form-hint { margin: 0; }
-.class-setup-meeting { border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+.class-setup.class-setup-schedule-step { width: min(1080px, 100%); }
+.class-setup-schedule { display: grid; grid-template-columns: minmax(220px, 29%) minmax(0, 1fr); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.class-setup-meetings { min-width: 0; padding: 24px 18px; border-right: 1px solid var(--border); }
+.class-setup-meetings > h3 { margin: 0 0 22px; color: var(--muted); font-size: 16px; }
+.class-setup-meeting-list { display: grid; gap: 10px; }
+.class-setup-meeting-card { position: relative; border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
+.class-setup-meeting-card.is-selected { border-color: var(--brand); background: var(--brand-soft); box-shadow: inset 5px 0 var(--brand), inset 0 0 0 1px var(--brand); }
+.class-setup-meeting-select { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 112px; padding: 18px 42px 18px 18px; text-align: left; background: transparent; border: 0; color: var(--ink); cursor: pointer; }
+.class-setup-meeting-select strong { font-size: 15px; }
+.class-setup-meeting-select > span { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.class-setup-meeting-complete { position: absolute; top: 18px; right: 14px; color: var(--green); }
+.class-setup-meeting-delete { position: absolute; bottom: 8px; right: 8px; display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.class-setup-meeting-delete:hover { color: var(--red); background: var(--surface-2); }
+.class-setup-meetings .class-setup-add-meeting { width: 100%; justify-content: center; min-height: 46px; margin-top: 16px; font-size: 14px; }
+.class-setup-meeting { min-width: 0; padding: 26px; }
 .class-setup-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.class-setup-section-heading h3 { margin: 0; }
-.class-setup-week-label { margin: 16px 0 -10px; font-size: 14px; }
-.class-setup-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 18px 0; }
-.class-setup-week button { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; cursor: pointer; }
-.class-setup-week button > span { font-size: 20px; font-weight: 600; }
-.class-setup-week button > small { font-size: 10px; }
-.class-setup-week button > svg { visibility: hidden; }
+.class-setup-section-heading h3 { margin: 0; font-size: 23px; }
+.class-setup-meeting-description { margin: 10px 0 30px; color: var(--muted); }
+.class-setup-week-label { margin: 0 0 12px; font-size: 14px; color: var(--muted); font-weight: 600; }
+.class-setup-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-bottom: 24px; }
+.class-setup-week button { min-height: 48px; padding: 0; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 9px; cursor: pointer; font-size: 13px; }
 .class-setup-week button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: white; }
-.class-setup-week button[aria-pressed="true"] > svg { visibility: visible; }
+.class-setup .class-setup-meeting-fields { padding-top: 0; gap: 22px; }
+.class-setup .class-setup-meeting-fields label { margin: 0; font-size: 14px; }
+.class-setup .class-setup-meeting-fields label:last-child { grid-column: 1 / -1; }
+.class-setup .class-setup-meeting-fields input { min-width: 0; height: 44px; font-size: 15px; }
+.class-setup-skip-dates { margin-top: 24px; }
+.class-setup .class-setup-skip-toggle { display: flex; width: 100%; min-height: 52px; gap: 12px; text-align: left; font-size: 14px; }
+.class-setup-skip-toggle > span { flex: 1; }
+.class-setup-skip-toggle[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
+.class-setup-skip-content { padding: 8px 0 0; }
+.class-setup-schedule-empty { padding: 48px 26px; text-align: center; color: var(--muted); align-self: center; }
+.class-setup-schedule-empty h3 { color: var(--ink); }
+.class-setup-schedule-empty p { line-height: 1.6; }
 .class-setup-exception { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
 .class-setup-exception label { flex: 1; }
 .class-setup-preview { display: flex; gap: 18px; align-items: center; padding: 20px; border: 1px solid; border-radius: 14px; overflow: hidden; }
@@ -36,13 +59,19 @@
 .class-setup-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 18px; }
 .class-setup-actions > span { font-size: 12px; color: var(--muted); }
 .class-setup button:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+.class-setup .class-setup-meeting-select:focus-visible { outline-offset: -4px; }
+@media (max-width: 760px) {
+  .class-setup-schedule { grid-template-columns: 1fr; }
+  .class-setup-meetings { border-right: 0; border-bottom: 1px solid var(--border); padding: 18px; }
+  .class-setup-meeting-list { grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); max-height: 260px; overflow-y: auto; }
+}
 @media (max-width: 560px) {
   .class-setup .class-setup-header { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
   .class-setup-progress { gap: 6px; }
   .class-setup-progress li { gap: 4px; font-size: clamp(12px, 3.5vw, 16px); }
   .class-setup-progress svg { width: 14px; height: 14px; }
   .class-setup-week { gap: 3px; }
-  .class-setup-week button { min-height: 66px; border-radius: 6px; }
+  .class-setup-week button { min-height: 40px; border-radius: 6px; font-size: 12px; }
   .class-setup-meeting { padding: 12px; }
   .class-setup-uploads { grid-template-columns: 1fr; }
 }

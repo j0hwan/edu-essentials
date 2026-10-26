@@ -67,7 +67,7 @@ test("required fields have visible asterisks and setup omits the removed introdu
   assert.deepEqual([...host.querySelectorAll("input:required")].map((input) => input.closest("label").textContent.trim()), ["Course code *", "Class name *"]);
   await submit(); verifyLabels();
   assert.match(host.querySelector(".class-setup-week-label").textContent, /Meeting days \*/);
-  await click("Monday"); await click("Add exception"); verifyLabels();
+  await click("Monday"); await click("Skip dates (0)"); await click("Add exception"); verifyLabels();
   await change("Exception date 1", "2026-11-02");
   await submit(); verifyLabels();
   assert.match(host.textContent, /Storage only/);
@@ -112,7 +112,7 @@ test("manual setup separates information, seven-day schedule, and appearance; Ba
   assert.equal(calls, 0);
   assert.equal(host.querySelectorAll(".class-setup-week button").length, 7);
   await click("Monday"); await click("Wednesday");
-  await click("Add exception"); await change("Exception date 1", "2026-11-02");
+  await click("Skip dates (0)"); await click("Add exception"); await change("Exception date 1", "2026-11-02");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
   assert.equal(calls, 0);
@@ -128,6 +128,54 @@ test("manual setup separates information, seven-day schedule, and appearance; Ba
   assert.equal(saved[1].officeHours, "Tuesday · Zoom");
   assert.deepEqual(saved[1].meetings[0].days, [1, 3]);
   assert.deepEqual(saved[1].meetings[0].excludedDates, ["2026-11-02"]);
+});
+
+test("meeting cards select a single editor, summarize changes, and support both deletion actions", async () => {
+  await mount(); await submit(); await click("Monday"); await click("Wednesday");
+  assert.match(button("Select meeting 1").textContent, /Mon, Wed/);
+  assert.match(button("Select meeting 1").textContent, /9:00 AM – 10:00 AM/);
+  assert.ok(button("Select meeting 1").querySelector('[aria-label="Complete"]'));
+  const descriptions = button("Select meeting 1").getAttribute("aria-describedby").split(" ").map((id) => document.getElementById(id).textContent).join(" ");
+  assert.match(descriptions, /Mon, Wed 9:00 AM – 10:00 AM Complete/);
+  assert.equal(button("Skip dates (0)").getAttribute("aria-expanded"), "false");
+  assert.equal(host.querySelector(".class-setup-skip-content"), null);
+  await click("Add meeting");
+  assert.equal(host.querySelectorAll(".class-setup-meeting").length, 1);
+  assert.equal(button("Select meeting 2").getAttribute("aria-pressed"), "true");
+  await click("Tuesday"); await change("Start time", "14:00"); await change("End time", "15:30");
+  assert.match(button("Select meeting 2").textContent, /2:00 PM – 3:30 PM/);
+  await click("Select meeting 1");
+  assert.equal(button("Monday").getAttribute("aria-pressed"), "true");
+  button("Delete meeting 2").focus();
+  await click("Delete meeting 2");
+  assert.equal(button("Select meeting 1").getAttribute("aria-pressed"), "true");
+  assert.equal(document.activeElement, button("Select meeting 1"));
+  await click("Add meeting"); await click("Thursday");
+  await click("Delete meeting 2");
+  assert.equal(button("Monday").getAttribute("aria-pressed"), "true");
+  button("Remove meeting 1").focus();
+  await click("Remove meeting 1");
+  assert.match(host.textContent, /No scheduled meetings/);
+  assert.equal(document.activeElement, button("Add meeting"));
+  await click("Add meeting");
+  assert.equal(button("Select meeting 1").getAttribute("aria-pressed"), "true");
+});
+
+test("validation selects an invalid background meeting and exposes collapsed skip dates", async () => {
+  await mount(); await submit(); await click("Monday");
+  await click("Skip dates (0)"); await click("Add exception");
+  await change("Exception date 1", "2026-11-02");
+  await click("Skip dates (1)");
+  await change("Classes end", "2026-11-01");
+  await click("Add meeting"); await click("Tuesday");
+  await submit();
+  assert.match(host.querySelector('[role="alert"]').textContent, /excluded dates/);
+  assert.equal(button("Select meeting 1").getAttribute("aria-pressed"), "true");
+  assert.equal(button("Skip dates (1)").getAttribute("aria-expanded"), "true");
+  await click("Remove exception 1"); await submit(); await submit();
+  assert.equal(saved[1].meetings.length, 2);
+  assert.deepEqual(saved[1].meetings[0].excludedDates, []);
+  assert.deepEqual(saved[1].meetings[1].days, [2]);
 });
 
 test("schedule validation blocks advancement, and asynchronous classes can remove meetings", async () => {
