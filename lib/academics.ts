@@ -1,7 +1,7 @@
 import { isCourseIconId, type CourseIconId } from "./course-icons";
 
 export type Course = { id: string; code: string; name: string; credits: number; instructor: string; room: string; color: string; soft: string; initials: string };
-export type Meeting = { id: string; days: number[]; start: string; end: string; from: string; until: string; location: string; excludedDates?: string[] };
+export type Meeting = { id: string; name?: string; days: number[]; start: string; end: string; from: string; until: string; location: string; excludedDates?: string[] };
 export type CourseDetails = { officeHours: string; meetings: Meeting[]; icon?: CourseIconId; syllabusText?: string; syllabusName?: string; syllabusFileId?: string };
 export type ReviewItem = { id: string; title: string; date: string; type: "Assignment" | "Exam" | "Project"; description: string; weight: string };
 export type SyllabusDraft = { id: string; sourceText: string; sourceName: string; sourceFileId?: string; course: Course; items: ReviewItem[] };
@@ -37,6 +37,7 @@ export function validateCourseDetails(value: unknown): CourseDetails {
   const ids = new Set<string>();
   for (const raw of d.meetings) {
     const m = record(raw); text(m.id, "meeting ID", 120, true); text(m.location, "meeting location", 160);
+    if (m.name !== undefined) text(m.name, "meeting name", 160);
     if (ids.has(m.id as string)) throw new Error("Duplicate meeting ID."); ids.add(m.id as string);
     if (!Array.isArray(m.days) || !m.days.length || m.days.length > 7 || new Set(m.days).size !== m.days.length || m.days.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) throw new Error("Choose meeting weekdays.");
     if (!isTime(String(m.start)) || !isTime(String(m.end)) || String(m.end) <= String(m.start)) throw new Error("Meeting end must be after its start on the same day.");

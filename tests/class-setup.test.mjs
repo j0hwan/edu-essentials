@@ -34,8 +34,19 @@ const button = (text) => [...host.querySelectorAll("button")].find((node) => nod
 async function click(text) { assert.ok(button(text), `Missing button ${text}`); await act(async () => button(text).click()); }
 async function submit() { await act(async () => host.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }))); }
 async function change(label, value) {
-  const node = [...host.querySelectorAll("label")].find((item) => item.textContent.replace(/\s*\*$/, "").trim() === label)?.querySelector("input,textarea");
+  const node = [...host.querySelectorAll("label")].find((item) => item.textContent.replace(/\s*\*$/, "").trim() === label)?.querySelector("input,textarea") ?? [...host.querySelectorAll("[aria-label]")].find((input) => input.getAttribute("aria-label") === label);
   assert.ok(node, `Missing field ${label}`);
+  if (node.hasAttribute("contenteditable")) {
+    await act(async () => {
+      node.textContent = value;
+      const range = document.createRange();
+      range.selectNodeContents(node); range.collapse(false);
+      const selection = window.getSelection();
+      selection.removeAllRanges(); selection.addRange(range);
+      node.dispatchEvent(new window.InputEvent("input", { bubbles: true, inputType: "insertText" }));
+    });
+    return;
+  }
   const prototype = node.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
   await act(async () => {
     Object.getOwnPropertyDescriptor(prototype, "value").set.call(node, value);
@@ -130,8 +141,10 @@ test("manual setup separates information, seven-day schedule, and appearance; Ba
   assert.deepEqual(saved[1].meetings[0].excludedDates, ["2026-11-02"]);
 });
 
-test("meeting cards select a single editor, summarize changes, and support both deletion actions", async () => {
+test("schedule omits marked copy and keeps meeting selection and trash deletion", async () => {
   await mount(); await submit(); await click("Monday"); await click("Wednesday");
+  assert.equal(host.querySelector(".class-setup-meetings > h3"), null);
+  assert.doesNotMatch(host.textContent, /Meetings \(\d+\)|Add the times this class meets\.|Remove meeting/);
   assert.match(button("Select meeting 1").textContent, /Mon, Wed/);
   assert.match(button("Select meeting 1").textContent, /9:00 AM – 10:00 AM/);
   assert.ok(button("Select meeting 1").querySelector('[aria-label="Complete"]'));
@@ -153,12 +166,97 @@ test("meeting cards select a single editor, summarize changes, and support both 
   await click("Add meeting"); await click("Thursday");
   await click("Delete meeting 2");
   assert.equal(button("Monday").getAttribute("aria-pressed"), "true");
-  button("Remove meeting 1").focus();
-  await click("Remove meeting 1");
+  button("Delete meeting 1").focus();
+  await click("Delete meeting 1");
   assert.match(host.textContent, /No scheduled meetings/);
   assert.equal(document.activeElement, button("Add meeting"));
   await click("Add meeting");
   assert.equal(button("Select meeting 1").getAttribute("aria-pressed"), "true");
+});
+
+test("meeting titles rename with the pencil or double click, preserve names and cancel with Escape", async () => {
+  await mount(); await submit(); await click("Monday");
+  const originalHeading = host.querySelector(".class-setup-meeting-title");
+  await click("Rename Meeting 1");
+  let input = host.querySelector('[aria-label="Meeting name"]');
+  assert.equal(input, originalHeading, "editing uses the same heading instead of a differently aligned input");
+  assert.equal(document.activeElement, input);
+  assert.equal(window.getSelection().isCollapsed, true);
+  const caretWrapper = input;
+  assert.equal(caretWrapper.dataset.caretAtEnd, "true");
+  await act(async () => {
+    const range = document.createRange();
+    range.selectNodeContents(input); range.collapse(true);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+    document.dispatchEvent(new window.Event("selectionchange"));
+  });
+  assert.equal(caretWrapper.dataset.caretAtEnd, "false");
+  await act(async () => {
+    const range = document.createRange();
+    range.selectNodeContents(input); range.collapse(false);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+    document.dispatchEvent(new window.Event("selectionchange"));
+  });
+  assert.equal(caretWrapper.dataset.caretAtEnd, "true");
+  await change("Meeting name", "  Lecture  ");
+  await act(async () => input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+  assert.equal(host.querySelector("h2").textContent, "Class schedule");
+  assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Lecture");
+  assert.equal(host.querySelector(".class-setup-meeting-title"), originalHeading);
+  assert.equal(button("Select meeting 1").querySelector("strong").textContent, "Lecture");
+  assert.equal(document.activeElement, button("Rename Lecture"));
+  await act(async () => originalHeading.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true })));
+  input = host.querySelector('[aria-label="Meeting name"]');
+  assert.equal(input, originalHeading);
+  assert.equal(window.getSelection().toString(), "Lecture");
+  assert.equal(input.dataset.caretAtEnd, "false");
+  await change("Meeting name", "Cancelled name");
+  await act(async () => input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(closed, 0);
+  assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Lecture");
+  await click("Add meeting"); await click("Tuesday"); await click("Rename Meeting 2");
+  await change("Meeting name", "Lab");
+  await act(async () => host.querySelector('[aria-label="Meeting name"]').blur());
+  assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Lab");
+  await click("Select meeting 1");
+  assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Lecture");
+  await submit(); await click("Back");
+  assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Lecture");
+  await submit(); await submit();
+  assert.deepEqual(saved[1].meetings.map((meeting) => meeting.name), ["Lecture", "Lab"]);
+});
+
+test("clearing a meeting title restores its default numbered title", async () => {
+  await mount(); await submit(); await click("Monday"); await click("Rename Meeting 1");
+  await change("Meeting name", "  ");
+  await act(async () => host.querySelector('[aria-label="Meeting name"]').blur());
+  assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Meeting 1");
+  assert.equal(button("Select meeting 1").querySelector("strong").textContent, "Meeting 1");
+  await submit(); await submit();
+  assert.equal(saved[1].meetings[0].name, undefined);
+});
+
+test("double click preserves native word selection and meeting title edits stay bounded and single-line", async () => {
+  await mount(); await submit(); await click("Monday"); await click("Rename Meeting 1");
+  await change("Meeting name", "Lecture section");
+  let title = host.querySelector('[aria-label="Meeting name"]');
+  await act(async () => title.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+  title = host.querySelector(".class-setup-meeting-title");
+  await act(async () => {
+    const range = document.createRange();
+    range.setStart(title.firstChild, 0); range.setEnd(title.firstChild, 7);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+    title.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true }));
+  });
+  assert.equal(window.getSelection().toString(), "Lecture");
+  assert.equal(title.dataset.caretAtEnd, "false");
+  await change("Meeting name", "Lab\nsection");
+  assert.equal(title.textContent, "Lab section");
+  await change("Meeting name", "x".repeat(161));
+  assert.equal(title.textContent.length, 160);
+  await act(async () => title.blur());
+  await submit(); await submit();
+  assert.equal(saved[1].meetings[0].name.length, 160);
 });
 
 test("validation selects an invalid background meeting and exposes collapsed skip dates", async () => {
@@ -184,7 +282,7 @@ test("schedule validation blocks advancement, and asynchronous classes can remov
   assert.equal(host.querySelector("h2").textContent, "Class schedule");
   await click("Monday"); await change("End time", "08:00"); await submit();
   assert.match(host.querySelector('[role="alert"]').textContent, /end must be after/);
-  await click("Remove meeting 1"); await submit(); await submit();
+  await click("Delete meeting 1"); await submit(); await submit();
   assert.deepEqual(saved[1].meetings, []);
 });
 

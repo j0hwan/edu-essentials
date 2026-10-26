@@ -47,3 +47,12 @@ test("meeting schedules reject backwards times, invalid days, ranges and duplica
   for (const patch of [{ days: [] }, { days: [1, 1] }, { days: [7] }, { end: "08:00" }, { start: "noon" }, { until: "2026-08-01" }]) assert.throws(() => validateCourseDetails({ officeHours: "", meetings: [{ ...meeting, ...patch }] }));
   assert.throws(() => validateCourseDetails({ officeHours: "", meetings: [meeting, meeting] }), /Duplicate/);
 });
+
+test("meeting names are optional, bounded strings and survive workspace persistence", () => {
+  const meeting = { id: "m", name: "Lecture", days: [1], start: "09:00", end: "10:00", from: "2026-09-01", until: "2026-12-15", location: "Room" };
+  for (const name of [undefined, "", "Lab", "x".repeat(160)]) assert.doesNotThrow(() => validateCourseDetails({ officeHours: "", meetings: [{ ...meeting, name }] }));
+  for (const name of [null, 42, {}, "x".repeat(161)]) assert.throws(() => validateCourseDetails({ officeHours: "", meetings: [{ ...meeting, name }] }), /meeting name/);
+  const snapshot = academicSnapshot([course], { ...base, d: { ...base.d, courseDetails: { c: { officeHours: "", meetings: [meeting] } } } });
+  const decoded = decodeWorkspaceState(JSON.parse(JSON.stringify(snapshot.dashboard)));
+  assert.equal(decoded.data.courseDetails.c.meetings[0].name, "Lecture");
+});

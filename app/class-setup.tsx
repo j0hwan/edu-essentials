@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, ChevronRight, CircleCheck, FileText, ImagePlus, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, ChevronRight, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import { addDays, emptyCourseDetails, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { MAX_FILE_BYTES } from "../lib/files";
@@ -24,6 +24,93 @@ const isMeetingComplete = (meeting: Meeting) => {
   try { validateCourseDetails({ officeHours: "", meetings: [meeting] }); return true; }
   catch { return false; }
 };
+
+function MeetingTitle({ title, onRename }: { title: string; onRename: (name: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [caretAtEnd, setCaretAtEnd] = useState(true);
+  const titleRef = useRef<HTMLSpanElement>(null);
+  const pencilRef = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  const selectTitle = useRef(false);
+  const preservedSelection = useRef<Range | null>(null);
+  const activeEdit = useRef(false);
+  const updateCaret = useCallback(() => {
+    const heading = titleRef.current;
+    const selection = window.getSelection();
+    if (!heading || !selection?.rangeCount || !selection.isCollapsed || !heading.contains(selection.focusNode)) { setCaretAtEnd(false); return; }
+    const prefix = document.createRange();
+    prefix.selectNodeContents(heading);
+    prefix.setEnd(selection.focusNode!, selection.focusOffset);
+    if (typeof prefix.getClientRects === "function") {
+      const rect = [...prefix.getClientRects()].at(-1);
+      const box = heading.getBoundingClientRect();
+      if (rect?.height) {
+        heading.style.setProperty("--meeting-caret-left", `${rect.right - box.left + 2}px`);
+        heading.style.setProperty("--meeting-caret-top", `${rect.top - box.top}px`);
+        heading.style.setProperty("--meeting-caret-height", `${rect.height}px`);
+      } else {
+        for (const property of ["--meeting-caret-left", "--meeting-caret-top", "--meeting-caret-height"]) heading.style.removeProperty(property);
+      }
+    }
+    setCaretAtEnd(prefix.toString().length === heading.textContent?.length);
+  }, []);
+  useEffect(() => {
+    if (editing) {
+      const heading = titleRef.current;
+      if (!heading) return;
+      heading.focus();
+      const range = preservedSelection.current ?? document.createRange();
+      if (!preservedSelection.current) {
+        range.selectNodeContents(heading);
+        if (!selectTitle.current) range.collapse(false);
+      }
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.addEventListener("selectionchange", updateCaret);
+      const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateCaret) : undefined;
+      observer?.observe(heading);
+      return () => { document.removeEventListener("selectionchange", updateCaret); observer?.disconnect(); };
+    }
+    else if (restoreFocus.current) { pencilRef.current?.focus(); restoreFocus.current = false; }
+  }, [editing, updateCaret]);
+  const beginEditing = (highlight: boolean) => {
+    const selection = window.getSelection();
+    preservedSelection.current = highlight && selection?.rangeCount && !selection.isCollapsed && titleRef.current?.contains(selection.getRangeAt(0).commonAncestorContainer) ? selection.getRangeAt(0).cloneRange() : null;
+    activeEdit.current = true;
+    selectTitle.current = highlight; setCaretAtEnd(!highlight); setEditing(true);
+  };
+  const finishEditing = (save: boolean, focus = false) => {
+    if (!activeEdit.current) return;
+    activeEdit.current = false;
+    const heading = titleRef.current;
+    const name = heading?.textContent?.trim() ?? "";
+    if (heading) heading.textContent = save ? name || title : title;
+    if (save) onRename(name);
+    restoreFocus.current = focus;
+    setEditing(false);
+  };
+  return <div className="class-setup-section-heading">
+    <h3><span ref={titleRef} className="class-setup-meeting-title" contentEditable={editing ? "plaintext-only" : false} suppressContentEditableWarning role={editing ? "textbox" : undefined} aria-label={editing ? "Meeting name" : undefined} aria-multiline={editing ? false : undefined} tabIndex={editing ? 0 : undefined} spellCheck={false} data-caret-at-end={caretAtEnd} onDoubleClick={() => { if (!editing) beginEditing(true); }} onInput={(event) => {
+      const heading = event.currentTarget;
+      const text = (heading.textContent ?? "").replace(/[\r\n]+/g, " ").slice(0, 160);
+      if (text !== heading.textContent) {
+        heading.textContent = text;
+        const range = document.createRange();
+        range.selectNodeContents(heading); range.collapse(false);
+        const selection = window.getSelection();
+        selection?.removeAllRanges(); selection?.addRange(range);
+      }
+      updateCaret();
+    }} onKeyUp={updateCaret} onMouseUp={updateCaret} onBlur={() => { if (editing) finishEditing(true); }} onKeyDown={(event) => {
+      if (editing && !event.nativeEvent.isComposing && (event.key === "Enter" || event.key === "Escape")) {
+        event.preventDefault(); event.stopPropagation();
+        finishEditing(event.key === "Enter", true);
+      }
+    }}>{title}</span></h3>
+    {!editing && <button ref={pencilRef} type="button" className="class-setup-meeting-rename" aria-label={`Rename ${title}`} onClick={() => beginEditing(false)}><Pencil size={17} aria-hidden="true" /></button>}
+  </div>;
+}
 
 export default function ClassSetup({ initial, today, canUpload, onSave, onClose }: {
   initial: Course; today: string; canUpload: boolean;
@@ -143,11 +230,10 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
       {step === 0 && <><div className="settings-form-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30)}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true)}{field("Credits", course.credits, (value) => changeCourse({ credits: Number(value) }), "number")}{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }))}{field("Location / meeting notes", course.room, (room) => changeCourse({ room }))}<label>Office hours (Zoom link, location, etc.)<textarea maxLength={2000} value={details.officeHours} onChange={(event) => setDetails({ ...details, officeHours: event.target.value })} /></label></div></>}
       {step === 1 && <div className="class-setup-schedule">
         <aside className="class-setup-meetings" aria-label="Class meetings">
-          <h3>Meetings ({details.meetings.length})</h3>
           <div className="class-setup-meeting-list">
             {details.meetings.map((meeting, index) => <div className={`class-setup-meeting-card${selectedMeeting?.id === meeting.id ? " is-selected" : ""}`} key={meeting.id}>
-              <button type="button" className="class-setup-meeting-select" data-meeting-id={meeting.id} aria-label={`Select meeting ${index + 1}`} aria-describedby={`meeting-days-${meeting.id} meeting-time-${meeting.id} meeting-status-${meeting.id}`} aria-pressed={selectedMeeting?.id === meeting.id} aria-controls="class-setup-meeting-editor" onClick={() => setSelectedMeetingId(meeting.id)}>
-                <strong>Meeting {index + 1}</strong>
+              <button type="button" className="class-setup-meeting-select" data-meeting-id={meeting.id} aria-label={`Select meeting ${index + 1}`} aria-describedby={`meeting-name-${meeting.id} meeting-days-${meeting.id} meeting-time-${meeting.id} meeting-status-${meeting.id}`} aria-pressed={selectedMeeting?.id === meeting.id} aria-controls="class-setup-meeting-editor" onClick={() => setSelectedMeetingId(meeting.id)}>
+                <strong id={`meeting-name-${meeting.id}`}>{meeting.name || `Meeting ${index + 1}`}</strong>
                 <span id={`meeting-days-${meeting.id}`}>{meeting.days.length ? meeting.days.map((day) => weekdays[day].slice(0, 3)).join(", ") : "Choose meeting days"}</span>
                 <span id={`meeting-time-${meeting.id}`}>{formatMeetingTime(meeting.start)} – {formatMeetingTime(meeting.end)}</span>
                 <span id={`meeting-status-${meeting.id}`} className="class-setup-accessible-title">{isMeetingComplete(meeting) ? "Complete" : "Incomplete"}</span>
@@ -158,9 +244,8 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
           </div>
           <button type="button" className="secondary-button class-setup-add-meeting" disabled={details.meetings.length >= 30} onClick={addMeeting}><Plus size={18} aria-hidden="true" />Add meeting</button>
         </aside>
-        {selectedMeeting ? <section className="class-setup-meeting" id="class-setup-meeting-editor" key={selectedMeeting.id} aria-label={`Meeting ${selectedMeetingIndex + 1}`}>
-          <div className="class-setup-section-heading"><h3>Meeting {selectedMeetingIndex + 1}</h3><button className="text-button" type="button" aria-label={`Remove meeting ${selectedMeetingIndex + 1}`} onClick={() => removeMeeting(selectedMeeting.id)}>Remove meeting</button></div>
-          <p className="class-setup-meeting-description">Add the times this class meets.</p>
+        {selectedMeeting ? <section className="class-setup-meeting" id="class-setup-meeting-editor" key={selectedMeeting.id} aria-label={selectedMeeting.name || `Meeting ${selectedMeetingIndex + 1}`}>
+          <MeetingTitle title={selectedMeeting.name || `Meeting ${selectedMeetingIndex + 1}`} onRename={(name) => changeMeeting(selectedMeeting.id, { name: name || undefined })} />
           <p className="class-setup-week-label">Meeting days <span aria-hidden="true">*</span></p>
           <div className="class-setup-week" role="group" aria-label={`Weekdays for meeting ${selectedMeetingIndex + 1}`}>{weekdays.map((day, dayIndex) => <button type="button" key={day} aria-label={day} aria-pressed={selectedMeeting.days.includes(dayIndex)} onClick={() => changeMeeting(selectedMeeting.id, { days: selectedMeeting.days.includes(dayIndex) ? selectedMeeting.days.filter((value) => value !== dayIndex) : [...selectedMeeting.days, dayIndex].sort() })}>{day.slice(0, 3)}</button>)}</div>
           <div className="settings-form-grid class-setup-meeting-fields">
