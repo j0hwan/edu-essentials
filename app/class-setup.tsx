@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, FileText, ImagePlus, Plus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronRight, CircleCheck, FileText, ImagePlus, Plus, X } from "lucide-react";
 import { addDays, emptyCourseDetails, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { MAX_FILE_BYTES } from "../lib/files";
@@ -13,6 +13,7 @@ import "./class-setup.css";
 export type ClassSetupUpload = { file: File; id: string };
 export type ClassSetupUploads = { image?: ClassSetupUpload; syllabus?: ClassSetupUpload };
 const steps = ["Course information", "Class schedule", "Make it yours"];
+const stepLabels = ["Info", "Schedule", "Customize"];
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export default function ClassSetup({ initial, today, canUpload, onSave, onClose }: {
@@ -85,8 +86,15 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
   };
 
   return <div className="modal-backdrop"><form ref={formRef} className="add-class-modal academic-editor class-setup" role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-    <div className="modal-header"><div><h2 id="class-setup-title" ref={headingRef} tabIndex={-1}>{steps[step]}</h2></div><button type="button" className="secondary-button" disabled={busy} aria-label="Close class setup" onClick={close}><X size={18} /></button></div>
-    <ol className="class-setup-progress" aria-label="Class setup progress">{steps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className={index <= step ? "is-active" : ""}><span>{index < step ? <Check size={14} /> : index + 1}</span><small>{label}</small></li>)}</ol>
+    <h2 className="class-setup-accessible-title" id="class-setup-title" ref={headingRef} tabIndex={-1}>{steps[step]}</h2>
+    <div className="modal-header class-setup-header">
+      <ol className="class-setup-progress" aria-label="Class setup progress">{steps.map((label, index) => <li key={label} aria-label={`${label}${index < step ? ", completed" : ""}`} aria-current={step === index ? "step" : undefined} className={index < step ? "is-complete" : undefined}>
+        {index < step && <CircleCheck size={18} aria-hidden="true" />}
+        <span>{stepLabels[index]}</span>
+        {index < steps.length - 1 && <ChevronRight className="class-setup-step-separator" size={18} aria-hidden="true" />}
+      </li>)}</ol>
+      <button type="button" className="secondary-button" disabled={busy} aria-label="Close class setup" onClick={close}><X size={18} /></button>
+    </div>
     <fieldset className="class-setup-body" disabled={busy}>
       {step === 0 && <><div className="settings-form-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30)}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true)}{field("Credits", course.credits, (value) => changeCourse({ credits: Number(value) }), "number")}{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }))}{field("Location / meeting notes", course.room, (room) => changeCourse({ room }))}<label>Office hours (Zoom link, location, etc.)<textarea maxLength={2000} value={details.officeHours} onChange={(event) => setDetails({ ...details, officeHours: event.target.value })} /></label></div></>}
       {step === 1 && <>{details.meetings.map((meeting, index) => <section className="class-setup-meeting" key={meeting.id} aria-label={`Meeting ${index + 1}`}><div className="class-setup-section-heading"><h3>Meeting {index + 1}</h3><button className="text-button" type="button" onClick={() => setDetails({ ...details, meetings: details.meetings.filter((current) => current.id !== meeting.id) })}>Remove meeting {index + 1}</button></div><p className="class-setup-week-label">Meeting days <span aria-hidden="true">*</span></p><div className="class-setup-week" role="group" aria-label={`Weekdays for meeting ${index + 1}`}>{weekdays.map((day, dayIndex) => <button type="button" key={day} aria-label={day} aria-pressed={meeting.days.includes(dayIndex)} onClick={() => changeMeeting(meeting.id, { days: meeting.days.includes(dayIndex) ? meeting.days.filter((value) => value !== dayIndex) : [...meeting.days, dayIndex].sort() })}><small>{day.slice(0, 3)}</small><span>{day.slice(0, 1)}</span><Check size={14} aria-hidden="true" /></button>)}</div><div className="settings-form-grid">{field("Start time", meeting.start, (start) => changeMeeting(meeting.id, { start }), "time", true)}{field("End time", meeting.end, (end) => changeMeeting(meeting.id, { end }), "time", true)}{field("Classes start", meeting.from, (from) => changeMeeting(meeting.id, { from }), "date", true)}{field("Classes end", meeting.until, (until) => changeMeeting(meeting.id, { until }), "date", true)}{field("Meeting location", meeting.location, (location) => changeMeeting(meeting.id, { location }))}</div><h4>Exceptions · no class on these dates</h4>{(meeting.excludedDates ?? []).map((date, exceptionIndex) => <div className="class-setup-exception" key={exceptionIndex}><label><span>Exception date {exceptionIndex + 1}<span aria-hidden="true"> *</span></span><input type="date" required min={meeting.from} max={meeting.until} value={date} onChange={(event) => changeMeeting(meeting.id, { excludedDates: meeting.excludedDates!.map((current, currentIndex) => currentIndex === exceptionIndex ? event.target.value : current) })} /></label><button type="button" className="secondary-button" aria-label={`Remove exception ${exceptionIndex + 1}`} onClick={() => changeMeeting(meeting.id, { excludedDates: meeting.excludedDates!.filter((_, currentIndex) => currentIndex !== exceptionIndex) })}><X size={16} /></button></div>)}<button type="button" className="secondary-button" disabled={(meeting.excludedDates?.length ?? 0) >= 100} onClick={() => changeMeeting(meeting.id, { excludedDates: [...(meeting.excludedDates ?? []), ""] })}><Plus size={14} />Add exception</button></section>)}<button type="button" className="secondary-button" disabled={details.meetings.length >= 30} onClick={() => setDetails({ ...details, meetings: [...details.meetings, { id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: course.room }] })}><Plus size={16} />Add meeting</button></>}

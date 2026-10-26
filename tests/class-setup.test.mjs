@@ -73,6 +73,34 @@ test("required fields have visible asterisks and setup omits the removed introdu
   assert.match(host.textContent, /Storage only/);
 });
 
+test("larger progress replaces the visible title and preserves accessible step names and completed states", async () => {
+  await mount();
+  const header = host.querySelector(".class-setup-header");
+  const progress = header.querySelector(".class-setup-progress");
+  assert.equal(header.children.length, 2);
+  assert.equal(header.children[0], progress);
+  assert.equal(header.children[1], button("Close class setup"));
+  assert.equal(header.querySelector("h2"), null);
+  const accessibleTitle = host.querySelector(".class-setup-accessible-title");
+  assert.equal(host.querySelector('[role="dialog"]').getAttribute("aria-labelledby"), accessibleTitle.id);
+  assert.equal(accessibleTitle.textContent, "Course information");
+  assert.equal(host.querySelectorAll(".class-setup-progress").length, 1);
+  assert.deepEqual([...progress.querySelectorAll("li > span")].map((node) => node.textContent), ["Info", "Schedule", "Customize"]);
+  assert.equal(progress.querySelectorAll(".class-setup-step-separator").length, 2);
+  assert.equal(progress.querySelector(".class-setup-step-separator").getAttribute("width"), "18");
+  assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Course information");
+  assert.equal(progress.querySelectorAll(".is-complete").length, 0);
+  await submit();
+  assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Class schedule");
+  assert.equal(progress.querySelectorAll(".is-complete").length, 1);
+  assert.ok(progress.querySelector(".is-complete svg"));
+  await click("Monday"); await submit();
+  assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Make it yours");
+  assert.equal(progress.querySelectorAll(".is-complete").length, 2);
+  await click("Back");
+  assert.equal(progress.querySelectorAll(".is-complete").length, 1);
+});
+
 test("manual setup separates information, seven-day schedule, and appearance; Back preserves fields", async () => {
   await mount();
   assert.equal(host.querySelector("h2").textContent, "Course information");

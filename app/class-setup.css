@@ -1,10 +1,12 @@
 .class-setup { width: min(760px, 100%); }
-.class-setup-progress { display: flex; list-style: none; padding: 0; margin: 26px 0; gap: 12px; }
-.class-setup-progress li { display: flex; align-items: center; flex: 1; gap: 8px; color: var(--muted); padding-bottom: 14px; border-bottom: 2px solid var(--border); }
-.class-setup-progress li.is-active { color: var(--ink); border-color: var(--brand); }
-.class-setup-progress li > span { display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 50%; font-size: 11px; }
-.class-setup-progress li[aria-current] > span { background: var(--brand); color: white; }
-.class-setup-progress small { font-size: 11px; }
+.class-setup-accessible-title { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.class-setup .class-setup-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; margin-bottom: 20px; }
+.class-setup-progress { display: flex; align-items: center; justify-self: start; list-style: none; padding: 0; margin: 0; gap: 12px; }
+.class-setup-progress li { display: flex; align-items: center; gap: 8px; color: var(--muted); white-space: nowrap; font-size: 18px; line-height: 1.4; }
+.class-setup-progress li[aria-current="step"] { color: var(--ink); font-weight: 600; }
+.class-setup-progress li.is-complete { color: var(--green); }
+.class-setup-progress svg { flex-shrink: 0; }
+.class-setup-progress .class-setup-step-separator { color: var(--muted); margin-left: 2px; }
 .class-setup-body { padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
 .class-setup-body > .form-hint { margin: 0; }
 .class-setup-meeting { border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
@@ -35,8 +37,10 @@
 .class-setup-actions > span { font-size: 12px; color: var(--muted); }
 .class-setup button:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 @media (max-width: 560px) {
+  .class-setup .class-setup-header { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
   .class-setup-progress { gap: 6px; }
-  .class-setup-progress li { flex-direction: column; align-items: flex-start; }
+  .class-setup-progress li { gap: 4px; font-size: clamp(12px, 3.5vw, 16px); }
+  .class-setup-progress svg { width: 14px; height: 14px; }
   .class-setup-week { gap: 3px; }
   .class-setup-week button { min-height: 66px; border-radius: 6px; }
   .class-setup-meeting { padding: 12px; }
