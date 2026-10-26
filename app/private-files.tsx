@@ -96,29 +96,14 @@ export function PrivateImage({ file, store, fadeIn = false }: { file: PrivateFil
     if (!fadeIn || !currentImage || currentImage.ready || !image) return;
     const src = currentImage.url;
     let cancelled = false;
-    let firstFrame = 0;
-    let revealFrame = 0;
-    let fallbackTimer = 0;
-    const revealAfterPaint = () => {
+    const reveal = () => {
       if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
-      const reveal = () => {
-        firstFrame = 0;
-        if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
-        setLoadedImage((current) => current?.url === src ? { ...current, ready: true } : current);
-      };
-      if (typeof window.requestAnimationFrame === "function") {
-        firstFrame = window.requestAnimationFrame(() => {
-          firstFrame = 0;
-          revealFrame = window.requestAnimationFrame(reveal);
-        });
-      } else {
-        fallbackTimer = window.setTimeout(reveal, 32);
-      }
+      setLoadedImage((current) => current?.url === src ? { ...current, ready: true } : current);
     };
     const decode = () => {
       if (cancelled || imageRef.current !== image || image.src !== src || !samePrivateImageSource(sourceRef.current, currentImage)) return;
-      if (typeof image.decode === "function") void image.decode().then(revealAfterPaint, revealAfterPaint);
-      else revealAfterPaint();
+      if (typeof image.decode === "function") void image.decode().then(reveal, reveal);
+      else reveal();
     };
     if (image.complete) {
       if (image.naturalWidth > 0) decode();
@@ -128,9 +113,6 @@ export function PrivateImage({ file, store, fadeIn = false }: { file: PrivateFil
     return () => {
       cancelled = true;
       image.removeEventListener("load", decode);
-      if (firstFrame) window.cancelAnimationFrame(firstFrame);
-      if (revealFrame) window.cancelAnimationFrame(revealFrame);
-      if (fallbackTimer) window.clearTimeout(fallbackTimer);
     };
   }, [fadeIn, currentImage]);
 

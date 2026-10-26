@@ -77,21 +77,35 @@
 .file-view-grid .private-file-list li { padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
 .file-view-grid .private-file-list li > .text-button, .file-view-grid .private-file-list li > span { flex-basis: 100%; }
 .private-class-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.private-class-image-fade { opacity: 0; transition: opacity 180ms ease; }
-.private-class-image-fade.is-ready { opacity: 1; }
-@supports (mask-image: linear-gradient(black, transparent)) {
-  .private-class-image-fade {
-    /* A 75.96deg CSS gradient advances rightward and upward at y = -0.25x. */
-    /* Keep the soft edge crossing the image throughout the duration, rather than racing past it with fast easing. */
-    mask-image: linear-gradient(75.963756deg, #000 35%, transparent 65%);
-    mask-size: 300% 300%;
-    mask-repeat: no-repeat;
-    mask-position: 100% 0%;
-    transition: opacity 180ms ease, mask-position 600ms linear;
-  }
-  .private-class-image-fade.is-ready { mask-position: 0% 100%; }
+@property --course-image-progress {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
 }
-@media (prefers-reduced-motion: reduce) { .private-class-image-fade { transition: none; } }
-:root[data-motion="reduced"] .private-class-image-fade { transition: none; }
+.private-class-image-fade { opacity: 0; }
+.private-class-image-fade.is-ready { opacity: 1; animation: course-image-fade-in 240ms ease-out both; }
+@keyframes course-image-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@supports (mask-image: linear-gradient(black, transparent)) and (color: rgb(0 0 0 / min(1, .5))) {
+  .private-class-image-fade {
+    /* Fade every pixel together along y = -0.25x, with faster opacity growth at the bottom left. */
+    mask-image: linear-gradient(75.963756deg,
+      rgb(0 0 0 / min(1, calc(var(--course-image-progress) * 1.7))) 0%,
+      rgb(0 0 0 / var(--course-image-progress)) 100%);
+    mask-size: 100% 100%;
+    mask-repeat: no-repeat;
+  }
+  .private-class-image-fade.is-ready { --course-image-progress: 1; animation-name: course-image-gradient-in; }
+}
+@keyframes course-image-gradient-in {
+  from { opacity: 1; --course-image-progress: 0; }
+  to { opacity: 1; --course-image-progress: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .private-class-image-fade.is-ready { animation: none; }
+}
+:root[data-motion="reduced"] .private-class-image-fade.is-ready { animation: none; }
 .private-preview-image { display: block; max-width: 100%; max-height: 55vh; object-fit: contain; margin: auto; }
 .private-pdf-preview { width: 100%; height: 55vh; border: 1px solid var(--border); }

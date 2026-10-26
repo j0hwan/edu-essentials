@@ -11,7 +11,11 @@ for (const name of [
 ]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-Object.defineProperty(dom.window, "requestAnimationFrame", { configurable: true, value: (callback) => setTimeout(() => callback(Date.now()), 0) });
+let animationFrameRequests = 0, animationFrameCallbacks = 0;
+Object.defineProperty(dom.window, "requestAnimationFrame", { configurable: true, value: (callback) => {
+  animationFrameRequests += 1;
+  return setTimeout(() => { animationFrameCallbacks += 1; callback(Date.now()); }, 0);
+} });
 Object.defineProperty(dom.window, "cancelAnimationFrame", { configurable: true, value: (id) => clearTimeout(id) });
 
 const nativeCreateObjectURL = globalThis.URL.createObjectURL;
@@ -442,9 +446,10 @@ test("background PrivateImage reads its blob without creating a Recent event", a
   assert.equal(requests.length, 0, "background image loading is not an explicit file open");
 });
 
-test("opt-in PrivateImage waits for decode and a paint boundary before revealing a course image", async () => {
+test("opt-in PrivateImage reveals a course image as soon as decode settles", async () => {
   reset();
   const bytes = deferred(), decoded = deferred();
+  const frameRequestsBefore = animationFrameRequests, frameCallbacksBefore = animationFrameCallbacks;
   const imagePrototype = window.HTMLImageElement.prototype;
   const originalComplete = Object.getOwnPropertyDescriptor(imagePrototype, "complete");
   const originalNaturalWidth = Object.getOwnPropertyDescriptor(imagePrototype, "naturalWidth");
@@ -454,15 +459,17 @@ test("opt-in PrivateImage waits for decode and a paint boundary before revealing
   Object.defineProperty(imagePrototype, "decode", { configurable: true, value: () => decoded.promise });
   try {
     await render(createElement(PrivateImage, { file: file(FILE_ID, { name: "Card.png", mime_type: "image/png", kind: "class-image" }), store: { blob: async () => bytes.promise }, fadeIn: true }));
-    await act(async () => { bytes.resolve(new Blob(["course image"], { type: "image/png" })); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await act(async () => { bytes.resolve(new Blob(["course image"], { type: "image/png" })); await bytes.promise; });
     const image = rootNode.querySelector("img.private-class-image-fade");
     assert.ok(image);
     assert.equal(image.classList.contains("is-ready"), false, "the image remains transparent before it has decoded");
 
     await act(async () => { image.dispatchEvent(new Event("load")); });
     assert.equal(image.classList.contains("is-ready"), false, "the load event alone does not reveal an image while decode is pending");
-    await act(async () => { decoded.resolve(); await new Promise((resolve) => setTimeout(resolve, 20)); });
-    assert.equal(image.classList.contains("is-ready"), true, "the decoded image becomes visible after opacity zero has had a paint boundary");
+    await act(async () => { decoded.resolve(); await decoded.promise; await Promise.resolve(); });
+    assert.equal(image.classList.contains("is-ready"), true, "the decoded image becomes visible immediately after decode settles");
+    assert.equal(animationFrameRequests - frameRequestsBefore, 0, "revealing the decoded image does not schedule an animation frame");
+    assert.equal(animationFrameCallbacks - frameCallbacksBefore, 0, "revealing the decoded image does not wait for an animation frame callback");
   } finally {
     if (originalComplete) Object.defineProperty(imagePrototype, "complete", originalComplete); else delete imagePrototype.complete;
     if (originalNaturalWidth) Object.defineProperty(imagePrototype, "naturalWidth", originalNaturalWidth); else delete imagePrototype.naturalWidth;
@@ -502,8 +509,7 @@ test("opt-in PrivateImage fences stale account and source work, then revokes its
 
     await render(createElement(PrivateImage, { file: file("22222222-2222-4222-8222-222222222222", { name: "New card.png", mime_type: "image/png", kind: "class-image" }), store: { blob: async () => nextSourceBytes.promise }, fadeIn: true }));
     assert.equal(rootNode.querySelector("img.private-class-image-fade"), null, "a newly selected source cannot show the previous file while it loads");
-    await act(async () => { decodeB.resolve(); });
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    await act(async () => { decodeB.resolve(); await decodeB.promise; await Promise.resolve(); });
     assert.equal(rootNode.querySelector("img.private-class-image-fade"), null, "a late decode from the old source cannot restore its image");
     assert.ok(revoked.includes("blob:course-fade-1"), "changing source releases the previous private URL");
 

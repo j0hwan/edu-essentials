@@ -59,38 +59,64 @@ try {
   await page.evaluate(() => window.navigateFixture("dashboard"));
   await page.waitForFunction(() => typeof window.releaseImage === "function");
   assert.equal(await page.locator("img").count(), 0, "held image bytes leave the header placeholder visible");
-  await page.evaluate(() => {
-    const header = document.getElementById("header");
-    new MutationObserver(() => {
-      const image = header.querySelector("img.is-ready");
-      if (!image) return;
-      void getComputedStyle(image).maskPosition;
-      window.revealAnimations = image.getAnimations();
-      for (const animation of window.revealAnimations) {animation.pause(); animation.currentTime = 0;}
-    }).observe(header, {attributes: true, childList: true, subtree: true});
-    window.releaseImage();
+  await page.evaluate(() => window.releaseImage());
+  await page.waitForFunction(() => {
+    const image = document.querySelector("img.private-class-image-fade.is-ready");
+    return image?.getAnimations().some(animation => animation.animationName === "course-image-gradient-in");
   });
-  await page.waitForFunction(() => window.revealAnimations?.length >= 2);
+  const animationInfo = await page.evaluate(() => {
+    const image = document.querySelector("img.private-class-image-fade.is-ready");
+    const animations = image.getAnimations().filter(animation => animation.animationName === "course-image-gradient-in");
+    window.revealAnimation = animations[0];
+    window.revealAnimation.pause();
+    window.revealAnimation.currentTime = 0;
+    const timing = window.revealAnimation.effect.getTiming();
+    return {count: animations.length, name: window.revealAnimation.animationName, duration: timing.duration, delay: timing.delay};
+  });
+  assert.equal(animationInfo.count, 1, "the directional reveal is a single CSS animation");
+  assert.equal(animationInfo.name, "course-image-gradient-in");
+  assert.equal(animationInfo.duration, 240, "the reveal completes in 240ms");
+  assert.equal(animationInfo.delay, 0, "the reveal starts as soon as decoding completes");
   const frames = [];
-  for (const time of [0, 150, 300, 450, 600]) {
-    await page.evaluate(time => {for (const animation of window.revealAnimations) animation.currentTime = time;}, time);
+  for (const time of [0, 40, 100, 180, 240]) {
+    await page.evaluate(time => {window.revealAnimation.currentTime = time;}, time);
     frames.push({time, pixels: await samples()});
   }
-  assert.equal(frames[0].pixels[0], 0, "decoded image begins hidden");
-  assert.ok(frames[1].pixels[0] < 40, "the image must not finish revealing in its first 150ms");
-  assert.ok(frames[2].pixels[0] > 50 && frames[2].pixels[0] < 205, "the middle frame shows a soft partially revealed image");
-  assert.ok(frames[2].pixels[1] > frames[2].pixels[2] + 100, "the bottom-left reveals before the top-right");
-  assert.ok(frames[3].pixels[0] > 210, "the center is revealed late in the sweep");
-  assert.ok(frames[4].pixels.every(value => value > 250), "the complete image is visible at the end");
-  for (const reduced of ["profile", "system"]) {
-    await page.evaluate(() => {for (const animation of window.revealAnimations) animation.cancel();});
-    if (reduced === "profile") await page.evaluate(() => document.documentElement.dataset.motion = "reduced");
-    else {
-      await page.evaluate(() => delete document.documentElement.dataset.motion);
-      await page.emulateMedia({reducedMotion: "reduce"});
+  assert.ok(frames[0].pixels.every(value => value === 0), "the decoded image starts fully masked");
+  assert.ok(frames[1].pixels.every(value => value > 0), "all sampled positions begin appearing by 40ms");
+  assert.ok(frames[2].pixels[1] > frames[2].pixels[2], "the bottom-left reveals before the top-right");
+  for (let frame = 1; frame < frames.length; frame++) {
+    for (let pixel = 0; pixel < frames[frame].pixels.length; pixel++) {
+      assert.ok(frames[frame].pixels[pixel] >= frames[frame - 1].pixels[pixel],
+        `sample ${pixel} is monotonic from ${frames[frame - 1].time}ms to ${frames[frame].time}ms`);
     }
-    assert.ok(await page.locator("img").evaluate(image => getComputedStyle(image).transitionDuration.split(",").every(value => Number.parseFloat(value) <= 0.00001)));
-    assert.ok((await samples()).every(value => value > 250), "reduced motion keeps the full image visible");
   }
-  console.log(JSON.stringify({frames, reducedMotion: "profile and system passed"}, null, 2));
+  assert.ok(frames.at(-1).pixels.every(value => value > 250), "the complete image is visible at 240ms");
+
+  await page.evaluate(() => {
+    window.revealAnimation.currentTime = 40;
+    document.documentElement.dataset.motion = "reduced";
+  });
+  await page.waitForFunction(() => getComputedStyle(document.querySelector("img.is-ready")).animationName === "none");
+  const profileReducedPixels = await samples();
+  assert.ok(profileReducedPixels.every(value => value > 250), "profile reduced motion immediately shows the full image");
+
+  await page.evaluate(() => {delete document.documentElement.dataset.motion;});
+  await page.waitForFunction(() => {
+    const image = document.querySelector("img.is-ready");
+    return image?.getAnimations().some(animation => animation.animationName === "course-image-gradient-in" && animation.playState === "running");
+  });
+  await page.evaluate(() => {
+    const image = document.querySelector("img.is-ready");
+    window.revealAnimation = image.getAnimations().find(animation => animation.animationName === "course-image-gradient-in");
+    window.revealAnimation.pause();
+    window.revealAnimation.currentTime = 40;
+  });
+  await page.emulateMedia({reducedMotion: "reduce"});
+  await page.waitForFunction(() => getComputedStyle(document.querySelector("img.is-ready")).animationName === "none");
+  const systemReducedPixels = await samples();
+  assert.ok(systemReducedPixels.every(value => value > 250), "system reduced motion immediately shows the full image");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.motion ?? ""), "", "the system check runs independently of the profile setting");
+
+  console.log(JSON.stringify({animationInfo, frames, reducedMotion: {profile: profileReducedPixels, system: systemReducedPixels}}, null, 2));
 } finally {await browser.close();}
