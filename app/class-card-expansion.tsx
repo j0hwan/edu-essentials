@@ -1,5 +1,7 @@
 "use client";
 
+import { refreshCourseImageFrames } from "./course-image-frame";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   createCourseExpansionHorizontalFrames,
@@ -621,8 +623,10 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
       const verticalBorder = (Number.parseFloat(style.borderTopWidth) || 0) + (Number.parseFloat(style.borderBottomWidth) || 0);
       detailContent.style.width = `${Math.max(1, rect.width - horizontalBorder)}px`;
       detailContent.style.height = `${Math.max(1, rect.height - verticalBorder)}px`;
+      refreshCourseImageFrames(detailContent);
     };
     if (anchor && canAnimate && !skipOpeningAnimation) pinDetailLayout(destination);
+    else refreshCourseImageFrames(detailContent);
 
     if (source) {
       sourceSnapshot = {
@@ -679,7 +683,10 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
       const nodes = morphNodes(element);
       const properties = ["background-color", "background-image", "border-color", "border-radius", "color", "font-family", "font-size", "font-style", "font-weight", "letter-spacing", "line-height", "opacity", "padding-bottom", "padding-left", "padding-right", "padding-top", "text-align", "text-decoration-color", "text-shadow"];
       nodes.forEach((node, index) => {
-        if (node.classList.contains("course-image-frame") && styles[index]?.transform) node.style.setProperty("transform", styles[index].transform);
+        const imageProperties = node.classList.contains("course-image-frame") ? ["transform", "transform-origin", "object-position"] : node.parentElement?.classList.contains("course-image-frame") ? ["object-position"] : [];
+        for (const property of imageProperties) {
+          if (styles[index]?.[property]) node.style.setProperty(property, styles[index][property]);
+        }
         for (const property of properties) {
           const value = styles[index]?.[property];
           if (value !== undefined) node.style.setProperty(property, value);
@@ -814,13 +821,24 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
           animatedNodes.forEach((node, index) => {
             const fromNodeStyle = { ...(fromStyle[index] ?? {}) };
             const toNodeStyle = { ...(toStyle[index] ?? {}) };
-            if (node.classList.contains("course-image-frame") && typeof node.animate === "function") {
+            const imageFrame = node.classList.contains("course-image-frame");
+            const imageChild = node.tagName.toLowerCase() === "img" && node.parentElement?.classList.contains("course-image-frame");
+            if ((imageFrame || imageChild) && typeof node.animate === "function") {
               const targetFrame = toNode.querySelector<HTMLElement>(".course-image-frame");
-              const fromTransform = fromNodeStyle.transform || node.style.transform || "none";
-              const toTransform = targetFrame?.style.transform || "none";
-              if (fromTransform !== toTransform) {
-                node.style.setProperty("transform", fromTransform);
-                const animation = node.animate([{ transform: fromTransform }, { transform: toTransform }], {
+              const fromImageStyle: Record<string, string> = {};
+              const toImageStyle: Record<string, string> = {};
+              const properties = imageFrame ? ["transform", "transform-origin", "object-position"] : ["object-position"];
+              for (const property of properties) {
+                const fromValue = (liveStyles ? fromNodeStyle[property] : node.style.getPropertyValue(property)) || fromNodeStyle[property] || (property === "transform" ? "none" : "50% 50%");
+                const toValue = targetFrame?.style.getPropertyValue(property) || (property === "transform" ? "none" : "50% 50%");
+                if (fromValue === toValue) continue;
+                const key = property.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+                fromImageStyle[key] = fromValue;
+                toImageStyle[key] = toValue;
+                node.style.setProperty(property, fromValue);
+              }
+              if (Object.keys(toImageStyle).length) {
+                const animation = node.animate([fromImageStyle, toImageStyle], {
                   duration: COURSE_IMAGE_ZOOM_DURATION_MS,
                   easing: "ease-out",
                   fill: "both",
@@ -828,7 +846,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
                 morphAnimations.add(animation);
                 animation.onfinish = () => {
                   if (!morphAnimations.delete(animation)) return;
-                  node.style.setProperty("transform", toTransform);
+                  Object.assign(node.style, toImageStyle);
                   animation.onfinish = null;
                   animation.oncancel = null;
                   animation.cancel();
@@ -957,7 +975,11 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
       for (const pair of morphPairs) {
         if (pair.key === "visual") {
           const targetFrame = pair.target.querySelector<HTMLElement>(".course-image-frame");
-          if (targetFrame) pair.clone?.querySelector<HTMLElement>(".course-image-frame")?.style.setProperty("transform", targetFrame.style.transform || "none");
+          const clonedFrame = pair.clone?.querySelector<HTMLElement>(".course-image-frame");
+          if (targetFrame && clonedFrame) {
+            for (const property of ["transform", "transform-origin", "object-position"]) clonedFrame.style.setProperty(property, targetFrame.style.getPropertyValue(property));
+            for (const image of clonedFrame.querySelectorAll("img")) image.style.objectPosition = targetFrame.style.objectPosition;
+          }
         }
         if (pair.backgroundOverlay && pair.backgroundOverlayRole === "target") {
           pair.backgroundOverlay.style.opacity = "1";

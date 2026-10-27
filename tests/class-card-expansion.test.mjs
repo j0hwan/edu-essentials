@@ -535,7 +535,7 @@ test("zoomed course image frames fill shared visuals and keep percentage framing
   try {
     await render({ children: (close) => h("div", null,
       h("div", { className: "expanded-class-header" }, h("div", { "data-course-morph": "visual" },
-        h("div", { className: "course-image-frame", style: { width: "838px", height: "190px", objectPosition: "25% 70%", transform: "scale(1)", transformOrigin: "25% 70%" } }),
+        h("div", { className: "course-image-frame", style: { width: "838px", height: "190px", objectPosition: "25% 60%", transform: "scale(1)", transformOrigin: "25% 60%" } }),
       )),
       h("button", { onClick: close }, "Close class"),
     ) });
@@ -547,19 +547,24 @@ test("zoomed course image frames fill shared visuals and keep percentage framing
     assert.equal(clonedFrame.style.transformOrigin, "25% 70%");
     assert.equal(clonedFrame.querySelector("img").style.objectPosition, "25% 70%");
     const openingZoom = calls.find((call) => call.element === clonedFrame && call.frames.some((frame) => "transform" in frame));
-    assert.deepEqual(openingZoom.frames, [{ transform: "scale(2)" }, { transform: "scale(1)" }]);
+    assert.deepEqual(openingZoom.frames, [{ transform: "scale(2)", transformOrigin: "25% 70%", objectPosition: "25% 70%" }, { transform: "scale(1)", transformOrigin: "25% 60%", objectPosition: "25% 60%" }]);
+    const imagePosition = calls.find((call) => call.element === clonedFrame.querySelector("img"));
+    assert.deepEqual(imagePosition.frames, [{ objectPosition: "25% 70%" }, { objectPosition: "25% 60%" }]);
+    assert.equal(imagePosition.options.duration, 140);
     assert.equal(openingZoom.options.duration, 140);
     assert.equal(openingZoom.options.easing, "ease-out");
     assert.equal(openingZoom.options.delay ?? 0, 0);
     assert.ok(openingZoom.options.duration < callsFor(".class-card-expansion-dialog")[0].options.duration / 2, "zoom finishes during the first half of expansion");
     await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
     assert.equal(shared.isConnected, true, "the correctly sized source photo remains while the expanded image loads");
+    assert.equal(clonedFrame.style.transformOrigin, "25% 60%");
+    assert.equal(clonedFrame.querySelector("img").style.objectPosition, "25% 60%");
     assert.equal(clonedFrame.style.transform, "scale(1)", "the retained image keeps expanded zoom even if the shell finishes before its zoom animation");
     await act(async () => document.querySelector(".class-card-expansion-content button").click());
     assert.equal(clonedFrame.style.width, "100%");
-    assert.equal(clonedFrame.style.transformOrigin, "25% 70%");
+    assert.equal(clonedFrame.style.transformOrigin, "25% 60%");
     const closingZoom = calls.filter((call) => call.element === clonedFrame && call.frames.some((frame) => "transform" in frame)).at(-1);
-    assert.deepEqual(closingZoom.frames, [{ transform: "scale(1)" }, { transform: "scale(2)" }]);
+    assert.deepEqual(closingZoom.frames, [{ transform: "scale(1)", transformOrigin: "25% 60%", objectPosition: "25% 60%" }, { transform: "scale(2)", transformOrigin: "25% 70%", objectPosition: "25% 70%" }]);
     assert.equal(closingZoom.options.duration, 140);
     assert.equal(closingZoom.options.easing, "ease-out");
     assert.equal(closingZoom.options.delay ?? 0, 0);

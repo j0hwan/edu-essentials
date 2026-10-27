@@ -8,7 +8,7 @@ const base = { v: 2, a: "day", w: [["day", "Day", []]], d: { assignments: [], ma
 const course = { id: "c", code: "BIO 1", name: "Biology", credits: 3, instructor: "", room: "", color: "#112233", soft: "#11223318", initials: "BI" };
 const assignment = { id: "a", courseId: "c", title: "Essay", dateKey: "2026-10-15", due: "", status: "later", progress: 25, description: "", weight: "" };
 test("class image framing is bounded and survives workspace snapshots", () => {
-  const imageFraming = { fileId: "cover", x: 15, y: 90, zoom: 2.5 };
+  const imageFraming = { fileId: "cover", x: 15, y: 90, zoom: 2.5, imageAspectRatio: 1.5, frameAspectRatio: 300 / 132 };
   const details = { officeHours: "", meetings: [], imageFraming };
   assert.deepEqual(validateCourseDetails(details).imageFraming, imageFraming);
   const snapshot = academicSnapshot([course], { ...base, d: { ...base.d, courseDetails: { c: details } } });
@@ -17,6 +17,9 @@ test("class image framing is bounded and survives workspace snapshots", () => {
     assert.throws(() => validateCourseDetails({ ...details, imageFraming: { ...imageFraming, ...patch } }));
   }
   assert.throws(() => validateCourseDetails({ ...details, imageFraming: null }));
+  for (const key of ["imageAspectRatio", "frameAspectRatio"]) {
+    for (const value of [0, -1, Infinity, NaN, "1.5", null]) assert.throws(() => validateCourseDetails({ ...details, imageFraming: { ...imageFraming, [key]: value } }));
+  }
 });
 test("calendar dates honor time zones, week start, leap days and month/year boundaries", () => {
   const now = new Date("2026-09-06T00:30:00Z");

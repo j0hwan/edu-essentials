@@ -1,13 +1,23 @@
 import type { CSSProperties } from "react";
 
-export type CourseImageFraming = { fileId: string; x: number; y: number; zoom: number };
+export type CourseImageFraming = { fileId: string; x: number; y: number; zoom: number; imageAspectRatio?: number; frameAspectRatio?: number };
 export const DEFAULT_COURSE_IMAGE_FRAMING = { x: 50, y: 50, zoom: 1 };
 const clampPosition = (value: number) => Math.max(0, Math.min(100, value));
 
-export function courseImageFramingStyle(framing?: CourseImageFraming, fileId?: string, expanded = false): CSSProperties {
+export function expandedCourseImageY(positionY: number, zoom: number, imageAspectRatio: number, sourceAspectRatio: number, targetAspectRatio: number): number {
+  if (![imageAspectRatio, sourceAspectRatio, targetAspectRatio].every((ratio) => Number.isFinite(ratio) && ratio > 0)) return positionY;
+  const sourceHeight = Math.max(1, sourceAspectRatio / imageAspectRatio) * zoom;
+  const targetHeight = Math.max(1, targetAspectRatio / imageAspectRatio);
+  const center = 0.5 + (positionY / 100 - 0.5) * (1 - 1 / sourceHeight);
+  return targetHeight <= 1 ? 50 : clampPosition((0.5 + (center - 0.5) / (1 - 1 / targetHeight)) * 100);
+}
+
+export function courseImageFramingStyle(framing?: CourseImageFraming, fileId?: string, expanded = false, targetAspectRatio?: number): CSSProperties {
   const { x, y, zoom } = framing && (!fileId || framing.fileId === fileId) ? framing : DEFAULT_COURSE_IMAGE_FRAMING;
-  const position = `${x}% ${y}%`;
-  const displayZoom = expanded ? Math.max(1, zoom / 2) : zoom;
+  const expandedY = expanded && targetAspectRatio && framing?.imageAspectRatio && framing.frameAspectRatio && (!fileId || framing.fileId === fileId)
+    ? expandedCourseImageY(y, zoom, framing.imageAspectRatio, framing.frameAspectRatio, targetAspectRatio) : y;
+  const position = `${x}% ${expandedY}%`;
+  const displayZoom = expanded ? 1 : zoom;
   return { backgroundPosition: position, objectPosition: position, transform: `scale(${displayZoom})`, transformOrigin: position };
 }
 

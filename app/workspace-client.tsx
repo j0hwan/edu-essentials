@@ -3,7 +3,7 @@
 import Link from "next/link";
 import CourseIcon from "./course-icon";
 import ClassCardBody from "./class-card-body";
-import { courseImageFramingStyle } from "../lib/course-image-framing";
+import CourseImageFrame from "./course-image-frame";
 import { usePathname, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
@@ -2059,7 +2059,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     const image = courseImages.get(course.id);
     return <div className={`class-card-visual${close ? " expanded-class-header" : ""}`}>
       <div className="class-card-media" data-course-morph="visual" aria-hidden="true" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
-        <div className="course-image-frame" style={courseImageFramingStyle(extraData.courseDetails[course.id]?.imageFraming, image?.id, Boolean(close))}>{close ? <ExpandedCourseImage profileId={initialProfile.id} courseId={course.id} file={image} store={fileStore} filesReady={!fileStore.loading && !fileStore.error} restored={skipOpeningAnimation} cacheEnabled={page === "dashboard" && !experimentalMode && !onboardingTest} /> : image ? <PrivateImage key={image.id} file={image} store={fileStore} onSettled={onImageSettled ? () => onImageSettled(courseImageLoadKey(image)) : undefined} /> : null}</div>
+        <CourseImageFrame framing={extraData.courseDetails[course.id]?.imageFraming} fileId={image?.id} courseId={course.id} expanded={Boolean(close)}>{close ? <ExpandedCourseImage profileId={initialProfile.id} courseId={course.id} file={image} store={fileStore} filesReady={!fileStore.loading && !fileStore.error} restored={skipOpeningAnimation} cacheEnabled={page === "dashboard" && !experimentalMode && !onboardingTest} /> : image ? <PrivateImage key={image.id} file={image} store={fileStore} onSettled={onImageSettled ? () => onImageSettled(courseImageLoadKey(image)) : undefined} /> : null}</CourseImageFrame>
       </div>
       <span className="course-watermark" data-course-morph="watermark" aria-hidden="true">{course.initials}</span><span className="course-pill" data-course-morph="code" style={{ color: course.color }}>{course.code}</span><CourseIcon icon={extraData.courseDetails[course.id]?.icon} data-course-morph="icon" size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" />
       {close && <button className="secondary-button" onClick={close}>Close class <X size={15} /></button>}

@@ -770,9 +770,12 @@ test("cover drag, zoom and keyboard positioning persist and reset for replacemen
     assert.match(cover.style.backgroundPosition, /^42% /);
     await click("Back"); await click("Continue");
     assert.equal(host.querySelector('[aria-label="Image zoom"]').value, "2");
+    button("Change class image").getBoundingClientRect = () => ({ width: 300, height: 132 });
     await submit();
     assert.equal(saved[1].imageFraming.zoom, 2);
     assert.equal(saved[1].imageFraming.x, 42);
+    assert.equal(saved[1].imageFraming.imageAspectRatio, 1.5);
+    assert.equal(saved[1].imageFraming.frameAspectRatio, 300 / 132);
     assert.equal(saved[1].imageFraming.fileId, saved[2].image.id);
     assert.equal(saved[2].image.file.name, "cover.png");
     assert.equal(host.querySelector('[aria-label="Image zoom"]').disabled, true);

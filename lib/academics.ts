@@ -37,6 +37,10 @@ export function validateCourseDetails(value: unknown): CourseDetails {
   if (d.imageFraming !== undefined) {
     const framing = record(d.imageFraming);
     text(framing.fileId, "class image file", 120, true);
+    for (const key of ["imageAspectRatio", "frameAspectRatio"] as const) {
+      const value = framing[key];
+      if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) throw new Error("Invalid class image framing.");
+    }
     for (const [key, maximum] of [["x", 100], ["y", 100], ["zoom", 3]] as const) {
       const value = framing[key];
       if (typeof value !== "number" || !Number.isFinite(value) || value < (key === "zoom" ? 1 : 0) || value > maximum) throw new Error("Invalid class image framing.");

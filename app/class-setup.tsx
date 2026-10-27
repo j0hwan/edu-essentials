@@ -305,7 +305,11 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
       }
       if (step < 2) { transition(() => setStep(step + 1)); return; }
       saving.current = true; setBusy(true); setAttemptedSave(true);
-      await onSave(validated, details, uploads);
+      const preview = formRef.current?.querySelector<HTMLElement>(".class-setup-image-button");
+      const bounds = preview?.getBoundingClientRect();
+      const imageFraming = details.imageFraming && imageSize && bounds && bounds.width > 0 && bounds.height > 0
+        ? { ...details.imageFraming, imageAspectRatio: imageSize.width / imageSize.height, frameAspectRatio: bounds.width / bounds.height } : details.imageFraming;
+      await onSave(validated, { ...details, imageFraming }, uploads);
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not save this class. Your setup is still here; please retry."); }
     finally { saving.current = false; setBusy(false); }
   };
