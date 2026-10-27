@@ -176,6 +176,8 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .class-card-visual > [data-course-morph="icon"] { position: relative; z-index: 1; }
 .class-card-visual > [data-course-morph="watermark"] { z-index: 1; }
 .class-card-media { position: absolute; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; }
+.course-image-frame { position: absolute; inset: 0; }
+.course-image-frame > img { object-position: inherit; }
 .expanded-class-header .course-watermark { top: -28px; font-size: 140px; }
 .expanded-class-header .course-pill { padding: 7px 12px; font-size: 12px; }
 .expanded-class-heading { display: flex; align-items: center; gap: 14px; min-width: 0; margin-bottom: 20px; }

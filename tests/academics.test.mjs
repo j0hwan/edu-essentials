@@ -7,6 +7,17 @@ const { dayKey, weekStart, addDays, isDate, assignmentStatus, suggestSyllabusIte
 const base = { v: 2, a: "day", w: [["day", "Day", []]], d: { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" } };
 const course = { id: "c", code: "BIO 1", name: "Biology", credits: 3, instructor: "", room: "", color: "#112233", soft: "#11223318", initials: "BI" };
 const assignment = { id: "a", courseId: "c", title: "Essay", dateKey: "2026-10-15", due: "", status: "later", progress: 25, description: "", weight: "" };
+test("class image framing is bounded and survives workspace snapshots", () => {
+  const imageFraming = { fileId: "cover", x: 15, y: 90, zoom: 2.5 };
+  const details = { officeHours: "", meetings: [], imageFraming };
+  assert.deepEqual(validateCourseDetails(details).imageFraming, imageFraming);
+  const snapshot = academicSnapshot([course], { ...base, d: { ...base.d, courseDetails: { c: details } } });
+  assert.deepEqual(decodeWorkspaceState(JSON.parse(JSON.stringify(snapshot.dashboard))).data.courseDetails.c.imageFraming, imageFraming);
+  for (const patch of [{ x: -1 }, { x: 101 }, { y: Infinity }, { y: "50" }, { zoom: 0.9 }, { zoom: 3.1 }, { zoom: NaN }, { fileId: "" }]) {
+    assert.throws(() => validateCourseDetails({ ...details, imageFraming: { ...imageFraming, ...patch } }));
+  }
+  assert.throws(() => validateCourseDetails({ ...details, imageFraming: null }));
+});
 test("calendar dates honor time zones, week start, leap days and month/year boundaries", () => {
   const now = new Date("2026-09-06T00:30:00Z");
   assert.equal(dayKey(now, "America/Los_Angeles"), "2026-09-05"); assert.equal(dayKey(now, "Asia/Tokyo"), "2026-09-06");

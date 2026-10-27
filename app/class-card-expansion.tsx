@@ -314,6 +314,22 @@ function createMorphWrapper(pair: MorphPair, direction: "opening" | "closing", l
   if (pair.key === "visual") {
     clone.style.setProperty("overflow", "hidden");
     clone.style.setProperty("isolation", "isolate");
+    const originalFrames = node.querySelectorAll<HTMLElement>(".course-image-frame");
+    clone.querySelectorAll<HTMLElement>(".course-image-frame").forEach((frame, index) => {
+      const originalFrame = originalFrames[index];
+      frame.style.setProperty("position", "absolute");
+      frame.style.setProperty("inset", "0");
+      frame.style.setProperty("width", "100%");
+      frame.style.setProperty("height", "100%");
+      frame.style.setProperty("min-width", "0");
+      frame.style.setProperty("min-height", "0");
+      frame.style.setProperty("max-width", "none");
+      frame.style.setProperty("max-height", "none");
+      frame.style.setProperty("transform", originalFrame?.style.transform || "none");
+      frame.style.setProperty("transform-origin", originalFrame?.style.transformOrigin || "50% 50%");
+      frame.style.setProperty("object-position", originalFrame?.style.objectPosition || "50% 50%");
+      for (const image of frame.querySelectorAll("img")) image.style.setProperty("object-position", frame.style.objectPosition);
+    });
     for (const image of clone.querySelectorAll<HTMLImageElement>("img")) {
       image.style.setProperty("position", "absolute");
       image.style.setProperty("inset", "0");

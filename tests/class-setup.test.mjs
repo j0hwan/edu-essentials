@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
 const dom = new JSDOM('<button id="opener">Add class</button><div id="root"></div>', { url: "https://edu.example/dashboard" });
-for (const name of ["window", "document", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLTextAreaElement"]) globalThis[name] = dom.window[name];
+for (const name of ["window", "document", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLTextAreaElement", "FileReader"]) globalThis[name] = dom.window[name];
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -326,7 +326,7 @@ test("required fields have visible asterisks and setup omits the removed introdu
   const verifyLabels = () => {
     assert.doesNotMatch(host.textContent, removedCopy);
     for (const input of host.querySelectorAll("input")) {
-      const marker = input.closest("label")?.querySelector('[aria-hidden="true"]');
+      const marker = input.closest("label")?.querySelector('.class-setup-required');
       assert.equal(Boolean(marker), input.required, `${input.closest("label")?.textContent} marks only required inputs`);
       if (marker) assert.equal(marker.textContent.trim(), "*");
     }
@@ -697,6 +697,152 @@ test("syllabus and image stay local until final save; syllabus is storage-only a
   assert.equal(payloads[0][1].syllabusText, undefined);
   assert.equal(payloads[0][1].meetings.length, 1);
   assert.match(host.textContent, /Storage only/);
+});
+
+test("customization previews the dashboard card and updates its color, icon, and cover", async () => {
+  await mount(); await appearance();
+  assert.ok(host.querySelector(".class-setup-customize-step"));
+  const card = host.querySelector('[aria-label="Class card preview"]');
+  assert.equal(card.querySelector("h3").textContent, "Biology");
+  assert.equal(card.querySelector(".course-pill").textContent, "BIO 101");
+  assert.equal(card.querySelector(".course-watermark").textContent, "BI");
+  assert.deepEqual([...card.querySelectorAll(".class-statuses > span")].map((node) => node.textContent), ["0overdue", "0today", "0later"]);
+  assert.equal(host.querySelectorAll(".class-setup-icon-picker button").length, 16);
+  const icon = host.querySelectorAll(".class-setup-icon-picker button")[2];
+  await act(async () => icon.click());
+  assert.equal(icon.getAttribute("aria-pressed"), "true");
+  assert.equal(card.querySelector(".class-card-visual > svg").getAttribute("class"), icon.querySelector("svg").getAttribute("class"));
+  assert.equal(card.querySelector(".class-card-visual > svg").getAttribute("width"), "34");
+  await change("Class color", "#ff0000");
+  assert.match(card.querySelector(".course-pill").style.color, /rgb\(255, 0, 0\)/);
+  assert.match(card.querySelector(".class-setup-card-media").style.background, /rgb\(255, 0, 0\)/);
+  let chooserOpened = false;
+  host.querySelector('input[aria-label="Class image (optional)"]').click = () => { chooserOpened = true; };
+  await click("Add class image");
+  assert.equal(chooserOpened, true);
+  await file("image", new window.File(["cover"], "cover.png", { type: "image/png" }));
+  assert.ok(button("Change class image"));
+  assert.ok(card.querySelector('[aria-label="Selected class cover"]'));
+  await click("Remove image");
+  assert.equal(card.querySelector('[aria-label="Selected class cover"]'), null);
+  await submit();
+  assert.equal(saved[0].color, "#ff0000");
+  assert.equal(saved[2].image, undefined);
+});
+
+test("cover drag, zoom and keyboard positioning persist and reset for replacement images", async () => {
+  const OriginalImage = window.Image;
+  window.Image = class {
+    naturalWidth = 1200;
+    naturalHeight = 800;
+    onload = null;
+    set src(value) { queueMicrotask(() => this.onload?.()); }
+  };
+  try {
+    await mount(); await appearance();
+    assert.doesNotMatch(host.textContent, /Click the card image to change it/);
+    assert.equal(host.querySelector('[aria-label="Image zoom"]').disabled, true);
+    const coverButton = button("Add class image");
+    assert.equal(coverButton.classList.contains("has-image"), false);
+    assert.equal(coverButton.querySelector(".class-setup-image-affordance").textContent, "Change image");
+    await file("image", new window.File(["image"], "cover.png", { type: "image/png" }));
+    assert.equal(coverButton.classList.contains("has-image"), true);
+    coverButton.getBoundingClientRect = () => ({ width: 300, height: 132 });
+    let chooserOpened = 0;
+    host.querySelector('input[aria-label="Class image (optional)"]').click = () => { chooserOpened++; };
+    await change("Image zoom", "2");
+    const cover = host.querySelector('[aria-label="Selected class cover"]');
+    assert.equal(cover.style.transform, "scale(2)");
+    const pointer = async (type, clientX, clientY) => act(async () => {
+      const event = new window.MouseEvent(type, { bubbles: true, button: 0, clientX, clientY });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      coverButton.dispatchEvent(event);
+    });
+    await pointer("pointerdown", 100, 70);
+    assert.equal(coverButton.dataset.dragging, "true");
+    await pointer("pointermove", 130, 90);
+    await pointer("pointerup", 130, 90);
+    assert.equal(coverButton.dataset.dragging, undefined);
+    assert.match(cover.style.backgroundPosition, /^40% /);
+    await act(async () => coverButton.click());
+    assert.equal(chooserOpened, 0);
+    await act(async () => coverButton.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true })));
+    assert.match(cover.style.backgroundPosition, /^42% /);
+    await click("Back"); await click("Continue");
+    assert.equal(host.querySelector('[aria-label="Image zoom"]').value, "2");
+    await submit();
+    assert.equal(saved[1].imageFraming.zoom, 2);
+    assert.equal(saved[1].imageFraming.x, 42);
+    assert.equal(saved[1].imageFraming.fileId, saved[2].image.id);
+    assert.equal(saved[2].image.file.name, "cover.png");
+    assert.equal(host.querySelector('[aria-label="Image zoom"]').disabled, true);
+    await act(async () => root.unmount()); root = undefined;
+    await mount(); await appearance();
+    await file("image", new window.File(["image"], "first.png", { type: "image/png" }));
+    await change("Image zoom", "2.5");
+    await file("image", new window.File(["image"], "second.png", { type: "image/png" }));
+    assert.equal(host.querySelector('[aria-label="Image zoom"]').value, "1");
+    assert.equal(host.querySelector('[aria-label="Selected class cover"]').style.backgroundPosition, "50% 50%");
+    await click("Remove image");
+    assert.equal(host.querySelector('[aria-label="Image zoom"]').disabled, true);
+    assert.equal(button("Remove image"), undefined);
+    await submit();
+    assert.equal(saved[1].imageFraming, undefined);
+  } finally { window.Image = OriginalImage; }
+});
+
+test("syllabus PDF preview replaces and removes local object URLs without uploading", async () => {
+  const revoked = [];
+  URL.revokeObjectURL = (url) => revoked.push(url);
+  try {
+    await mount(); await appearance();
+    assert.ok(host.querySelector(".class-setup-document-empty"));
+    await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
+    assert.equal(host.querySelector("iframe").title, "Syllabus preview: syllabus.pdf");
+    assert.match(host.querySelector("iframe").src, /^blob:/);
+    assert.equal(calls, 0);
+    await file("syllabus", new window.File(["replacement"], "revised.pdf", { type: "application/pdf" }));
+    assert.equal(host.querySelector("iframe").title, "Syllabus preview: revised.pdf");
+    assert.equal(revoked.length, 1);
+    await click("Remove syllabus");
+    assert.equal(host.querySelector("iframe"), null);
+    assert.ok(host.querySelector(".class-setup-document-empty"));
+    assert.equal(revoked.length, 2);
+  } finally { URL.revokeObjectURL = () => {}; }
+});
+
+test("text syllabuses render safely and other documents have an honest fallback", async () => {
+  await mount(); await appearance();
+  await file("syllabus", new window.File(["<script>bad()</script>\nWeek 1: Biology"], "syllabus.txt", { type: "text/plain" }));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+  assert.match(host.querySelector(".class-setup-document-preview pre").textContent, /Week 1: Biology/);
+  assert.equal(host.querySelector(".class-setup-document-preview script"), null);
+  await file("syllabus", new window.File(["document"], "syllabus.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+  assert.match(host.querySelector(".class-setup-document-fallback").textContent, /will still be attached/);
+  assert.equal(host.querySelector("iframe"), null);
+  assert.equal(host.querySelector("a[download]").getAttribute("download"), "syllabus.docx");
+});
+
+test("Escape in the syllabus frame uses the setup discard guard and stays locked during save", async () => {
+  const originalConfirm = window.confirm;
+  window.confirm = () => true;
+  try {
+    await mount(); await appearance();
+    await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
+    const frame = host.querySelector("iframe");
+    frame.focus();
+    await act(async () => frame.contentDocument.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    assert.equal(closed, 1);
+    await act(async () => root.unmount()); root = undefined;
+    let finishSave;
+    const saving = new Promise((resolve) => { finishSave = resolve; });
+    await mount({ onSave: () => saving }); await appearance();
+    await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
+    await act(async () => host.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await act(async () => host.querySelector("iframe").contentDocument.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    assert.equal(closed, 0);
+    await act(async () => finishSave());
+  } finally { window.confirm = originalConfirm; }
 });
 
 test("invalid files are rejected and unavailable uploads do not block class creation", async () => {

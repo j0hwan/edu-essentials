@@ -1,8 +1,9 @@
 import { isCourseIconId, type CourseIconId } from "./course-icons";
+import type { CourseImageFraming } from "./course-image-framing";
 
 export type Course = { id: string; code: string; name: string; credits: number; instructor: string; room: string; color: string; soft: string; initials: string };
 export type Meeting = { id: string; name?: string; days: number[]; start: string; end: string; from: string; until: string; location: string; excludedDates?: string[] };
-export type CourseDetails = { officeHours: string; meetings: Meeting[]; icon?: CourseIconId; syllabusText?: string; syllabusName?: string; syllabusFileId?: string };
+export type CourseDetails = { officeHours: string; meetings: Meeting[]; icon?: CourseIconId; imageFraming?: CourseImageFraming; syllabusText?: string; syllabusName?: string; syllabusFileId?: string };
 export type ReviewItem = { id: string; title: string; date: string; type: "Assignment" | "Exam" | "Project"; description: string; weight: string };
 export type SyllabusDraft = { id: string; sourceText: string; sourceName: string; sourceFileId?: string; course: Course; items: ReviewItem[] };
 export const assignmentTypes = ["Assignment", "Exam", "Project"] as const;
@@ -33,6 +34,14 @@ export function validateCourse(value: unknown, draft = false): Course {
 export function validateCourseDetails(value: unknown): CourseDetails {
   const d = record(value); text(d.officeHours, "office hours", 2000);
   if (d.icon !== undefined && !isCourseIconId(d.icon)) throw new Error("Invalid class icon.");
+  if (d.imageFraming !== undefined) {
+    const framing = record(d.imageFraming);
+    text(framing.fileId, "class image file", 120, true);
+    for (const [key, maximum] of [["x", 100], ["y", 100], ["zoom", 3]] as const) {
+      const value = framing[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < (key === "zoom" ? 1 : 0) || value > maximum) throw new Error("Invalid class image framing.");
+    }
+  }
   if (!Array.isArray(d.meetings) || d.meetings.length > 30) throw new Error("A class can have up to 30 meeting schedules.");
   const ids = new Set<string>();
   for (const raw of d.meetings) {

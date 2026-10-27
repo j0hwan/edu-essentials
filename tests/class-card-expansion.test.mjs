@@ -509,6 +509,55 @@ test("course-code badges fit the full text without ellipsis during opening and c
   }
 });
 
+test("zoomed course image frames fill shared visuals and keep percentage framing during expansion", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  const image = source.querySelector("img");
+  const frame = document.createElement("div");
+  frame.className = "course-image-frame";
+  frame.style.cssText = "position:absolute;inset:0;width:260px;height:132px;object-position:25% 70%;transform:scale(2);transform-origin:25% 70%";
+  image.replaceWith(frame);
+  frame.append(image);
+  Object.defineProperties(image, { complete: { value: true, configurable: true }, naturalWidth: { value: 1200, configurable: true } });
+  const restoreRects = installMorphRectMocks();
+  const originalComputedStyle = window.getComputedStyle;
+  window.getComputedStyle = (element, pseudo) => {
+    const style = originalComputedStyle.call(window, element, pseudo);
+    if (element !== frame) return style;
+    const frozenStyle = document.createElement("div").style;
+    for (let index = 0; index < style.length; index++) {
+      const property = style.item(index);
+      frozenStyle.setProperty(property, style.getPropertyValue(property));
+    }
+    frozenStyle.setProperty("transform-origin", "65px 92.4px");
+    return frozenStyle;
+  };
+  try {
+    await render({ children: (close) => h("div", null,
+      h("div", { className: "expanded-class-header" }, h("div", { "data-course-morph": "visual" },
+        h("div", { className: "course-image-frame", style: { width: "838px", height: "190px", objectPosition: "25% 70%", transform: "scale(2)", transformOrigin: "25% 70%" } }),
+      )),
+      h("button", { onClick: close }, "Close class"),
+    ) });
+    const shared = document.querySelector(".class-card-expansion-morph[data-course-morph='visual']");
+    const clonedFrame = shared.querySelector(".course-image-frame");
+    assert.equal(clonedFrame.style.width, "100%");
+    assert.equal(clonedFrame.style.height, "100%");
+    assert.equal(clonedFrame.style.transform, "scale(2)");
+    assert.equal(clonedFrame.style.transformOrigin, "25% 70%");
+    assert.equal(clonedFrame.querySelector("img").style.objectPosition, "25% 70%");
+    await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
+    assert.equal(shared.isConnected, true, "the correctly sized source photo remains while the expanded image loads");
+    await act(async () => document.querySelector(".class-card-expansion-content button").click());
+    assert.equal(clonedFrame.style.width, "100%");
+    assert.equal(clonedFrame.style.transformOrigin, "25% 70%");
+  } finally {
+    window.getComputedStyle = originalComputedStyle;
+    restoreRects();
+    await cleanup();
+  }
+});
+
 test("matched visual, icon, and labels stay in an opaque shared layer through the expansion", async () => {
   const { source, render, cleanup } = setup();
   setMorphFixture(source);

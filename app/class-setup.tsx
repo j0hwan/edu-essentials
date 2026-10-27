@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import { addDays, emptyCourseDetails, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
+import { courseImageFramingStyle, DEFAULT_COURSE_IMAGE_FRAMING, moveCourseImage, type CourseImageFraming } from "../lib/course-image-framing";
 import { MAX_FILE_BYTES } from "../lib/files";
 import CourseIcon from "./course-icon";
+import ClassCardBody from "./class-card-body";
+import ClassSetupDocumentPreview from "./class-setup-document-preview";
 import { useSaveProtection } from "./use-save-protection";
 import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
 import "./course-icon-picker.css";
@@ -138,6 +141,13 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
   const [uploads, setUploads] = useState<ClassSetupUploads>({});
   const [imagePreview, setImagePreview] = useState("");
   const imageUrlRef = useRef("");
+  const [syllabusPreview, setSyllabusPreview] = useState("");
+  const syllabusUrlRef = useRef("");
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [draggingImage, setDraggingImage] = useState(false);
+  const imageDragRef = useRef<{ pointerId: number; startX: number; startY: number; width: number; height: number; framing: CourseImageFraming } | null>(null);
+  const suppressImageClickRef = useRef(false);
   const [error, setError] = useState("");
   const [checkedSteps, setCheckedSteps] = useState<number[]>([]);
   const focusMissingRef = useRef(false);
@@ -159,7 +169,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
       if (event.key !== "Tab") return;
-      const controls = [...(formRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? [])];
+      const controls = [...(formRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not(.class-setup-hidden-input), textarea:not(:disabled), iframe, a[href], [tabindex="0"]') ?? [])];
       const first = controls[0], last = controls[controls.length - 1];
       if (!first) { event.preventDefault(); formRef.current?.focus(); return; }
       if (event.shiftKey && (document.activeElement === first || document.activeElement === headingRef.current)) { event.preventDefault(); last?.focus(); }
@@ -181,7 +191,17 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
     (target ?? formRef.current?.querySelector<HTMLButtonElement>(".class-setup-add-meeting"))?.focus();
     meetingFocusRef.current = null;
   }, [details.meetings]);
-  useEffect(() => () => { if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current); }, []);
+  useEffect(() => () => {
+    if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+    if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current);
+  }, []);
+  useEffect(() => {
+    if (!imagePreview) return;
+    const image = new window.Image();
+    image.onload = () => setImageSize({ width: image.naturalWidth, height: image.naturalHeight });
+    image.src = imagePreview;
+    return () => { image.onload = null; };
+  }, [imagePreview]);
 
   const changeCourse = (patch: Partial<Course>) => setCourse((current) => ({ ...current, ...patch }));
   const changeMeeting = (id: string, patch: Partial<Meeting>) => setDetails((current) => ({ ...current, meetings: current.meetings.map((meeting) => meeting.id === id ? { ...meeting, ...patch } : meeting) }));
@@ -206,17 +226,56 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
   const isMissing = (value: string | number) => checkedSteps.includes(step) && !String(value).trim();
   const requiredMarker = (missing: boolean) => <span aria-hidden="true" className={missing ? "class-setup-required is-missing" : "class-setup-required"}> *</span>;
   const field = (label: string, value: string | number, onChange: (value: string) => void, type = "text", required = false, maxLength = 160) => <label><span>{label}{required && requiredMarker(isMissing(value))}</span><input type={type} value={value} required={required} aria-invalid={required && isMissing(value) ? true : undefined} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} {...(type === "number" ? { min: 0, max: 30, step: 1 } : {})} /></label>;
+  const startImageDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    suppressImageClickRef.current = false;
+    if (!uploads.image || !details.imageFraming || !imageSize || busy || attemptedSave || event.button !== 0 || event.isPrimary === false || (event.target as HTMLElement).closest(".class-setup-image-affordance")) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    imageDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, width: bounds.width, height: bounds.height, framing: details.imageFraming };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDraggingImage(true);
+  };
+  const moveImageDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = imageDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !imageSize || busy || attemptedSave) return;
+    const deltaX = event.clientX - drag.startX, deltaY = event.clientY - drag.startY;
+    if (Math.hypot(deltaX, deltaY) < 3 && !suppressImageClickRef.current) return;
+    suppressImageClickRef.current = true;
+    const imageFraming = moveCourseImage(drag.framing, deltaX, deltaY, drag.width, drag.height, imageSize.width, imageSize.height);
+    setDetails((current) => ({ ...current, imageFraming }));
+  };
+  const finishImageDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (imageDragRef.current?.pointerId !== event.pointerId) return;
+    imageDragRef.current = null;
+    setDraggingImage(false);
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const moveImageWithKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const framing = details.imageFraming;
+    if (!uploads.image || !framing || busy || attemptedSave || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const delta = event.shiftKey ? 10 : 2;
+    const x = Math.max(0, Math.min(100, framing.x + (event.key === "ArrowLeft" ? delta : event.key === "ArrowRight" ? -delta : 0)));
+    const y = Math.max(0, Math.min(100, framing.y + (event.key === "ArrowUp" ? delta : event.key === "ArrowDown" ? -delta : 0)));
+    setDetails((current) => ({ ...current, imageFraming: { ...framing, x, y } }));
+  };
   const selectFile = (kind: keyof ClassSetupUploads, file?: File) => {
     setError("");
     if (!file) return;
     if (!file.size || file.size > MAX_FILE_BYTES) { setError("Choose a nonempty file of 25 MiB or smaller."); return; }
     if (kind === "image" && !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) { setError("Choose a PNG, JPEG, WebP, or GIF class image."); return; }
+    const id = crypto.randomUUID();
     if (kind === "image") {
       if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
       imageUrlRef.current = URL.createObjectURL(file);
       setImagePreview(imageUrlRef.current);
+      setImageSize(null);
+      setDetails((current) => ({ ...current, imageFraming: { ...DEFAULT_COURSE_IMAGE_FRAMING, fileId: id } }));
+    } else {
+      if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current);
+      syllabusUrlRef.current = URL.createObjectURL(/\.pdf$/i.test(file.name) ? file.slice(0, file.size, "application/pdf") : file);
+      setSyllabusPreview(syllabusUrlRef.current);
     }
-    setUploads((current) => ({ ...current, [kind]: { file, id: crypto.randomUUID() } }));
+    setUploads((current) => ({ ...current, [kind]: { file, id } }));
   };
   const submit = async () => {
     if (saving.current) return;
@@ -251,7 +310,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
     finally { saving.current = false; setBusy(false); }
   };
 
-  return <div className="modal-backdrop"><form ref={formRef} noValidate data-morphing-entry={initialBounds ? true : undefined} className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+  return <div className="modal-backdrop"><form ref={formRef} noValidate data-morphing-entry={initialBounds ? true : undefined} className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : step === 2 ? " class-setup-customize-step" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <h2 className="class-setup-accessible-title" id="class-setup-title" ref={headingRef} tabIndex={-1}>{steps[step]}</h2>
     <div className="modal-header class-setup-header">
       <ol className="class-setup-progress" aria-label="Class setup progress">{steps.map((label, index) => <li key={label} aria-label={`${label}${index < step ? ", completed" : ""}`} aria-current={step === index ? "step" : undefined} className={index < step ? "is-complete" : undefined}>
@@ -300,7 +359,48 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
           </div>
         </section> : <section className="class-setup-schedule-empty" id="class-setup-meeting-editor"><CalendarDays size={32} aria-hidden="true" /><h3>No scheduled meetings</h3><p>Add a meeting for live classes, or continue without one for an asynchronous course.</p></section>}
       </div>}
-      {step === 2 && <><div className="class-setup-preview" style={{ borderColor: course.color, backgroundColor: `${course.color}18` }}>{uploads.image && imagePreview ? <div className="class-setup-cover" role="img" aria-label="Selected class cover" style={{ backgroundImage: `url(${imagePreview})` }} /> : <CourseIcon icon={details.icon} size={36} style={{ color: course.color }} />}<div><strong>{course.code}</strong><span>{course.name}</span></div></div>{field("Class color", course.color, (color) => changeCourse({ color }), "color")}<fieldset className="course-icon-picker"><legend>Class icon</legend><div className="course-icon-options">{courseIconOptions.map((option) => <button key={option.id} type="button" aria-label={option.label} aria-pressed={(details.icon ?? DEFAULT_COURSE_ICON) === option.id} onClick={() => setDetails({ ...details, icon: option.id })}><CourseIcon icon={option.id} size={24} style={{ color: course.color }} />{(details.icon ?? DEFAULT_COURSE_ICON) === option.id && <Check className="course-icon-selected" size={14} />}</button>)}</div></fieldset><fieldset className="class-setup-uploads" disabled={attemptedSave}><legend className="class-setup-upload-legend">Optional files</legend>{(["image", "syllabus"] as const).map((kind) => <section key={kind}>{kind === "image" ? <ImagePlus size={22} /> : <FileText size={22} />}<label>{kind === "image" ? "Class image (optional)" : "Syllabus (optional)"}<input type="file" disabled={!canUpload || busy} accept={kind === "image" ? "image/png,image/jpeg,image/webp,image/gif" : undefined} onChange={(event) => { selectFile(kind, event.target.files?.[0]); event.target.value = ""; }} /></label><p className="form-hint">{kind === "image" ? "PNG, JPEG, WebP, or GIF. Up to 25 MiB." : "Storage only. Uploading will not change your course, schedule, or assignments."}</p>{uploads[kind] && <div className="class-setup-file"><span>{uploads[kind]!.file.name}</span><button type="button" className="text-button" onClick={() => setUploads((current) => ({ ...current, [kind]: undefined }))}>Remove {kind}</button></div>}</section>)}</fieldset>{!canUpload && <p className="form-hint">File uploads are unavailable until your workspace is saved. You can still create this class and attach files later.</p>}</>}
+      {step === 2 && <>
+        <div className="class-setup-customize">
+          <section className="class-setup-appearance" aria-label="Class appearance">
+            <p className="class-setup-panel-title">Live card preview</p>
+            <div className="class-setup-card-controls">
+              <div className="class-setup-card-column">
+                <div className="class-card class-setup-card" aria-label="Class card preview">
+                  <button type="button" className={`class-card-visual class-setup-image-button${uploads.image ? " has-image" : ""}`} data-dragging={draggingImage || undefined} aria-label={uploads.image ? "Change class image" : "Add class image"} title={uploads.image ? "Drag to position the image, or use the arrow keys. Click to replace it." : "Choose a class image"} disabled={!canUpload || busy || attemptedSave} onPointerDown={startImageDrag} onPointerMove={moveImageDrag} onPointerUp={finishImageDrag} onPointerCancel={finishImageDrag} onLostPointerCapture={finishImageDrag} onKeyDown={moveImageWithKeyboard} onClick={() => { if (suppressImageClickRef.current) { suppressImageClickRef.current = false; return; } imageInputRef.current?.click(); }}>
+                    <div className="class-setup-card-media" style={{ background: `linear-gradient(135deg, ${course.color}18, color-mix(in srgb, ${course.color} 18%, white))` }}>
+                      {uploads.image && imagePreview && <div className="class-setup-cover" role="img" aria-label="Selected class cover" style={{ backgroundImage: `url(${imagePreview})`, ...courseImageFramingStyle(details.imageFraming) }} />}
+                    </div>
+                    <span className="course-watermark" aria-hidden="true">{course.code.slice(0, 2).toUpperCase()}</span>
+                    <span className="course-pill" style={{ color: course.color }}>{course.code}</span>
+                    <CourseIcon icon={details.icon} size={34} style={{ color: course.color }} aria-hidden="true" />
+                    <span className="class-setup-image-affordance"><ImagePlus size={14} />Change image</span>
+                  </button>
+                  <ClassCardBody course={course} />
+                </div>
+                <input ref={imageInputRef} className="class-setup-hidden-input" aria-label="Class image (optional)" type="file" disabled={!canUpload || busy || attemptedSave} accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => { selectFile("image", event.target.files?.[0]); event.target.value = ""; }} />
+                <div className="class-setup-color-row">
+                  <label className="class-setup-color"><span>Class color</span><input aria-label="Class color" type="color" value={course.color} onChange={(event) => changeCourse({ color: event.target.value })} /></label>
+                  <div className="class-setup-zoom">
+                    <label><span>Image zoom <output>{Math.round((details.imageFraming?.zoom ?? 1) * 100)}%</output></span><input aria-label="Image zoom" type="range" min="1" max="3" step="0.01" value={details.imageFraming?.zoom ?? 1} disabled={!uploads.image || attemptedSave || busy} onChange={(event) => { const zoom = Number(event.target.value); setDetails((current) => current.imageFraming ? { ...current, imageFraming: { ...current.imageFraming, zoom } } : current); }} /></label>
+                    {uploads.image && <button type="button" className="text-button" disabled={attemptedSave} onClick={() => { if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current); imageUrlRef.current = ""; setImagePreview(""); setImageSize(null); setDetails((current) => ({ ...current, imageFraming: undefined })); setUploads((current) => ({ ...current, image: undefined })); }}>Remove image</button>}
+                  </div>
+                </div>
+              </div>
+              <fieldset className="course-icon-picker class-setup-icon-picker"><legend>Class icon</legend><div className="course-icon-options">{courseIconOptions.map((option) => <button key={option.id} type="button" title={option.label} aria-label={option.label} aria-pressed={(details.icon ?? DEFAULT_COURSE_ICON) === option.id} onClick={() => setDetails((current) => ({ ...current, icon: option.id }))}><CourseIcon icon={option.id} size={24} style={{ color: course.color }} />{(details.icon ?? DEFAULT_COURSE_ICON) === option.id && <Check className="course-icon-selected" size={11} />}</button>)}</div></fieldset>
+            </div>
+          </section>
+          <fieldset className="class-setup-syllabus" disabled={attemptedSave}>
+            <legend>Syllabus <span>(optional)</span></legend>
+            <label className={`class-setup-syllabus-upload${uploads.syllabus ? " has-file" : ""}`}>
+              <FileText size={24} aria-hidden="true" /><span>{uploads.syllabus ? "Replace syllabus" : "Upload your syllabus"}<small>PDF, text, images, or other documents · Up to 25 MiB</small></span>
+              <input aria-label="Syllabus (optional)" type="file" disabled={!canUpload || busy} onChange={(event) => { selectFile("syllabus", event.target.files?.[0]); event.target.value = ""; }} />
+            </label>
+            {uploads.syllabus ? <><div className="class-setup-file"><span>{uploads.syllabus.file.name}</span><button type="button" className="text-button" onClick={() => { if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current); syllabusUrlRef.current = ""; setSyllabusPreview(""); setUploads((current) => ({ ...current, syllabus: undefined })); }}>Remove syllabus</button></div><ClassSetupDocumentPreview key={uploads.syllabus.id} file={uploads.syllabus.file} url={syllabusPreview} onEscape={() => closeRef.current()} /></> : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>Your document preview appears here</p><span>Upload a syllabus to see it before saving.</span></div>}
+            <p className="form-hint">Storage only. Uploading will not change your course, schedule, or assignments.</p>
+          </fieldset>
+        </div>
+        {!canUpload && <p className="form-hint">File uploads are unavailable until your workspace is saved. You can still create this class and attach files later.</p>}
+      </>}
     </fieldset>
     {error && <p role="alert" className="auth-error">{error}</p>}
     {attemptedSave && !busy && error && <p className="form-hint">Selected files are locked for safe retries because some attachments may already be saved. Retry to finish, or close setup and manage saved attachments from the class files.</p>}
