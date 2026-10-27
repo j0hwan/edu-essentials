@@ -25,6 +25,8 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup:has(.class-setup-info-grid) .class-setup-header { margin-bottom: 8px; }
 .class-setup .class-setup-info-grid { padding-top: 0; gap: 12px 14px; }
 .class-setup-info-grid input::placeholder { color: var(--subtle); opacity: 1; }
+.class-setup-credits-field { display: flex; flex-direction: column; gap: 6px; align-self: start; min-width: 0; margin: 12px 0; font-size: 14px; font-weight: 650; }
+.class-setup .class-setup-credits-field > label { align-self: flex-start; margin: 0; }
 .class-setup-info-grid .class-setup-meeting-notes { grid-column: 1 / -1; }
 .class-setup.class-setup-schedule-step { width: min(1080px, 100%); }
 .class-setup-schedule { display: grid; grid-template-columns: minmax(220px, 29%) minmax(0, 1fr); }

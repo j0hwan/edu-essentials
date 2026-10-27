@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import { addDays, emptyCourseDetails, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
@@ -133,6 +133,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
   onClose: () => void;
   initialBounds?: ClassSetupBounds;
 }) {
+  const creditsId = useId();
   const [course, setCourse] = useState(initial);
   const [initialDetails] = useState<CourseDetails>(() => ({ ...emptyCourseDetails(), meetings: [{ id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: initial.room }] }));
   const [details, setDetails] = useState<CourseDetails>(initialDetails);
@@ -326,7 +327,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
       <button type="button" className="secondary-button" disabled={busy} aria-label="Close class setup" onClick={close}><X size={18} /></button>
     </div>
     <fieldset className="class-setup-body" disabled={busy}>
-      {step === 0 && <div className="settings-form-grid class-setup-info-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30, "ECON001")}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true, 160, "Principles of Microeconomics")}{field("Credits", course.credits, (value) => changeCourse({ credits: Number(value) }), "number")}{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }), "text", false, 160, "Dr. John Smith")}<LocationInput value={course.room} onChange={(room) => changeCourse({ room })} placeholder="Enter an address or meeting link" />{field("Office hours (Zoom link, location, etc.)", details.officeHours, (officeHours) => setDetails({ ...details, officeHours }), "text", false, 2000)}<label className="class-setup-meeting-notes">Meeting Notes<input type="text" maxLength={2000} value={details.meetingNotes ?? ""} onChange={(event) => setDetails({ ...details, meetingNotes: event.target.value })} /></label></div>}
+      {step === 0 && <div className="settings-form-grid class-setup-info-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30, "ECON001")}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true, 160, "Principles of Microeconomics")}<div className="class-setup-credits-field"><label htmlFor={creditsId}>Credits</label><input id={creditsId} type="number" min={0} max={30} step={1} value={course.credits} onChange={(event) => changeCourse({ credits: Number(event.target.value) })} /></div>{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }), "text", false, 160, "Dr. John Smith")}<LocationInput value={course.room} onChange={(room) => changeCourse({ room })} placeholder="Enter an address or meeting link" />{field("Office hours (Zoom link, location, etc.)", details.officeHours, (officeHours) => setDetails({ ...details, officeHours }), "text", false, 2000)}<label className="class-setup-meeting-notes">Meeting Notes<input type="text" maxLength={2000} value={details.meetingNotes ?? ""} onChange={(event) => setDetails({ ...details, meetingNotes: event.target.value })} /></label></div>}
       {step === 1 && <div className="class-setup-schedule">
         <aside className="class-setup-meetings" aria-label="Class meetings">
           <div className="class-setup-meeting-list">
