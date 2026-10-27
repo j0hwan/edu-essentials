@@ -346,12 +346,69 @@ test("validation selects an invalid background meeting and exposes collapsed ski
 
 test("schedule validation blocks advancement, and asynchronous classes can remove meetings", async () => {
   await mount(); await submit(); await submit();
-  assert.match(host.querySelector('[role="alert"]').textContent, /weekdays/);
+  assert.equal(host.querySelector('[role="alert"]'), null);
+  assert.ok(host.querySelector(".class-setup-week-label .is-missing"));
   assert.equal(host.querySelector("h2").textContent, "Class schedule");
   await click("Monday"); await change("End time", "08:00"); await submit();
   assert.match(host.querySelector('[role="alert"]').textContent, /end must be after/);
   await click("Delete meeting 1"); await submit(); await submit();
   assert.deepEqual(saved[1].meetings, []);
+});
+
+test("Continue marks all missing information asterisks and clears them as fields are filled", async () => {
+  await mount({ initial: emptyCourse("new-course") });
+  assert.equal(host.querySelector(".is-missing"), null);
+  await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Course information");
+  assert.equal(host.querySelector('[role="alert"]'), null);
+  assert.deepEqual([...host.querySelectorAll(".is-missing")].map((marker) => marker.closest("label").textContent.trim()), ["Course code *", "Class name *"]);
+  assert.equal(host.querySelectorAll('[aria-invalid="true"]').length, 2);
+  assert.equal(document.activeElement, host.querySelector("input"));
+  await change("Course code", "  ");
+  assert.equal(host.querySelectorAll(".is-missing").length, 2);
+  await change("Course code", "BIO 101");
+  assert.equal(host.querySelectorAll(".is-missing").length, 1);
+  await change("Class name", "Biology");
+  assert.equal(host.querySelector(".is-missing"), null);
+  assert.equal(host.querySelector('[aria-invalid="true"]'), null);
+  await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Class schedule");
+  assert.equal(host.querySelector(".is-missing"), null);
+});
+
+test("missing schedule fields highlight together without a popup and allow advancement once complete", async () => {
+  await mount(); await click("Continue");
+  for (const label of ["Start time", "End time", "Classes start", "Classes end"]) await change(label, "");
+  await click("Skip dates (0)"); await click("Add exception");
+  await click("Continue");
+  assert.equal(host.querySelector('[role="alert"]'), null);
+  assert.equal(host.querySelectorAll(".is-missing").length, 6);
+  assert.equal(host.querySelectorAll('[aria-invalid="true"]').length, 6);
+  assert.equal(document.activeElement, button("Sunday"));
+  assert.equal(calls, 0);
+  await click("Monday");
+  await change("Start time", "09:00"); await change("End time", "10:00");
+  await change("Classes start", "2026-10-26"); await change("Classes end", "2027-01-24");
+  await change("Exception date 1", "2026-11-02");
+  assert.equal(host.querySelector(".is-missing"), null);
+  assert.equal(host.querySelector('[aria-invalid="true"]'), null);
+  await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Make it yours");
+});
+
+test("missing background meeting fields are selected and hidden exception asterisks revealed", async () => {
+  await mount(); await click("Continue"); await click("Monday");
+  await click("Skip dates (0)"); await click("Add exception"); await click("Skip dates (1)");
+  await click("Add meeting"); await click("Tuesday");
+  await click("Continue");
+  assert.equal(button("Select meeting 1").getAttribute("aria-pressed"), "true");
+  assert.equal(button("Skip dates (1)").getAttribute("aria-expanded"), "true");
+  assert.equal(host.querySelector('[role="alert"]'), null);
+  assert.equal(host.querySelectorAll(".is-missing").length, 1);
+  assert.match(host.querySelector(".is-missing").closest("label").textContent, /Exception date 1/);
+  assert.equal(document.activeElement, host.querySelector('[aria-invalid="true"]'));
+  await click("Remove exception 1"); await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Make it yours");
 });
 
 test("syllabus and image stay local until final save; syllabus is storage-only and retry IDs are stable", async () => {

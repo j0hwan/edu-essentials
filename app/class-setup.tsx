@@ -24,6 +24,7 @@ const isMeetingComplete = (meeting: Meeting) => {
   try { validateCourseDetails({ officeHours: "", meetings: [meeting] }); return true; }
   catch { return false; }
 };
+const hasMissingMeetingFields = (meeting: Meeting) => !meeting.days.length || [meeting.start, meeting.end, meeting.from, meeting.until, ...(meeting.excludedDates ?? [])].some((value) => !value.trim());
 
 function MeetingTitle({ title, onRename }: { title: string; onRename: (name: string) => void }) {
   const [editing, setEditing] = useState(false);
@@ -136,6 +137,8 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
   const [imagePreview, setImagePreview] = useState("");
   const imageUrlRef = useRef("");
   const [error, setError] = useState("");
+  const [checkedSteps, setCheckedSteps] = useState<number[]>([]);
+  const focusMissingRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [attemptedSave, setAttemptedSave] = useState(false);
   const saving = useRef(false);
@@ -149,7 +152,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
   useEffect(() => { closeRef.current = close; });
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
-    headingRef.current?.focus();
+    headingRef.current?.focus({ preventScroll: true });
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
       if (event.key !== "Tab") return;
@@ -162,7 +165,13 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
     document.addEventListener("keydown", keydown);
     return () => { document.removeEventListener("keydown", keydown); if (previous?.isConnected) previous.focus(); };
   }, []);
-  useEffect(() => { headingRef.current?.focus(); }, [step]);
+  useEffect(() => { headingRef.current?.focus({ preventScroll: true }); }, [step]);
+  useEffect(() => {
+    if (!focusMissingRef.current) return;
+    focusMissingRef.current = false;
+    const invalid = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    (invalid?.matches("input") ? invalid : invalid?.querySelector<HTMLElement>("button"))?.focus();
+  });
   useEffect(() => {
     if (meetingFocusRef.current === null) return;
     const target = [...(formRef.current?.querySelectorAll<HTMLButtonElement>(".class-setup-meeting-select") ?? [])].find((button) => button.dataset.meetingId === meetingFocusRef.current);
@@ -191,7 +200,9 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
     setSelectedMeetingId(meeting.id);
     setError("");
   };
-  const field = (label: string, value: string | number, onChange: (value: string) => void, type = "text", required = false, maxLength = 160) => <label><span>{label}{required && <span aria-hidden="true"> *</span>}</span><input type={type} value={value} required={required} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} {...(type === "number" ? { min: 0, max: 30, step: 1 } : {})} /></label>;
+  const isMissing = (value: string | number) => checkedSteps.includes(step) && !String(value).trim();
+  const requiredMarker = (missing: boolean) => <span aria-hidden="true" className={missing ? "class-setup-required is-missing" : "class-setup-required"}> *</span>;
+  const field = (label: string, value: string | number, onChange: (value: string) => void, type = "text", required = false, maxLength = 160) => <label><span>{label}{required && requiredMarker(isMissing(value))}</span><input type={type} value={value} required={required} aria-invalid={required && isMissing(value) ? true : undefined} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} {...(type === "number" ? { min: 0, max: 30, step: 1 } : {})} /></label>;
   const selectFile = (kind: keyof ClassSetupUploads, file?: File) => {
     setError("");
     if (!file) return;
@@ -207,14 +218,27 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
   const submit = async () => {
     if (saving.current) return;
     setError("");
+    setCheckedSteps((current) => current.includes(step) ? current : [...current, step]);
+    if (!course.code.trim() || !course.name.trim()) {
+      setCheckedSteps((current) => current.includes(0) ? current : [...current, 0]);
+      setStep(0);
+      focusMissingRef.current = true;
+      return;
+    }
     try {
       const validated = validateCourse({ ...course, initials: course.code.slice(0, 2).toUpperCase(), soft: `${course.color}18` });
       if (step === 1 || step === 2) {
-        const invalidMeeting = details.meetings.find((meeting) => !isMeetingComplete(meeting));
+        const missingMeeting = details.meetings.find(hasMissingMeetingFields);
+        const invalidMeeting = missingMeeting ?? details.meetings.find((meeting) => !isMeetingComplete(meeting));
         if (invalidMeeting) {
           setSelectedMeetingId(invalidMeeting.id);
           setExpandedSkipDates((current) => current.includes(invalidMeeting.id) ? current : [...current, invalidMeeting.id]);
           setStep(1);
+        }
+        if (missingMeeting) {
+          setCheckedSteps((current) => current.includes(1) ? current : [...current, 1]);
+          focusMissingRef.current = true;
+          return;
         }
         validateCourseDetails(details);
       }
@@ -225,7 +249,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
     finally { saving.current = false; setBusy(false); }
   };
 
-  return <div className="modal-backdrop"><form ref={formRef} className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+  return <div className="modal-backdrop"><form ref={formRef} noValidate className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <h2 className="class-setup-accessible-title" id="class-setup-title" ref={headingRef} tabIndex={-1}>{steps[step]}</h2>
     <div className="modal-header class-setup-header">
       <ol className="class-setup-progress" aria-label="Class setup progress">{steps.map((label, index) => <li key={label} aria-label={`${label}${index < step ? ", completed" : ""}`} aria-current={step === index ? "step" : undefined} className={index < step ? "is-complete" : undefined}>
@@ -255,8 +279,8 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
         </aside>
         {selectedMeeting ? <section className="class-setup-meeting" id="class-setup-meeting-editor" key={selectedMeeting.id} aria-label={selectedMeeting.name || `Meeting ${selectedMeetingIndex + 1}`}>
           <MeetingTitle title={selectedMeeting.name || `Meeting ${selectedMeetingIndex + 1}`} onRename={(name) => changeMeeting(selectedMeeting.id, { name: name || undefined })} />
-          <p className="class-setup-week-label">Meeting days <span aria-hidden="true">*</span></p>
-          <div className="class-setup-week" role="group" aria-label={`Weekdays for meeting ${selectedMeetingIndex + 1}`}>{weekdays.map((day, dayIndex) => <button type="button" key={day} aria-label={day} aria-pressed={selectedMeeting.days.includes(dayIndex)} onClick={() => changeMeeting(selectedMeeting.id, { days: selectedMeeting.days.includes(dayIndex) ? selectedMeeting.days.filter((value) => value !== dayIndex) : [...selectedMeeting.days, dayIndex].sort() })}>{day.slice(0, 3)}</button>)}</div>
+          <p className="class-setup-week-label">Meeting days{requiredMarker(checkedSteps.includes(1) && !selectedMeeting.days.length)}</p>
+          <div className="class-setup-week" role="group" aria-label={`Weekdays for meeting ${selectedMeetingIndex + 1}`} aria-invalid={checkedSteps.includes(1) && !selectedMeeting.days.length ? true : undefined}>{weekdays.map((day, dayIndex) => <button type="button" key={day} aria-label={day} aria-pressed={selectedMeeting.days.includes(dayIndex)} onClick={() => changeMeeting(selectedMeeting.id, { days: selectedMeeting.days.includes(dayIndex) ? selectedMeeting.days.filter((value) => value !== dayIndex) : [...selectedMeeting.days, dayIndex].sort() })}>{day.slice(0, 3)}</button>)}</div>
           <div className="settings-form-grid class-setup-meeting-fields">
             {field("Start time", selectedMeeting.start, (start) => changeMeeting(selectedMeeting.id, { start }), "time", true)}
             {field("End time", selectedMeeting.end, (end) => changeMeeting(selectedMeeting.id, { end }), "time", true)}
@@ -268,7 +292,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
             <button type="button" className="secondary-button class-setup-skip-toggle" aria-expanded={expandedSkipDates.includes(selectedMeeting.id)} aria-controls="class-setup-skip-content" onClick={() => setExpandedSkipDates((current) => current.includes(selectedMeeting.id) ? current.filter((id) => id !== selectedMeeting.id) : [...current, selectedMeeting.id])}><CalendarDays size={19} aria-hidden="true" /><span>Skip dates ({selectedMeeting.excludedDates?.length ?? 0})</span><ChevronDown size={19} aria-hidden="true" /></button>
             {expandedSkipDates.includes(selectedMeeting.id) && <div className="class-setup-skip-content" id="class-setup-skip-content">
               <p className="form-hint">No class on these dates.</p>
-              {(selectedMeeting.excludedDates ?? []).map((date, exceptionIndex) => <div className="class-setup-exception" key={exceptionIndex}><label><span>Exception date {exceptionIndex + 1}<span aria-hidden="true"> *</span></span><input type="date" required min={selectedMeeting.from} max={selectedMeeting.until} value={date} onChange={(event) => changeMeeting(selectedMeeting.id, { excludedDates: selectedMeeting.excludedDates!.map((current, currentIndex) => currentIndex === exceptionIndex ? event.target.value : current) })} /></label><button type="button" className="secondary-button" aria-label={`Remove exception ${exceptionIndex + 1}`} onClick={() => changeMeeting(selectedMeeting.id, { excludedDates: selectedMeeting.excludedDates!.filter((_, currentIndex) => currentIndex !== exceptionIndex) })}><X size={16} aria-hidden="true" /></button></div>)}
+              {(selectedMeeting.excludedDates ?? []).map((date, exceptionIndex) => <div className="class-setup-exception" key={exceptionIndex}><label><span>Exception date {exceptionIndex + 1}{requiredMarker(isMissing(date))}</span><input type="date" required aria-invalid={isMissing(date) ? true : undefined} min={selectedMeeting.from} max={selectedMeeting.until} value={date} onChange={(event) => changeMeeting(selectedMeeting.id, { excludedDates: selectedMeeting.excludedDates!.map((current, currentIndex) => currentIndex === exceptionIndex ? event.target.value : current) })} /></label><button type="button" className="secondary-button" aria-label={`Remove exception ${exceptionIndex + 1}`} onClick={() => changeMeeting(selectedMeeting.id, { excludedDates: selectedMeeting.excludedDates!.filter((_, currentIndex) => currentIndex !== exceptionIndex) })}><X size={16} aria-hidden="true" /></button></div>)}
               <button type="button" className="secondary-button" disabled={(selectedMeeting.excludedDates?.length ?? 0) >= 100} onClick={() => changeMeeting(selectedMeeting.id, { excludedDates: [...(selectedMeeting.excludedDates ?? []), ""] })}><Plus size={14} aria-hidden="true" />Add exception</button>
             </div>}
           </div>

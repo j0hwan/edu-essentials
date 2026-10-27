@@ -2421,6 +2421,12 @@ html[data-theme="dark"] .tone-blue { background: #1d3546; color: #78c8ff; }
 .privacy-note { display: flex; align-items: center; gap: 7px; margin: 15px 0 0; border-radius: 8px; background: var(--green-soft); color: var(--green); padding: 9px 11px; font-size: 9px; }
 
 /* Modals */
+html:has(.add-class-choice-modal, .class-setup),
+html:has(.add-class-choice-modal, .class-setup) body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
