@@ -191,11 +191,25 @@ try {
 
   await input.fill("Oakland Campus");
   await page.waitForFunction(() => window.__locationBrowser?.delayedRequestSeen === true);
-  await page.getByRole("status").getByText("Searching addresses…", { exact: true }).waitFor({ state: "visible" });
+  await page.waitForFunction(() => document.querySelector('[role="combobox"]')?.getAttribute("aria-busy") === "true");
+  await page.locator(".location-loading-spinner").waitFor({ state: "visible" });
+  const loadingVisuals = await visualMetrics(input);
+  const spinnerBounds = await page.locator(".location-loading-spinner").boundingBox();
+  assert.ok(spinnerBounds.x >= loadingVisuals.labelText.right, "the loading circle sits beside the label text");
+  assert.ok(spinnerBounds.y >= loadingVisuals.label.top && spinnerBounds.y + spinnerBounds.height <= loadingVisuals.label.bottom, "the loading circle stays within the label line");
+  for (const key of ["field", "input", "label", "labelText"]) {
+    assert.deepEqual(loadingVisuals[key], originalVisuals[key], `${key} does not move or resize when searching starts`);
+  }
+  assert.equal(await page.locator(".location-field > small").innerText(), "", "search progress does not add a visible text row");
   await page.getByRole("textbox", { name: "Office hours" }).click();
   await listbox.waitFor({ state: "hidden" });
   await page.evaluate(() => window.__locationBrowser?.releaseDelayedResponse());
-  await page.waitForFunction(() => document.querySelector('[role="status"]')?.textContent === "");
+  await page.waitForFunction(() => document.querySelector('[role="combobox"]')?.getAttribute("aria-busy") !== "true");
+  await page.locator(".location-loading-spinner").waitFor({ state: "hidden" });
+  const completedVisuals = await visualMetrics(input);
+  for (const key of ["field", "input", "label", "labelText"]) {
+    assert.deepEqual(completedVisuals[key], originalVisuals[key], `${key} does not move or resize when searching finishes`);
+  }
   assert.equal(await listbox.isHidden(), true, "a response arriving after blur does not reopen suggestions");
   assert.equal(await page.getByRole("textbox", { name: "Office hours" }).evaluate((element) => document.activeElement === element), true);
   assert.deepEqual(browserErrors, [], `browser emitted no errors: ${browserErrors.join("; ")}`);

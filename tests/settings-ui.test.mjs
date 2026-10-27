@@ -1804,23 +1804,46 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await clickAria("Dashboard view"); await click("Add Class"); await click("Manual entry");
     assert.equal(rootNode.querySelector(".add-class-choice-modal"), null, "choosing Manual entry leaves the chooser");
     assert.ok(field("Course code"), "Manual entry opens the class form");
-    for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location": "Lab 4", "Meeting Notes": "Bring your field journal", "Office hours": "Friday by appointment" })) await edit(key, value);
+    for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Meeting Notes": "Bring your field journal" })) await edit(key, value);
+    assert.equal([...rootNode.querySelectorAll(".class-setup-info-grid label")].some((label) => label.textContent.trim() === "Location"), false);
+    assert.equal([...rootNode.querySelectorAll(".class-setup-info-grid label")].some((label) => /Office hours/.test(label.textContent)), false);
     await click("Continue");
     assert.equal(rootNode.querySelectorAll(".class-setup-week button").length, 7);
     await clickAria("Monday"); await edit("Classes start", "2026-09-01"); await edit("Classes end", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
     await click("Skip dates (0)"); await edit("Add skip date", "2026-11-02");
+    await click("Add meeting"); await clickAria("Tuesday"); await edit("Meeting location", "Greenhouse");
     await click("Continue");
     assert.equal(unloadBlocked(), true); server.offline = true; await click("Create class");
     await waitForWorkspaceError("Offline"); assert.equal(server.courses.length, 0);
     assert.ok(rootNode.querySelector(".class-setup"), "failed saves keep the wizard available for retry");
     server.offline = false; await click("Create class"); await saveAndReload(); await click("Dashboard");
-    assert.equal(server.courses.length, 1); const course = server.courses[0]; assert.equal(course.credits, 4); assert.equal(course.room, "Lab 4");
-    assert.equal(server.dashboard.d.courseDetails[course.id].meetings[0].location, "Garden");
+    assert.equal(server.courses.length, 1); const course = server.courses[0]; assert.equal(course.credits, 4); assert.equal(course.room, "");
+    assert.deepEqual(server.dashboard.d.courseDetails[course.id].meetings.map((meeting) => meeting.location), ["Garden", "Greenhouse"]);
+    assert.equal(server.dashboard.d.courseDetails[course.id].officeHours, "");
     assert.equal(server.dashboard.d.courseDetails[course.id].meetingNotes, "Bring your field journal");
     assert.deepEqual(server.dashboard.d.courseDetails[course.id].meetings[0].excludedDates, ["2026-11-02"]);
     await act(async () => rootNode.querySelector(".class-card").click()); await click("Edit class");
-    assert.equal(field("Office hours").value, "Friday by appointment"); await edit("Instructor", "Dr. Lake"); await click("Save class"); await saveAndReload();
+    assert.equal(field("Office hours").value, ""); await edit("Instructor", "Dr. Lake"); await click("Save class"); await saveAndReload();
     assert.equal(server.courses[0].instructor, "Dr. Lake"); assert.equal(server.courses[0].id, course.id);
+    assert.deepEqual(server.dashboard.d.courseDetails[course.id].meetings.map((meeting) => meeting.location), ["Garden", "Greenhouse"]);
+  });
+
+  await t.test("editing a class preserves saved course room and office hours", async () => {
+    reset();
+    const legacyCourse = { ...sampleCourse, room: "Legacy Lab 4" };
+    const legacyDetails = {
+      officeHours: "Friday by appointment",
+      meetings: [{ id: "legacy-meeting", days: [1], start: "09:00", end: "10:00", from: "2026-10-01", until: "2026-12-15", location: "Garden Annex" }],
+    };
+    const initial = { ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [legacyCourse.id]: legacyDetails } } };
+    const server = installWorkspaceServer(initial, [legacyCourse]);
+    await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${legacyCourse.id}"]`).click());
+    await click("Edit class"); await edit("Instructor", "Dr. Newname"); await click("Save class"); await saveAndReload();
+    assert.equal(server.courses[0].instructor, "Dr. Newname");
+    assert.equal(server.courses[0].room, "Legacy Lab 4");
+    assert.equal(server.dashboard.d.courseDetails[legacyCourse.id].officeHours, "Friday by appointment");
+    assert.deepEqual(server.dashboard.d.courseDetails[legacyCourse.id].meetings, legacyDetails.meetings);
   });
 
   await t.test("assignment fields, checklist, completion/reopening and deletion persist", async () => {

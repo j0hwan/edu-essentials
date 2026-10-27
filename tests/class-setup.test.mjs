@@ -388,26 +388,27 @@ test("larger progress replaces the visible title and preserves accessible step n
   verifyIndicators(1);
 });
 
-test("manual setup separates information, seven-day schedule, and appearance; Back preserves fields", async () => {
+test("manual setup keeps course information separate from meeting locations; Back preserves fields", async () => {
   await mount();
   assert.equal(host.querySelector("h2").textContent, "Course information");
-  assert.ok(host.textContent.includes("Office hours (Zoom link, location, etc.)"));
   const infoFields = [...host.querySelectorAll(".class-setup-info-grid label")];
-  assert.deepEqual(infoFields.slice(-3).map((label) => label.textContent), ["Location", "Office hours (Zoom link, location, etc.)", "Meeting Notes"]);
-  assert.equal(infoFields.at(-2).querySelector("input").type, "text");
-  assert.equal(infoFields.at(-2).querySelector("textarea"), null);
+  assert.ok(infoFields.some((label) => label.textContent.trim() === "Meeting Notes"));
+  assert.equal(infoFields.some((label) => label.textContent.trim() === "Location"), false);
+  assert.equal(infoFields.some((label) => /Office hours/.test(label.textContent)), false);
+  assert.equal(host.querySelector('.class-setup-info-grid [aria-label="Location"]'), null);
+  assert.equal(host.querySelector('.class-setup-info-grid [aria-label="Meeting location"]'), null);
+  assert.equal(host.querySelector('.class-setup-info-grid [aria-label="Office hours"]'), null);
   assert.equal(infoFields.at(-1).querySelector("input").type, "text");
   assert.equal(infoFields.at(-1).querySelector("textarea"), null);
   assert.doesNotMatch(host.textContent, /Address search uses OpenStreetMap via Photon/);
   assert.equal(host.querySelector('input[type="color"]'), null);
   await change("Instructor", "Dr. Moss");
-  await change("Location", "Science Hall");
   await change("Meeting Notes", "Bring a lab coat · Use the side entrance");
-  await change("Office hours (Zoom link, location, etc.)", "Tuesday · Zoom");
   await submit();
   assert.equal(calls, 0);
   assert.equal(host.querySelectorAll(".class-setup-week button").length, 7);
   await click("Monday"); await click("Wednesday");
+  await change("Meeting location", "Science Hall");
   await click("Skip dates (0)"); await change("Add skip date", "2026-11-02");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
@@ -415,21 +416,24 @@ test("manual setup separates information, seven-day schedule, and appearance; Ba
   await click("Biology"); await change("Class color", "#b23b53");
   await click("Back");
   assert.equal(button("Wednesday").getAttribute("aria-pressed"), "true");
+  assert.equal(host.querySelector('.class-setup-meeting-fields [role="combobox"]').value, "Science Hall");
   await click("Back");
   assert.equal(host.querySelectorAll("input")[3].value, "Dr. Moss");
+  const notesLabel = [...host.querySelectorAll(".class-setup-info-grid label")].find((label) => label.textContent.trim() === "Meeting Notes");
+  assert.equal(notesLabel.control.value, "Bring a lab coat · Use the side entrance");
   await submit(); await submit(); await submit();
   assert.equal(calls, 1);
   assert.equal(saved[0].color, "#b23b53");
   assert.equal(saved[0].soft, "#b23b5318");
-  assert.equal(saved[1].officeHours, "Tuesday · Zoom");
-  assert.equal(saved[0].room, "Science Hall");
+  assert.equal(saved[1].officeHours, "");
+  assert.equal(saved[0].room, "");
   assert.equal(saved[1].meetingNotes, "Bring a lab coat · Use the side entrance");
-  assert.notEqual(saved[1].meetings[0].location, saved[1].meetingNotes);
+  assert.equal(saved[1].meetings[0].location, "Science Hall");
   assert.deepEqual(saved[1].meetings[0].days, [1, 3]);
   assert.deepEqual(saved[1].meetings[0].excludedDates, ["2026-11-02"]);
 });
 
-test("location suggestions autofill only location and support keyboard selection and manual fallback", async () => {
+test("meeting location suggestions affect only the selected meeting and support manual fallback", async () => {
   const originalFetch = globalThis.fetch;
   const searches = [];
   globalThis.fetch = async (url) => {
@@ -439,12 +443,16 @@ test("location suggestions autofill only location and support keyboard selection
   try {
     await mount();
     await change("Meeting Notes", "Bring a lab coat");
-    const input = host.querySelector('[role="combobox"]');
-    await act(async () => input.focus());
-    await change("Location", "College");
+    assert.equal(host.querySelector('.class-setup-info-grid [aria-label="Location"]'), null);
+    assert.equal(host.querySelector('.class-setup-info-grid [aria-label="Office hours"]'), null);
+    await submit(); await click("Monday");
+    const locationInput = () => host.querySelector('[role="combobox"]');
+    await act(async () => locationInput().focus());
+    await change("Meeting location", "College");
     assert.equal(searches.length, 0);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 450)));
     assert.equal(searches.length, 1);
+    let input = locationInput();
     assert.equal(input.getAttribute("aria-expanded"), "true");
     await act(async () => input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
     assert.ok(input.getAttribute("aria-activedescendant"));
@@ -453,13 +461,23 @@ test("location suggestions autofill only location and support keyboard selection
     assert.equal(input.getAttribute("aria-expanded"), "true");
     await act(async () => input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     assert.equal(input.value, "10 College Ave, Davis");
-    assert.equal(host.querySelector(".class-setup-meeting-notes input").value, "Bring a lab coat");
     assert.equal(input.getAttribute("aria-expanded"), "false");
+
+    await click("Add meeting"); await click("Tuesday");
     globalThis.fetch = async () => new Response("Unavailable", { status: 503 });
-    await change("Location", "Room 4");
+    await change("Meeting location", "Room 4");
     await act(async () => new Promise((resolve) => setTimeout(resolve, 450)));
     assert.match(host.querySelector('[role="status"]').textContent, /enter a location manually/);
-    assert.equal(input.value, "Room 4");
+    assert.equal(locationInput().value, "Room 4");
+
+    await click("Select meeting 1");
+    assert.equal(locationInput().value, "10 College Ave, Davis");
+    await click("Select meeting 2");
+    assert.equal(locationInput().value, "Room 4");
+    await submit(); await click("Back");
+    assert.equal(locationInput().value, "Room 4", "Back preserves the selected meeting's manual location");
+    await click("Select meeting 1");
+    assert.equal(locationInput().value, "10 College Ave, Davis", "the suggestion remains attached only to meeting 1");
   } finally { globalThis.fetch = originalFetch; }
 });
 

@@ -67,8 +67,9 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-week button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: white; }
 .class-setup .class-setup-meeting-fields { padding-top: 0; gap: 22px; }
 .class-setup .class-setup-meeting-fields label { margin: 0; font-size: 14px; }
-.class-setup .class-setup-meeting-fields label:last-child { grid-column: 1 / -1; }
+.class-setup .class-setup-meeting-fields > label:last-child { grid-column: 1 / -1; }
 .class-setup .class-setup-meeting-fields input { min-width: 0; height: 44px; font-size: 15px; }
+.class-setup .class-setup-meeting-fields > .location-field { grid-column: 1 / -1; margin: 0; }
 .class-setup-skip-dates { margin-top: 24px; }
 .class-setup-skip-dates { position: relative; min-width: 0; }
 .class-setup .class-setup-skip-toggle { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; min-height: 52px; padding: 0; text-align: left; font-size: 14px; }
