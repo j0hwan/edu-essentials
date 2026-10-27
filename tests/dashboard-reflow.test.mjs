@@ -77,7 +77,6 @@ function setup(options = {}) {
       createElement("div", { className: "dashboard-study-brief", "data-target": "a" }, label, ...details),
       createElement("div", { className: "dashboard-classes-heading", "data-target": "a" },
         createElement("div", { className: "dashboard-classes-actions", "data-target": "b" },
-          createElement("button", { "data-target": "b" }, "Add assignment"),
           createElement("button", { "data-target": "b" }, "Add Class"),
           createElement("button", { className: "view-toggle", "data-target": "b" }, "Cards / List"),
         ),
@@ -221,7 +220,7 @@ test("sidebar reflow leaves class action controls and their heading outside FLIP
     await render("closed", 1);
     await render("open", 0);
     const heading = document.querySelector(".dashboard-classes-heading");
-    assert.equal(heading.querySelectorAll(".dashboard-classes-actions > button").length, 3);
+    assert.equal(heading.querySelectorAll(".dashboard-classes-actions > button").length, 2);
     assert.ok(calls.length > 0, "course cards still animate");
     assert.ok(calls.every(({ element }) => element !== heading && !heading.contains(element)));
   } finally { await cleanup(); }

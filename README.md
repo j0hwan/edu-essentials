@@ -139,7 +139,7 @@ Syllabus reviews are temporary: source text, editable course fields, and review
 rows are not saved before approval, and closing or reloading discards the review.
 Approval commits the course, source, and typed assignments together. Existing
 courses have a Syllabus section with import and preview controls. The dashboard
-header places Add assignment beside Add Class and the Cards/List toggle.
+header places Add Class beside the Cards/List toggle.
 PDF/image storage and extraction are not claimed by this text-review workflow.
 See PERSISTENCE_ACADEMICS.md for the completed Step 5 surfaces, storage, recovery,
 and verification limits.

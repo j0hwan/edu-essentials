@@ -1703,7 +1703,7 @@ test("workspace saving uses one compact notification across pages", async () => 
   }
 });
 
-test("dashboard actions omit the shortcut row and the class header adds assignments", async () => {
+test("dashboard class header keeps class and view controls and assignments can be added from Tasks", async () => {
   reset();
   const server = installWorkspaceServer(savedDashboard, [sampleCourse]);
   try {
@@ -1712,11 +1712,11 @@ test("dashboard actions omit the shortcut row and the class header adds assignme
     assert.equal(rootNode.querySelector(".dashboard-tools"), null, "the dashboard shortcut row is removed");
     const header = rootNode.querySelector(".dashboard-classes-heading");
     const actions = header.querySelector(".dashboard-classes-actions");
-    assert.equal(actions.children[0].textContent.trim(), "Add assignment");
-    assert.equal(actions.children[1].textContent.trim(), "Add Class");
-    assert.equal(actions.children[2].getAttribute("aria-label"), "Dashboard view");
+    assert.equal(actions.children.length, 2);
+    assert.equal(actions.children[0].textContent.trim(), "Add Class");
+    assert.equal(actions.children[1].getAttribute("aria-label"), "Dashboard view");
 
-    const viewSwitch = actions.children[2];
+    const viewSwitch = actions.children[1];
     assert.equal(viewSwitch.getAttribute("role"), "switch");
     assert.equal(viewSwitch.getAttribute("aria-checked"), "false");
     assert.ok(rootNode.querySelector(".dashboard-classes .class-grid"));
@@ -1733,15 +1733,16 @@ test("dashboard actions omit the shortcut row and the class header adds assignme
     assert.equal(viewSwitch.getAttribute("aria-checked"), "false", "the view is restored to Cards");
     assert.ok(rootNode.querySelector(".dashboard-classes .class-grid"));
 
-    await clickIn(actions, "Add assignment");
+    await click("Tasks");
+    await click("Add assignment");
     assert.ok(rootNode.querySelector('[role="dialog"][aria-label="Edit assignment"]'));
-    await edit("Assignment title", "Header-created essay");
+    await edit("Assignment title", "Tasks-created essay");
     await edit("Class", sampleCourse.id);
     await edit("Due date", "2026-10-15");
     await click("Save assignment");
     await waitForWorkspaceSave(server);
     assert.equal(server.dashboard.d.assignments.length, 1);
-    assert.equal(server.dashboard.d.assignments[0].title, "Header-created essay");
+    assert.equal(server.dashboard.d.assignments[0].title, "Tasks-created essay");
     assert.equal(server.dashboard.d.assignments[0].courseId, sampleCourse.id);
   } finally { if (root) await unmount(); }
 });
@@ -1821,7 +1822,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
   });
 
   await t.test("assignment fields, checklist, completion/reopening and deletion persist", async () => {
-    reset(); const server = installWorkspaceServer(savedDashboard, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await click("Add assignment");
+    reset(); const server = installWorkspaceServer(savedDashboard, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Tasks"); await click("Add assignment");
     await edit("Assignment title", "Archival essay"); await edit("Class", "history"); await edit("Due date", "2026-10-15"); await edit("Due time", "17:00"); await edit("Type", "Project"); await edit("Description", "Use primary sources"); await edit("Weight", "25%"); await edit("Assignment notes", "Outline ready"); await edit("Progress", "37"); await edit("Review instructions", true); await click("Save assignment");
     await saveAndReload(); let a = server.dashboard.d.assignments[0]; assert.equal(a.type, "Project"); assert.equal(a.dueTime, "17:00"); assert.equal(a.notes, "Outline ready"); assert.deepEqual(a.checklist, [true, false, false]);
     await click("Dashboard"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark complete"); await click("Close assignment"); await saveAndReload();
@@ -1873,6 +1874,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.equal(unloadBlocked(), true, "the active transient review still warns before leaving the page");
 
     const writesBeforeUnrelatedEdit = server.writes;
+    await click("Tasks");
     await click("Add assignment");
     await edit("Assignment title", "Independent workspace edit");
     await edit("Due date", "2026-10-20");
