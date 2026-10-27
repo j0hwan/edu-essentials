@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { LocationSuggestion } from "../lib/locations";
 import "./location-input.css";
 
-export default function LocationInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export default function LocationInput({ value, onChange, placeholder = "Search an address or enter a room" }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
   const id = useId();
   const [results, setResults] = useState<LocationSuggestion[]>([]);
   const [query, setQuery] = useState<string | null>(null);
@@ -46,7 +46,7 @@ export default function LocationInput({ value, onChange }: { value: string; onCh
   return <div className="location-field">
     <label htmlFor={id}>Location</label>
     <div className="location-input-control">
-    <input id={id} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-results`} aria-activedescendant={open && active >= 0 ? `${id}-option-${active}` : undefined} autoComplete="off" maxLength={160} placeholder="Search an address or enter a room" value={value} onChange={(event) => {
+    <input id={id} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-results`} aria-activedescendant={open && active >= 0 ? `${id}-option-${active}` : undefined} autoComplete="off" maxLength={160} placeholder={placeholder} value={value} onChange={(event) => {
       generation.current++; onChange(event.target.value); setQuery(event.target.value); setResults([]); setOpen(false); setActive(-1); setMessage("");
     }} onFocus={() => { focused.current = true; if (results.length) setOpen(true); }} onBlur={() => { focused.current = false; setOpen(false); setActive(-1); }} onKeyDown={(event) => {
       if (event.nativeEvent.isComposing) return;

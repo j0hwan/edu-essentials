@@ -24,6 +24,7 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-body > .form-hint { margin: 0; }
 .class-setup:has(.class-setup-info-grid) .class-setup-header { margin-bottom: 8px; }
 .class-setup .class-setup-info-grid { padding-top: 0; gap: 12px 14px; }
+.class-setup-info-grid input::placeholder { color: var(--subtle); opacity: 1; }
 .class-setup-info-grid .class-setup-meeting-notes { grid-column: 1 / -1; }
 .class-setup.class-setup-schedule-step { width: min(1080px, 100%); }
 .class-setup-schedule { display: grid; grid-template-columns: minmax(220px, 29%) minmax(0, 1fr); }
