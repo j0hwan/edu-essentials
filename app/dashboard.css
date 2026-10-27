@@ -198,9 +198,7 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .expanded-class-section > summary { cursor: pointer; font-size: 13px; font-weight: 650; }
 .expanded-class-section .syllabus-source { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
 .expanded-class-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-.expanded-class-progress { background: linear-gradient(115deg, var(--brand-soft), var(--surface-2)); }
 .expanded-class-body .assignment-table.compact .assignment-row { grid-template-columns: 80px minmax(0, 1fr) 80px 70px 16px; padding: 12px; }
-.expanded-class-body .remove-class-button { margin-top: 0; }
 @media (max-width: 1100px) {
   .dashboard-summary { gap: 24px; padding: 24px; }
   .dashboard-study-brief { gap: 24px; padding: 24px 24px 20px; }
