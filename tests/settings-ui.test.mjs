@@ -141,8 +141,9 @@ async function openWorkspaceSaveError() {
 }
 function field(label) {
   const scope = rootNode.querySelector(".academic-editor") ?? rootNode;
-  const node = [...scope.querySelectorAll("label")].find((node) => node.textContent.startsWith(label));
-  assert.ok(node, `Missing field ${label}`); return node.control;
+  const node = [...scope.querySelectorAll("label")].find((node) => node.textContent.startsWith(label))?.control
+    ?? [...scope.querySelectorAll("[aria-label]")].find((node) => node.getAttribute("aria-label") === label);
+  assert.ok(node, `Missing field ${label}`); return node;
 }
 function uploadChooser() {
   const input = rootNode.querySelector('.files-upload-dialog input[type="file"]');
@@ -1807,7 +1808,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await click("Continue");
     assert.equal(rootNode.querySelectorAll(".class-setup-week button").length, 7);
     await clickAria("Monday"); await edit("Classes start", "2026-09-01"); await edit("Classes end", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
-    await click("Skip dates (0)"); await click("Add exception"); await edit("Exception date 1", "2026-11-02");
+    await click("Skip dates (0)"); await edit("Add skip date", "2026-11-02");
     await click("Continue");
     assert.equal(unloadBlocked(), true); server.offline = true; await click("Create class");
     await waitForWorkspaceError("Offline"); assert.equal(server.courses.length, 0);

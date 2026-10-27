@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
-import { addDays, emptyCourseDetails, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
+import { addDays, dateLabel, emptyCourseDetails, isDate, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { courseImageFramingStyle, DEFAULT_COURSE_IMAGE_FRAMING, moveCourseImage, type CourseImageFraming } from "../lib/course-image-framing";
 import { MAX_FILE_BYTES } from "../lib/files";
@@ -134,11 +134,12 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
   initialBounds?: ClassSetupBounds;
 }) {
   const creditsId = useId();
+  const skipDatePickerId = useId();
   const [course, setCourse] = useState(initial);
   const [initialDetails] = useState<CourseDetails>(() => ({ ...emptyCourseDetails(), meetings: [{ id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: initial.room }] }));
   const [details, setDetails] = useState<CourseDetails>(initialDetails);
   const [selectedMeetingId, setSelectedMeetingId] = useState(initialDetails.meetings[0].id);
-  const [expandedSkipDates, setExpandedSkipDates] = useState<string[]>([]);
+  const [skipDatePickerFallback, setSkipDatePickerFallback] = useState(false);
   const [step, setStep] = useState(0);
   const [uploads, setUploads] = useState<ClassSetupUploads>({});
   const [imagePreview, setImagePreview] = useState("");
@@ -146,6 +147,8 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
   const [syllabusPreview, setSyllabusPreview] = useState("");
   const syllabusUrlRef = useRef("");
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const skipDatePickerRef = useRef<HTMLInputElement>(null);
+  const skipDateFocusRef = useRef<{ meetingId: string; index: number | null } | null>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [draggingImage, setDraggingImage] = useState(false);
   const imageDragRef = useRef<{ pointerId: number; startX: number; startY: number; width: number; height: number; framing: CourseImageFraming } | null>(null);
@@ -209,6 +212,43 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
   const changeMeeting = (id: string, patch: Partial<Meeting>) => setDetails((current) => ({ ...current, meetings: current.meetings.map((meeting) => meeting.id === id ? { ...meeting, ...patch } : meeting) }));
   const selectedMeeting = details.meetings.find((meeting) => meeting.id === selectedMeetingId) ?? details.meetings[0];
   const selectedMeetingIndex = details.meetings.findIndex((meeting) => meeting.id === selectedMeeting?.id);
+  useEffect(() => {
+    const pending = skipDateFocusRef.current;
+    if (!pending) return;
+    if (pending.meetingId !== selectedMeeting?.id) { skipDateFocusRef.current = null; return; }
+    const buttons = [...(formRef.current?.querySelectorAll<HTMLButtonElement>(".class-setup-skip-chip-remove") ?? [])];
+    (pending.index === null ? formRef.current?.querySelector<HTMLButtonElement>(".class-setup-skip-toggle") : buttons[pending.index])?.focus();
+    skipDateFocusRef.current = null;
+  }, [selectedMeeting?.id, selectedMeeting?.excludedDates]);
+  useEffect(() => {
+    if (skipDatePickerFallback) skipDatePickerRef.current?.focus();
+  }, [skipDatePickerFallback]);
+  const openSkipDatePicker = () => {
+    if (!selectedMeeting || (selectedMeeting.excludedDates?.length ?? 0) >= 100) return;
+    const input = skipDatePickerRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
+    if (!input) return;
+    if (skipDatePickerFallback) { input.focus(); return; }
+    if (typeof input.showPicker !== "function") {
+      setSkipDatePickerFallback(true);
+      return;
+    }
+    try { input.showPicker(); }
+    catch {
+      setSkipDatePickerFallback(true);
+    }
+  };
+  const addSkipDate = (date: string) => {
+    if (!selectedMeeting || !date || !isDate(date) || date < selectedMeeting.from || date > selectedMeeting.until) return;
+    const dates = selectedMeeting.excludedDates ?? [];
+    if (dates.includes(date) || dates.length >= 100) return;
+    changeMeeting(selectedMeeting.id, { excludedDates: [...dates, date].sort() });
+  };
+  const removeSkipDate = (index: number) => {
+    if (!selectedMeeting) return;
+    const dates = selectedMeeting.excludedDates ?? [];
+    skipDateFocusRef.current = { meetingId: selectedMeeting.id, index: dates.length <= 1 ? null : index === dates.length - 1 ? index - 1 : index };
+    changeMeeting(selectedMeeting.id, { excludedDates: dates.filter((_, currentIndex) => currentIndex !== index) });
+  };
   const removeMeeting = (id: string) => {
     const index = details.meetings.findIndex((meeting) => meeting.id === id);
     const meetings = details.meetings.filter((meeting) => meeting.id !== id);
@@ -216,7 +256,6 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
     const nextSelectedId = selectedMeeting?.id === id ? meetings[Math.min(index, meetings.length - 1)]?.id ?? "" : selectedMeeting?.id ?? "";
     setSelectedMeetingId(nextSelectedId);
     meetingFocusRef.current = nextSelectedId;
-    setExpandedSkipDates((current) => current.filter((meetingId) => meetingId !== id));
     setError("");
   };
   const addMeeting = () => {
@@ -355,12 +394,23 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
             {field("Meeting location", selectedMeeting.location, (location) => changeMeeting(selectedMeeting.id, { location }))}
           </div>
           <div className="class-setup-skip-dates">
-            <button type="button" className="secondary-button class-setup-skip-toggle" aria-expanded={expandedSkipDates.includes(selectedMeeting.id)} aria-controls="class-setup-skip-content" onClick={() => setExpandedSkipDates((current) => current.includes(selectedMeeting.id) ? current.filter((id) => id !== selectedMeeting.id) : [...current, selectedMeeting.id])}><CalendarDays size={19} aria-hidden="true" /><span>Skip dates ({selectedMeeting.excludedDates?.length ?? 0})</span><ChevronDown size={19} aria-hidden="true" /></button>
-            {expandedSkipDates.includes(selectedMeeting.id) && <div className="class-setup-skip-content" id="class-setup-skip-content">
-              <p className="form-hint">No class on these dates.</p>
-              {(selectedMeeting.excludedDates ?? []).map((date, exceptionIndex) => <div className="class-setup-exception" key={exceptionIndex}><label><span>Exception date {exceptionIndex + 1}{requiredMarker(isMissing(date))}</span><input type="date" required aria-invalid={isMissing(date) ? true : undefined} min={selectedMeeting.from} max={selectedMeeting.until} value={date} onChange={(event) => changeMeeting(selectedMeeting.id, { excludedDates: selectedMeeting.excludedDates!.map((current, currentIndex) => currentIndex === exceptionIndex ? event.target.value : current) })} /></label><button type="button" className="secondary-button" aria-label={`Remove exception ${exceptionIndex + 1}`} onClick={() => changeMeeting(selectedMeeting.id, { excludedDates: selectedMeeting.excludedDates!.filter((_, currentIndex) => currentIndex !== exceptionIndex) })}><X size={16} aria-hidden="true" /></button></div>)}
-              <button type="button" className="secondary-button" disabled={(selectedMeeting.excludedDates?.length ?? 0) >= 100} onClick={() => changeMeeting(selectedMeeting.id, { excludedDates: [...(selectedMeeting.excludedDates ?? []), ""] })}><Plus size={14} aria-hidden="true" />Add exception</button>
-            </div>}
+            <button type="button" className="secondary-button class-setup-skip-toggle" aria-label={`Skip dates (${selectedMeeting.excludedDates?.length ?? 0})`} disabled={(selectedMeeting.excludedDates?.length ?? 0) >= 100} onClick={openSkipDatePicker} />
+            <div className="class-setup-skip-content">
+              <CalendarDays size={18} aria-hidden="true" />
+              <span className="class-setup-skip-label">Skip dates ({selectedMeeting.excludedDates?.length ?? 0})</span>
+              <div className="class-setup-skip-chips" role="group" aria-label="Skip date chips">
+                {(selectedMeeting.excludedDates ?? []).map((date, skipDateIndex) => {
+                  const label = isDate(date) ? dateLabel(date) : date || "missing date";
+                  return <span className="class-setup-skip-chip" key={`${date}-${skipDateIndex}`}><span>{label}</span><button type="button" className="class-setup-skip-chip-remove" aria-label={`Remove skip date ${label}`} onClick={() => removeSkipDate(skipDateIndex)}><X size={13} aria-hidden="true" /></button></span>;
+                })}
+              </div>
+              <input ref={skipDatePickerRef} id={skipDatePickerId} className={skipDatePickerFallback ? "class-setup-skip-date-fallback" : "class-setup-hidden-input class-setup-skip-date-input"} tabIndex={skipDatePickerFallback ? 0 : -1} aria-label="Add skip date" type="date" min={selectedMeeting.from} max={selectedMeeting.until} disabled={(selectedMeeting.excludedDates?.length ?? 0) >= 100} onChange={(event) => {
+                const date = event.currentTarget.value;
+                if (!date || !isDate(date) || date < selectedMeeting.from || date > selectedMeeting.until) return;
+                addSkipDate(date);
+                event.currentTarget.value = "";
+              }} />
+            </div>
           </div>
         </section> : <section className="class-setup-schedule-empty" id="class-setup-meeting-editor"><CalendarDays size={32} aria-hidden="true" /><h3>No scheduled meetings</h3><p>Add a meeting for live classes, or continue without one for an asynchronous course.</p></section>}
       </div>}
