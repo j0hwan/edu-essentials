@@ -67,6 +67,7 @@ import TopbarSearch from "./topbar-search";
 import SyllabusReview from "./syllabus-review";
 import { SyllabusAttachment, SyllabusTextPreview, type SyllabusAttachmentValue } from "./course-syllabus";
 import AcademicCalendar from "./academic-calendar";
+import { calendarTime } from "../lib/calendar-layout";
 import { usePrivateFiles } from "./use-private-files";
 import { useFileActivity } from "./use-file-activity";
 import { useFileUploads } from "./use-file-uploads";
@@ -2068,6 +2069,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }
 
   function renderClassDetail(course: Course) {
+    const meetingTime = (time: string) => calendarTime(time).replace(" ", "").toLowerCase();
     const items = assignments.filter((a) => a.courseId === course.id), details = extraData.courseDetails[course.id] ?? emptyCourseDetails();
     const syllabusFile = fileStore.files.find((file) => file.id === details.syllabusFileId && file.kind === "syllabus" && file.state === "ready" && !file.trashed_at);
     const hasSyllabusPreview = Boolean(syllabusFile || details.syllabusText);
@@ -2080,7 +2082,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         <div className="expanded-class-grid">
           <section className="expanded-class-section expanded-class-details" aria-label="Course details"><div><h3>Instructor</h3><p>{course.instructor ? <span data-course-morph="instructor">{course.instructor}</span> : "No instructor entered"}</p></div><div><h3>Office hours</h3><p>{details.officeHours || "No office hours entered"}</p></div>{details.meetingNotes && <div className="expanded-class-meeting-notes"><h3>Meeting Notes</h3><p>{details.meetingNotes}</p></div>}</section>
           <section className="expanded-class-section expanded-class-schedule" aria-label="Course schedule">
-            <div className="expanded-class-meetings">{details.meetings.length ? details.meetings.map((meeting, index) => <div className="expanded-class-meeting" key={meeting.id}><h3>{meeting.name || `Meeting ${index + 1}`}</h3><p>{meeting.days.map((day) => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day]).join(", ") || "No days entered"}<br />{meeting.start}–{meeting.end}<br />{meeting.location || course.room || "No location entered"}</p><p>{dateLabel(meeting.from)} – {dateLabel(meeting.until)}</p></div>) : <p>No recurring meetings entered.</p>}</div>
+            <div className="expanded-class-meetings">{details.meetings.length ? details.meetings.map((meeting, index) => <div className="expanded-class-meeting" key={meeting.id}><h3>{meeting.name || `Meeting ${index + 1}`}</h3><p>{meeting.days.map((day) => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day]).join(", ") || "No days entered"}<br />{meetingTime(meeting.start)}–{meetingTime(meeting.end)}<br />{meeting.location || course.room || "No location entered"}</p></div>) : <p>No recurring meetings entered.</p>}</div>
             <div className="expanded-class-actions"><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); navigate("calendar"); }}><CalendarDays size={15} />View schedule</button></div>
           </section>
         </div>

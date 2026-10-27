@@ -1610,7 +1610,11 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.equal(courseDetails.nextElementSibling.getAttribute("aria-label"), "Course schedule");
     const meetingColumns = [...expanded.querySelectorAll('[aria-label="Course schedule"] .expanded-class-meeting')];
     assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("h3").textContent), ["Lecture", "Meeting 2"]);
-    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("p").innerHTML.split(/<br\s*\/?\s*>/)), [["Monday, Wednesday, Friday", "09:00–10:00", "Lecture Hall"], ["Tuesday", "11:00–12:00", "Discussion Room"]]);
+    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("p").innerHTML.split(/<br\s*\/?\s*>/)), [["Monday, Wednesday, Friday", "9:00am–10:00am", "Lecture Hall"], ["Tuesday", "11:00am–12:00pm", "Discussion Room"]]);
+    for (const meeting of meetingColumns) {
+      assert.equal(meeting.querySelectorAll("p").length, 1);
+      assert.doesNotMatch(meeting.textContent, /Oct 1, 2026|Jan 25, 2027/);
+    }
     assert.ok(![...expanded.querySelectorAll('[aria-label="Course schedule"] h3')].some((heading) => heading.textContent === "Schedule"));
     const scheduleActions = expanded.querySelectorAll('[aria-label="Course schedule"] > .expanded-class-actions button');
     assert.equal(scheduleActions.length, 1);
