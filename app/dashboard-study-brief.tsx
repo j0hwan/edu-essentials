@@ -11,6 +11,7 @@ import { useAskSuggestions } from "./use-ask-suggestions";
 const STUDY_SUMMARY = "I’d start with the work that needs your attention most, then give you a head start on the next deadline. Your week looks manageable—let’s take it one priority at a time.";
 const STUDY_SUMMARY_TYPING_DURATION_MS = 2500;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const CHAT_OPEN_STORAGE_KEY = "edu-dashboard-study-chat-open";
 
 function subscribeToReducedMotion(onChange: () => void) {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
@@ -75,7 +76,15 @@ export default function DashboardStudyBrief({
   const [askFocused, setAskFocused] = useState(false);
   const systemReducedMotion = useSyncExternalStore(subscribeToReducedMotion, getSystemReducedMotion, () => false);
   const shouldReduceMotion = reducedMotion || systemReducedMotion;
-  const [chatOpen, setChatOpen] = useState<boolean | null>(null);
+  const [chatOpen, setChatOpen] = useState<boolean | null>(() => {
+    if (typeof window === "undefined" || chatMessages.length === 0) return null;
+    try {
+      const stored = window.localStorage.getItem(CHAT_OPEN_STORAGE_KEY);
+      return stored === "true" ? true : stored === "false" ? false : null;
+    } catch {
+      return null;
+    }
+  });
   const chatExpanded = chatOpen ?? (chatMessages.length > 0);
   const showChatToggle = chatOpen !== null || chatMessages.length > 0;
   const chatRegion = useRef<HTMLDivElement>(null);
@@ -235,6 +244,12 @@ export default function DashboardStudyBrief({
     && !askFocused
     && question.length === 0
     && !shouldReduceMotion;
+  function updateChatOpen(open: boolean) {
+    setChatOpen(open);
+    try { window.localStorage.setItem(CHAT_OPEN_STORAGE_KEY, String(open)); }
+    catch { return; }
+  }
+
   function handleAskSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedQuestion = question.trim();
@@ -245,7 +260,7 @@ export default function DashboardStudyBrief({
       ? onContinueAssistant(submittedQuestion, conversationId)
       : onAskAssistant(submittedQuestion);
     if (accepted === false) return;
-    setChatOpen(true);
+    updateChatOpen(true);
     setQuestion("");
   }
 
@@ -328,7 +343,7 @@ export default function DashboardStudyBrief({
         aria-expanded={chatExpanded}
         aria-controls="dashboard-study-chat"
         data-reduced-motion={shouldReduceMotion}
-        onClick={() => setChatOpen(!chatExpanded)}
+        onClick={() => updateChatOpen(!chatExpanded)}
       ><ChevronUp size={14} aria-hidden="true" /></button>}
 
       <aside className="dashboard-focus" aria-labelledby="dashboard-priorities-title">

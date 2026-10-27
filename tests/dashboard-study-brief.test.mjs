@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { beforeEach } from "node:test";
 import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
@@ -26,6 +26,8 @@ const props = {
   onAskAssistant() {},
 };
 let root;
+
+beforeEach(() => window.localStorage.clear());
 
 async function mount(overrides = {}) {
   root = createRoot(node);
@@ -570,6 +572,41 @@ test("expands inline above the same composer and renders both sides of the conve
     assert.match(node.querySelector(".dashboard-study-chat-user").textContent, /What should I do first/);
     assert.match(node.querySelector(".dashboard-study-chat-assistant").textContent, /Start with your overdue work/);
     assert.equal(node.querySelector('[role="log"]').getAttribute("aria-label"), "Conversation with Edu AI");
+  } finally { await unmount(); }
+});
+
+test("remembers a collapsed chat across navigation without persisting messages on refresh", async () => {
+  const chatMessages = [{ id: "first", question: "First question", status: "complete" }];
+  try {
+    await mount({ reducedMotion: true, chatMessages });
+    await click(node.querySelector('[aria-label="Collapse chat"]'));
+    assert.equal(window.localStorage.getItem("edu-dashboard-study-chat-open"), "false");
+    await unmount();
+
+    await mount({ reducedMotion: true, chatMessages });
+    assert.equal(node.querySelector("#dashboard-study-chat").getAttribute("aria-hidden"), "true");
+    assert.ok(node.querySelector('[aria-label="Expand chat"]'));
+    assert.match(node.querySelector("#dashboard-study-chat").textContent, /First question/);
+
+    await click(node.querySelector('[aria-label="Expand chat"]'));
+    assert.equal(window.localStorage.getItem("edu-dashboard-study-chat-open"), "true");
+    await unmount();
+
+    await mount({ reducedMotion: true });
+    assert.equal(node.querySelector("#dashboard-study-chat").getAttribute("aria-hidden"), "true");
+    assert.equal(node.querySelector(".dashboard-study-chat-toggle"), null);
+    assert.equal(node.querySelector(".dashboard-study-chat-user"), null);
+  } finally { await unmount(); }
+});
+
+test("sending a new question reopens a remembered collapsed chat", async () => {
+  window.localStorage.setItem("edu-dashboard-study-chat-open", "false");
+  try {
+    await mount({ reducedMotion: true, chatMessages: [{ id: "first", question: "First question", status: "complete" }] });
+    await setInputValue(node.querySelector('[aria-label="Ask Edu AI"]'), "Next question");
+    await act(async () => node.querySelector(".dashboard-study-ask").requestSubmit());
+    assert.equal(node.querySelector("#dashboard-study-chat").getAttribute("aria-hidden"), "false");
+    assert.equal(window.localStorage.getItem("edu-dashboard-study-chat-open"), "true");
   } finally { await unmount(); }
 });
 
