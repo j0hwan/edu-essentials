@@ -1787,7 +1787,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.ok(rootNode.querySelector('[role="dialog"][aria-label="Add a class"]'));
     const chooser = rootNode.querySelector(".add-class-choice-modal");
     assert.ok(chooser, "Add Class opens the redesigned class chooser");
-    assert.match(chooser.textContent, /Choose how you’d like to set up your class\./);
+    assert.doesNotMatch(chooser.textContent, /Choose how you’d like to set up your class\./);
     const choices = [...chooser.querySelectorAll(".add-class-choices > button")];
     assert.equal(choices.length, 2, "the chooser presents two class setup cards");
     assert.deepEqual(choices.map((button) => button.querySelector(".add-class-choice-title")?.textContent.trim()), ["Import syllabus", "Manual entry"]);

@@ -334,7 +334,7 @@ test("required fields have visible asterisks and setup omits the removed introdu
   verifyLabels();
   assert.deepEqual([...host.querySelectorAll("input:required")].map((input) => input.closest("label").textContent.trim()), ["Course code *", "Class name *"]);
   await submit(); verifyLabels();
-  assert.match(host.querySelector(".class-setup-week-label").textContent, /Meeting days \*/);
+  assert.equal(host.querySelector(".class-setup-week-label"), null);
   await click("Monday"); await click("Skip dates (0)"); await click("Add exception"); verifyLabels();
   await change("Exception date 1", "2026-11-02");
   await submit(); verifyLabels();
@@ -648,10 +648,32 @@ test("validation selects an invalid background meeting without opening collapsed
   assert.deepEqual(saved[1].meetings[1].days, [2]);
 });
 
+test("empty meeting days are invalid immediately and clear as soon as a day is selected", async () => {
+  await mount(); await submit();
+  const days = () => host.querySelector('.class-setup-week');
+  assert.equal(host.querySelector(".class-setup-week-label"), null);
+  assert.equal(days().getAttribute("aria-label"), "Weekdays for meeting 1");
+  assert.equal(days().getAttribute("aria-invalid"), "true");
+  assert.equal(days().querySelectorAll('button[aria-pressed="false"]').length, 7);
+  await click("Monday");
+  assert.equal(days().hasAttribute("aria-invalid"), false);
+  assert.equal(button("Monday").getAttribute("aria-pressed"), "true");
+  await click("Tuesday"); await click("Monday");
+  assert.equal(days().hasAttribute("aria-invalid"), false);
+  await click("Tuesday");
+  assert.equal(days().getAttribute("aria-invalid"), "true");
+  await click("Monday"); await click("Add meeting");
+  assert.equal(days().getAttribute("aria-invalid"), "true");
+  await click("Select meeting 1");
+  assert.equal(days().hasAttribute("aria-invalid"), false);
+  await click("Select meeting 2");
+  assert.equal(days().getAttribute("aria-invalid"), "true");
+});
+
 test("schedule validation blocks advancement, and asynchronous classes can remove meetings", async () => {
   await mount(); await submit(); await submit();
   assert.equal(host.querySelector('[role="alert"]'), null);
-  assert.ok(host.querySelector(".class-setup-week-label .is-missing"));
+  assert.equal(host.querySelector(".class-setup-week").getAttribute("aria-invalid"), "true");
   assert.equal(host.querySelector("h2").textContent, "Class schedule");
   assert.equal(button("Skip dates (0)").getAttribute("aria-expanded"), "false");
   await click("Skip dates (0)"); await submit();
@@ -691,7 +713,7 @@ test("missing schedule fields highlight together without a popup and allow advan
   await click("Skip dates (0)"); await click("Add exception");
   await click("Continue");
   assert.equal(host.querySelector('[role="alert"]'), null);
-  assert.equal(host.querySelectorAll(".is-missing").length, 6);
+  assert.equal(host.querySelectorAll(".is-missing").length, 5);
   assert.equal(host.querySelectorAll('[aria-invalid="true"]').length, 6);
   assert.equal(document.activeElement, button("Sunday"));
   assert.equal(calls, 0);

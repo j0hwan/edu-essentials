@@ -58,9 +58,9 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup .class-setup-meeting-title[contenteditable="plaintext-only"][data-preview]::after { content: attr(data-preview); position: absolute; top: 0; left: 0; right: auto; bottom: auto; width: max-content; height: auto; color: var(--muted); opacity: .45; background: transparent; white-space: pre; pointer-events: none; animation: none; }
 @keyframes class-setup-caret-blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .class-setup-meeting-title[contenteditable="plaintext-only"][data-caret-at-end="true"]:focus::after { animation: none; } }
-.class-setup-week-label { margin: 0 0 12px; font-size: 14px; color: var(--muted); font-weight: 600; }
 .class-setup-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-bottom: 24px; }
 .class-setup-week button { min-height: 48px; padding: 0; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 9px; cursor: pointer; font-size: 13px; }
+.class-setup-week[aria-invalid="true"] button { background: var(--red-soft); border-color: var(--red); color: var(--red); }
 .class-setup-week button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: white; }
 .class-setup .class-setup-meeting-fields { padding-top: 0; gap: 22px; }
 .class-setup .class-setup-meeting-fields label { margin: 0; font-size: 14px; }

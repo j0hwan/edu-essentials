@@ -2107,11 +2107,10 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
 
   function renderAddClassDialog() {
     return <div className="modal-backdrop">
-      <section ref={addClassChoiceRef} className="small-modal add-class-choice-modal" role="dialog" aria-modal="true" aria-label="Add a class" aria-describedby="add-class-choice-description">
+      <section ref={addClassChoiceRef} className="small-modal add-class-choice-modal" role="dialog" aria-modal="true" aria-label="Add a class">
         <div className="modal-header">
           <div>
             <h2>Add a class</h2>
-            <p id="add-class-choice-description">Choose how you’d like to set up your class.</p>
           </div>
           <button className="secondary-button" onClick={() => setAddClassOpen(false)}>Close</button>
         </div>
