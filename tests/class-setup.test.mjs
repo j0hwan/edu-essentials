@@ -67,11 +67,28 @@ function mockSetupMotion() {
   const originalAnimate = HTMLElement.prototype.animate;
   const originalRect = HTMLElement.prototype.getBoundingClientRect;
   const originalMatchMedia = window.matchMedia;
+  const originalComputedStyle = window.getComputedStyle;
   const animations = [];
+  const bounds = new WeakMap();
+  let scale = 1;
   window.matchMedia = () => ({ matches: false });
+  const layoutBounds = (element) => {
+    const schedule = element.classList.contains("class-setup-schedule-step");
+    return bounds.get(element) ?? { width: schedule ? 1080 : 760, height: schedule ? 720 : 540 };
+  };
   HTMLElement.prototype.getBoundingClientRect = function () {
-    const schedule = this.classList.contains("class-setup-schedule-step");
-    return { width: schedule ? 1080 : 760, height: schedule ? 720 : 540 };
+    const size = layoutBounds(this);
+    return { width: size.width * scale, height: size.height * scale };
+  };
+  window.getComputedStyle = (element, pseudo) => {
+    const style = originalComputedStyle.call(window, element, pseudo);
+    if (element.matches(".class-setup, .add-class-choice-modal")) {
+      const size = layoutBounds(element);
+      style.width = `${size.width}px`;
+      style.height = `${size.height}px`;
+      style.boxSizing = "border-box";
+    }
+    return style;
   };
   HTMLElement.prototype.animate = function (frames, options) {
     let finish;
@@ -83,11 +100,14 @@ function mockSetupMotion() {
   };
   return {
     animations,
+    setBounds(element, size) { bounds.set(element, size); },
+    setScale(value) { scale = value; },
     async finish() { await act(async () => { for (const animation of [...animations]) if (!animation.cancelled) animation.finish(); }); },
     restore() {
       HTMLElement.prototype.animate = originalAnimate;
       HTMLElement.prototype.getBoundingClientRect = originalRect;
       window.matchMedia = originalMatchMedia;
+      window.getComputedStyle = originalComputedStyle;
       delete document.documentElement.dataset.motion;
     },
   };
@@ -113,6 +133,46 @@ function mockSetupFrames() {
     },
   };
 }
+
+test("opening scale does not trigger a delayed resize or affect subsequent step dimensions", async () => {
+  const motion = mockSetupMotion();
+  const scheduled = mockSetupFrames();
+  const originalObserver = globalThis.ResizeObserver;
+  let resized;
+  globalThis.ResizeObserver = class {
+    constructor(callback) { resized = callback; }
+    observe() {}
+    disconnect() {}
+  };
+  try {
+    motion.setScale(0.985);
+    await mount();
+    assert.equal(host.querySelector("form").getBoundingClientRect().width, 748.6);
+    motion.setScale(1);
+    await act(async () => resized());
+    await scheduled.flush();
+    assert.equal(motion.animations.length, 0);
+    motion.setScale(0.99);
+    await submit();
+    await motion.finish();
+    const expansion = motion.animations.find((animation) => animation.target.tagName === "FORM");
+    assert.equal(expansion.frames[0].width, "760px");
+    assert.equal(expansion.frames.at(-1).width, "1080px");
+    assert.equal(expansion.frames.at(-1).height, "720px");
+    motion.setScale(1);
+    await motion.finish();
+    await act(async () => resized());
+    await scheduled.flush();
+    assert.equal(motion.animations.filter((animation) => animation.target.tagName === "FORM").length, 1);
+    assert.equal(host.querySelector("form").hasAttribute("data-resizing"), false);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    root = undefined;
+    globalThis.ResizeObserver = originalObserver;
+    scheduled.restore();
+    motion.restore();
+  }
+});
 
 test("step changes fade old content before resizing and revealing, in both directions", async () => {
   const motion = mockSetupMotion();
@@ -192,7 +252,7 @@ test("content size changes animate the form height without replaying content fad
   try {
     await mount();
     const panel = host.querySelector("form");
-    panel.getBoundingClientRect = () => ({ width: 760, height: 650 });
+    motion.setBounds(panel, { width: 760, height: 650 });
     await act(async () => resized());
     assert.equal(motion.animations.length, 0);
     await act(async () => { resized(); resized(); });
@@ -207,7 +267,7 @@ test("content size changes animate the form height without replaying content fad
     assert.equal(scheduled.frames.size, 0);
     await motion.finish();
     assert.equal(panel.hasAttribute("data-resizing"), false);
-    panel.getBoundingClientRect = () => ({ width: 760, height: 500 });
+    motion.setBounds(panel, { width: 760, height: 500 });
     await act(async () => resized());
     await scheduled.flush();
     assert.equal(motion.animations.at(-1).frames.at(-1).height, "500px");
@@ -241,7 +301,7 @@ test("missing required fields keep the current step and defer validation resizin
     assert.equal(host.querySelector("h2").textContent, "Course information");
     assert.equal(host.querySelectorAll('input[aria-invalid="true"]').length, 2);
     const panel = host.querySelector("form");
-    panel.getBoundingClientRect = () => ({ width: 760, height: 580 });
+    motion.setBounds(panel, { width: 760, height: 580 });
     await act(async () => resized());
     assert.equal(motion.animations.length, 0);
     assert.equal(panel.hasAttribute("data-resizing"), false);

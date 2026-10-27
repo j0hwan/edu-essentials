@@ -8,6 +8,14 @@ export type ClassSetupBounds = { width: number; height: number };
 const reducedMotion = () => document.documentElement.dataset.motion === "reduced"
   || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
+function getPanelBounds(panel: HTMLElement): ClassSetupBounds {
+  const style = window.getComputedStyle(panel);
+  return {
+    width: style.boxSizing === "border-box" ? Number.parseFloat(style.width) || panel.offsetWidth : panel.offsetWidth,
+    height: style.boxSizing === "border-box" ? Number.parseFloat(style.height) || panel.offsetHeight : panel.offsetHeight,
+  };
+}
+
 export function useClassSetupMotion(panelRef: RefObject<HTMLElement | null>, revision: unknown, initialBounds?: ClassSetupBounds) {
   const boundsRef = useRef<ClassSetupBounds | undefined>(initialBounds);
   const animationsRef = useRef<Animation[]>([]);
@@ -31,7 +39,7 @@ export function useClassSetupMotion(panelRef: RefObject<HTMLElement | null>, rev
       if (disposed || (!reveal && animationsRef.current.length)) return;
       const previous = boundsRef.current;
       cancel();
-      const next = panel.getBoundingClientRect();
+      const next = getPanelBounds(panel);
       boundsRef.current = { width: next.width, height: next.height };
       pendingRef.current = false;
       if (reducedMotion() || typeof panel.animate !== "function" || !previous?.width || !next.width) return;
@@ -82,10 +90,10 @@ export function useClassSetupMotion(panelRef: RefObject<HTMLElement | null>, rev
     const panel = panelRef.current;
     if (pendingRef.current) return;
     if (!panel || reducedMotion() || typeof panel.animate !== "function") {
-      update(panel ? panel.getBoundingClientRect() : undefined);
+      update(panel ? getPanelBounds(panel) : undefined);
       return;
     }
-    const bounds = panel.getBoundingClientRect();
+    const bounds = getPanelBounds(panel);
     cancel();
     boundsRef.current = { width: bounds.width, height: bounds.height };
     pendingRef.current = true;
