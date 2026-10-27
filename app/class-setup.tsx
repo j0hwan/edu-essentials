@@ -235,7 +235,6 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
         const invalidMeeting = missingMeeting ?? details.meetings.find((meeting) => !isMeetingComplete(meeting));
         if (invalidMeeting) {
           setSelectedMeetingId(invalidMeeting.id);
-          setExpandedSkipDates((current) => current.includes(invalidMeeting.id) ? current : [...current, invalidMeeting.id]);
           setStep(1);
         }
         if (missingMeeting) {
