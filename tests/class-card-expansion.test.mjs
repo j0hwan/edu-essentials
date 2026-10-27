@@ -1282,6 +1282,43 @@ test("closing during the reveal continues from the visible content instead of fl
   }
 });
 
+test("dashboard dimming starts after expansion and clears before the close animation finishes", async () => {
+  const { render, cleanup } = setup();
+  try {
+    const styles = await readFile(new URL("../app/class-card-expansion.css", import.meta.url), "utf8");
+    document.head.insertAdjacentHTML("beforeend", `<style id="dimming-test-styles">${styles}</style>`);
+    await render();
+    const backdrop = document.querySelector(".class-card-expansion-backdrop");
+    assert.equal(backdrop.dataset.dimmed, undefined, "the dashboard stays bright while the course expands");
+    await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
+    assert.equal(backdrop.dataset.dimmed, "true");
+    assert.equal(window.getComputedStyle(backdrop).backgroundColor, "rgba(12, 18, 30, 0.48)");
+    assert.equal(window.getComputedStyle(backdrop).transitionDuration, "600ms", "the dashboard dims smoothly after expansion");
+    await act(async () => document.querySelector(".test-class-details button").click());
+    assert.equal(backdrop.dataset.dimmed, undefined);
+    assert.equal(window.getComputedStyle(backdrop).backgroundColor, "rgba(12, 18, 30, 0)");
+    assert.equal(window.getComputedStyle(backdrop).transitionDuration, "100ms", "brightness returns quickly as closing starts");
+    assert.ok(document.querySelector(".class-card-expansion-dialog"), "brightness is restored before the course finishes collapsing");
+  } finally {
+    document.getElementById("dimming-test-styles")?.remove();
+    await cleanup();
+  }
+});
+
+test("closing during expansion never starts delayed dashboard dimming", async () => {
+  const { render, cleanup } = setup();
+  try {
+    await render();
+    const backdrop = document.querySelector(".class-card-expansion-backdrop");
+    const opening = callsFor(".class-card-expansion-dialog")[0];
+    await act(async () => document.querySelector(".test-class-details button").click());
+    await act(async () => opening.animation.finish());
+    assert.equal(backdrop.dataset.dimmed, undefined);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("empty sidebar space closes expanded courses with the existing close animation", async () => {
   for (const collapsed of [false, true]) {
     for (const selector of [".sidebar", ".sidebar-scroll-region", ".sidebar-empty-space"]) {
@@ -1375,6 +1412,7 @@ test("reduced-motion settings and missing WAAPI open and close immediately", asy
       if (mode === "unavailable") delete window.HTMLElement.prototype.animate;
       await render({ onClose: () => { closed += 1; } });
       assert.equal(calls.length, 0, `${mode} starts without WAAPI animations`);
+      assert.equal(document.querySelector(".class-card-expansion-backdrop").dataset.dimmed, "true", `${mode} dims the dashboard without waiting for an animation`);
       assert.equal(document.querySelector(".class-card-expansion-content").style.opacity, "1");
       const closeButton = [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Close class"));
       await act(async () => closeButton.click());

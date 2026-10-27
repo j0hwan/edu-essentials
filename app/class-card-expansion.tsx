@@ -968,6 +968,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
     };
 
     const finishOpeningMorph = () => {
+      if (!released && !closing && backdrop) backdrop.dataset.dimmed = "true";
       clearDetailGeometry("translateX(0px)");
       if (!openingMorphPending) return;
       openingMorphPending = false;
@@ -1222,6 +1223,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
     function release() {
       if (released) return;
       released = true;
+      if (backdrop) delete backdrop.dataset.dimmed;
       for (const cleanup of [...imageHandoffCleanups]) cleanup();
       cancelShape();
       clearDetailGeometry();
@@ -1251,6 +1253,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
     function requestClose() {
       if (released || closing) return;
       closing = true;
+      if (backdrop) delete backdrop.dataset.dimmed;
       onCloseStartRef.current?.();
       for (const cleanup of [...imageHandoffCleanups]) cleanup();
       const from = expansionDialog.getBoundingClientRect();
@@ -1394,6 +1397,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
     } else {
       applyRect(expansionDialog, destination);
       applyVisualAppearance(expansionDialog, expandedAppearance);
+      if (backdrop) backdrop.dataset.dimmed = "true";
     }
     revealContent();
     return release;
