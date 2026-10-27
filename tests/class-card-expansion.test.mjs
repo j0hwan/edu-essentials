@@ -535,7 +535,7 @@ test("zoomed course image frames fill shared visuals and keep percentage framing
   try {
     await render({ children: (close) => h("div", null,
       h("div", { className: "expanded-class-header" }, h("div", { "data-course-morph": "visual" },
-        h("div", { className: "course-image-frame", style: { width: "838px", height: "190px", objectPosition: "25% 70%", transform: "scale(2)", transformOrigin: "25% 70%" } }),
+        h("div", { className: "course-image-frame", style: { width: "838px", height: "190px", objectPosition: "25% 70%", transform: "scale(1)", transformOrigin: "25% 70%" } }),
       )),
       h("button", { onClick: close }, "Close class"),
     ) });
@@ -546,13 +546,62 @@ test("zoomed course image frames fill shared visuals and keep percentage framing
     assert.equal(clonedFrame.style.transform, "scale(2)");
     assert.equal(clonedFrame.style.transformOrigin, "25% 70%");
     assert.equal(clonedFrame.querySelector("img").style.objectPosition, "25% 70%");
+    const openingZoom = calls.find((call) => call.element === clonedFrame && call.frames.some((frame) => "transform" in frame));
+    assert.deepEqual(openingZoom.frames, [{ transform: "scale(2)" }, { transform: "scale(1)" }]);
+    assert.equal(openingZoom.options.duration, 140);
+    assert.equal(openingZoom.options.easing, "ease-out");
+    assert.equal(openingZoom.options.delay ?? 0, 0);
+    assert.ok(openingZoom.options.duration < callsFor(".class-card-expansion-dialog")[0].options.duration / 2, "zoom finishes during the first half of expansion");
     await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());
     assert.equal(shared.isConnected, true, "the correctly sized source photo remains while the expanded image loads");
+    assert.equal(clonedFrame.style.transform, "scale(1)", "the retained image keeps expanded zoom even if the shell finishes before its zoom animation");
     await act(async () => document.querySelector(".class-card-expansion-content button").click());
     assert.equal(clonedFrame.style.width, "100%");
     assert.equal(clonedFrame.style.transformOrigin, "25% 70%");
+    const closingZoom = calls.filter((call) => call.element === clonedFrame && call.frames.some((frame) => "transform" in frame)).at(-1);
+    assert.deepEqual(closingZoom.frames, [{ transform: "scale(1)" }, { transform: "scale(2)" }]);
+    assert.equal(closingZoom.options.duration, 140);
+    assert.equal(closingZoom.options.easing, "ease-out");
+    assert.equal(closingZoom.options.delay ?? 0, 0);
+    assert.ok(closingZoom.options.duration < callsFor(".class-card-expansion-dialog").at(-1).options.duration / 2, "zoom finishes during the first half of collapse");
+    await act(async () => closingZoom.animation.finish());
+    assert.equal(clonedFrame.style.transform, "scale(2)");
   } finally {
     window.getComputedStyle = originalComputedStyle;
+    restoreRects();
+    await cleanup();
+  }
+});
+
+test("closing during image zoom reverses from the live transform without jumping", async () => {
+  const { source, render, cleanup } = setup();
+  setMorphFixture(source);
+  const sourceImage = source.querySelector("img");
+  const sourceFrame = document.createElement("div");
+  sourceFrame.className = "course-image-frame";
+  sourceFrame.style.cssText = "transform:scale(3);transform-origin:50% 50%;object-position:50% 50%";
+  sourceImage.replaceWith(sourceFrame);
+  sourceFrame.append(sourceImage);
+  const restoreRects = installMorphRectMocks();
+  try {
+    await render({ children: (close) => h("div", null,
+      h("div", { className: "expanded-class-header" }, h("div", { "data-course-morph": "visual" },
+        h("div", { className: "course-image-frame", style: { transform: "scale(1.5)", transformOrigin: "50% 50%", objectPosition: "50% 50%" } }),
+      )),
+      h("button", { onClick: close }, "Close class"),
+    ) });
+    const clone = document.querySelector(".class-card-expansion-morph[data-course-morph='visual'] .course-image-frame");
+    const openingZoom = calls.find((call) => call.element === clone && call.frames.some((frame) => "transform" in frame));
+    assert.deepEqual(openingZoom.frames, [{ transform: "scale(3)" }, { transform: "scale(1.5)" }]);
+    clone.style.transform = "matrix(2.2, 0, 0, 2.2, 0, 0)";
+    await act(async () => document.querySelector(".class-card-expansion-content button").click());
+    assert.equal(openingZoom.animation.cancelled, true);
+    const closingZoom = calls.filter((call) => call.element === clone && call.frames.some((frame) => "transform" in frame)).at(-1);
+    assert.deepEqual(closingZoom.frames, [{ transform: "matrix(2.2, 0, 0, 2.2, 0, 0)" }, { transform: "scale(3)" }]);
+    assert.equal(clone.style.transform, "matrix(2.2, 0, 0, 2.2, 0, 0)");
+    await act(async () => closingZoom.animation.finish());
+    assert.equal(clone.style.transform, "scale(3)");
+  } finally {
     restoreRects();
     await cleanup();
   }

@@ -12,6 +12,19 @@ test("preview and saved images share zoom and position with a centered default",
   assert.equal(courseImageFramingStyle({ ...framing, x: 0, y: 100 }).transformOrigin, "0% 100%");
 });
 
+test("expanded images halve saved zoom without zooming out below the base fit", () => {
+  for (const [zoom, expected] of [[1, 1], [1.5, 1], [2, 1], [2.5, 1.25], [3, 1.5]]) {
+    const saved = { ...framing, x: 25, y: 70, zoom };
+    const expanded = courseImageFramingStyle(saved, "cover", true);
+    assert.equal(expanded.transform, `scale(${expected})`);
+    assert.equal(expanded.transformOrigin, "25% 70%");
+    assert.equal(expanded.objectPosition, "25% 70%");
+    assert.equal(courseImageFramingStyle(saved, "cover").transform, `scale(${zoom})`);
+  }
+  assert.equal(courseImageFramingStyle(undefined, undefined, true).transform, "scale(1)");
+  assert.equal(courseImageFramingStyle(framing, "replacement", true).transform, "scale(1)");
+});
+
 test("dragging follows the pointer and clamps both edges without uncovering the frame", () => {
   const moved = moveCourseImage(framing, 30, 20, 300, 132, 1200, 800);
   assert.equal(moved.x, 40);

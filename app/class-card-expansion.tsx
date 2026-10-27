@@ -63,6 +63,7 @@ type MorphPair = {
   backgroundOpacity: number | null;
 };
 type DetailHorizontalMotion = { worldLeftFrom: number; worldLeftTo: number };
+const COURSE_IMAGE_ZOOM_DURATION_MS = 140;
 
 const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])";
 
@@ -678,6 +679,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
       const nodes = morphNodes(element);
       const properties = ["background-color", "background-image", "border-color", "border-radius", "color", "font-family", "font-size", "font-style", "font-weight", "letter-spacing", "line-height", "opacity", "padding-bottom", "padding-left", "padding-right", "padding-top", "text-align", "text-decoration-color", "text-shadow"];
       nodes.forEach((node, index) => {
+        if (node.classList.contains("course-image-frame") && styles[index]?.transform) node.style.setProperty("transform", styles[index].transform);
         for (const property of properties) {
           const value = styles[index]?.[property];
           if (value !== undefined) node.style.setProperty(property, value);
@@ -812,6 +814,28 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
           animatedNodes.forEach((node, index) => {
             const fromNodeStyle = { ...(fromStyle[index] ?? {}) };
             const toNodeStyle = { ...(toStyle[index] ?? {}) };
+            if (node.classList.contains("course-image-frame") && typeof node.animate === "function") {
+              const targetFrame = toNode.querySelector<HTMLElement>(".course-image-frame");
+              const fromTransform = fromNodeStyle.transform || node.style.transform || "none";
+              const toTransform = targetFrame?.style.transform || "none";
+              if (fromTransform !== toTransform) {
+                node.style.setProperty("transform", fromTransform);
+                const animation = node.animate([{ transform: fromTransform }, { transform: toTransform }], {
+                  duration: COURSE_IMAGE_ZOOM_DURATION_MS,
+                  easing: "ease-out",
+                  fill: "both",
+                });
+                morphAnimations.add(animation);
+                animation.onfinish = () => {
+                  if (!morphAnimations.delete(animation)) return;
+                  node.style.setProperty("transform", toTransform);
+                  animation.onfinish = null;
+                  animation.oncancel = null;
+                  animation.cancel();
+                };
+                animation.oncancel = () => morphAnimations.delete(animation);
+              }
+            }
             if (pair.backgroundOverlay && index === 0) {
               delete fromNodeStyle["background-image"];
               delete toNodeStyle["background-image"];
@@ -931,6 +955,10 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
       openingMorphPending = false;
       cancelMorphAnimations();
       for (const pair of morphPairs) {
+        if (pair.key === "visual") {
+          const targetFrame = pair.target.querySelector<HTMLElement>(".course-image-frame");
+          if (targetFrame) pair.clone?.querySelector<HTMLElement>(".course-image-frame")?.style.setProperty("transform", targetFrame.style.transform || "none");
+        }
         if (pair.backgroundOverlay && pair.backgroundOverlayRole === "target") {
           pair.backgroundOverlay.style.opacity = "1";
           pair.backgroundOpacity = 1;

@@ -34,3 +34,22 @@ test("Change image is visible for an empty cover and hidden until hover or focus
     assert.equal(dom.window.getComputedStyle(label).opacity, "1");
   } finally { dom.window.close(); }
 });
+
+test("Change image is hidden immediately while dragging even when the preview is focused", () => {
+  const dom = new JSDOM(`<style>${setupCss}</style>${markup}`);
+  try {
+    const button = dom.window.document.querySelector("button");
+    const label = button.querySelector("span");
+    button.classList.add("has-image");
+    button.focus();
+    assert.equal(dom.window.getComputedStyle(label).opacity, "1");
+    button.dataset.dragging = "true";
+    const dragging = dom.window.getComputedStyle(label);
+    assert.equal(dragging.opacity, "0");
+    assert.equal(dragging.visibility, "hidden");
+    assert.equal(dragging.transition, "none");
+    delete button.dataset.dragging;
+    assert.equal(dom.window.getComputedStyle(label).opacity, "1");
+    assert.equal(dom.window.getComputedStyle(label).visibility, "visible");
+  } finally { dom.window.close(); }
+});

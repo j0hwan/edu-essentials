@@ -4,10 +4,11 @@ export type CourseImageFraming = { fileId: string; x: number; y: number; zoom: n
 export const DEFAULT_COURSE_IMAGE_FRAMING = { x: 50, y: 50, zoom: 1 };
 const clampPosition = (value: number) => Math.max(0, Math.min(100, value));
 
-export function courseImageFramingStyle(framing?: CourseImageFraming, fileId?: string): CSSProperties {
+export function courseImageFramingStyle(framing?: CourseImageFraming, fileId?: string, expanded = false): CSSProperties {
   const { x, y, zoom } = framing && (!fileId || framing.fileId === fileId) ? framing : DEFAULT_COURSE_IMAGE_FRAMING;
   const position = `${x}% ${y}%`;
-  return { backgroundPosition: position, objectPosition: position, transform: `scale(${zoom})`, transformOrigin: position };
+  const displayZoom = expanded ? Math.max(1, zoom / 2) : zoom;
+  return { backgroundPosition: position, objectPosition: position, transform: `scale(${displayZoom})`, transformOrigin: position };
 }
 
 export function moveCourseImage(framing: CourseImageFraming, deltaX: number, deltaY: number, width: number, height: number, imageWidth: number, imageHeight: number): CourseImageFraming {
