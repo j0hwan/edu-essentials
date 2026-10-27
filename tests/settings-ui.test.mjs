@@ -1597,7 +1597,17 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.equal(rootNode.querySelector(".side-panel-backdrop"), null);
     assert.equal(card.getAttribute("aria-expanded"), "true");
     for (const label of ["Instructor", "Office hours", "Schedule", "Assignments", "Syllabus", "Saved History guide", "Tuesday, 2–3 PM"]) assert.ok(expanded.textContent.includes(label), label);
-    for (const label of ["Edit class", "View schedule", "Add assignment"]) assert.ok([...expanded.querySelectorAll("button")].some((button) => button.textContent.trim() === label), label);
+    const classActions = [...expanded.querySelectorAll(".expanded-class-heading .expanded-class-actions button")];
+    assert.deepEqual(classActions.map((button) => button.textContent.trim()), ["Add assignment", "Edit class"]);
+    assert.ok(classActions[0].classList.contains("primary-button"));
+    assert.ok(classActions[1].classList.contains("secondary-button"));
+    assert.equal(classActions[1].querySelector("svg"), null);
+    const courseDetails = expanded.querySelector('[aria-label="Course details"]');
+    assert.deepEqual([...courseDetails.querySelectorAll(":scope > div > h3")].map((heading) => heading.textContent).slice(0, 2), ["Instructor", "Office hours"]);
+    assert.equal(courseDetails.nextElementSibling.getAttribute("aria-label"), "Course schedule");
+    const scheduleActions = expanded.querySelectorAll('[aria-label="Course schedule"] .expanded-class-section-header button');
+    assert.equal(scheduleActions.length, 1);
+    assert.equal(scheduleActions[0].textContent.trim(), "View schedule");
     for (const label of ["Progress", "Files and images"]) assert.ok(![...expanded.querySelectorAll("h3")].some((heading) => heading.textContent.trim() === label), label);
     for (const label of ["Study history & grades", "Add class file", "Upload class image", "Remove class"]) assert.ok(![...expanded.querySelectorAll("button")].some((button) => button.textContent.trim().startsWith(label)), label);
 
