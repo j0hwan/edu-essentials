@@ -88,6 +88,18 @@ test("larger progress replaces the visible title and preserves accessible step n
   await mount();
   const header = host.querySelector(".class-setup-header");
   const progress = header.querySelector(".class-setup-progress");
+  const verifyIndicators = (completed) => {
+    const indicators = [...progress.querySelectorAll(".class-setup-step-indicator")];
+    assert.equal(indicators.length, 3);
+    indicators.forEach((indicator, index) => {
+      assert.equal(indicator.getAttribute("width"), "18");
+      assert.equal(indicator.getAttribute("height"), "18");
+      assert.equal(indicator.getAttribute("aria-hidden"), "true");
+      assert.equal(indicator.querySelectorAll("circle").length, 1);
+      assert.equal(Boolean(indicator.querySelector("path")), index < completed);
+    });
+  };
+  verifyIndicators(0);
   assert.equal(header.children.length, 2);
   assert.equal(header.children[0], progress);
   assert.equal(header.children[1], button("Close class setup"));
@@ -104,12 +116,15 @@ test("larger progress replaces the visible title and preserves accessible step n
   await submit();
   assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Class schedule");
   assert.equal(progress.querySelectorAll(".is-complete").length, 1);
+  verifyIndicators(1);
   assert.ok(progress.querySelector(".is-complete svg"));
   await click("Monday"); await submit();
   assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Make it yours");
   assert.equal(progress.querySelectorAll(".is-complete").length, 2);
+  verifyIndicators(2);
   await click("Back");
   assert.equal(progress.querySelectorAll(".is-complete").length, 1);
+  verifyIndicators(1);
 });
 
 test("manual setup separates information, seven-day schedule, and appearance; Back preserves fields", async () => {
@@ -224,6 +239,59 @@ test("meeting titles rename with the pencil or double click, preserve names and 
   assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Lecture");
   await submit(); await submit();
   assert.deepEqual(saved[1].meetings.map((meeting) => meeting.name), ["Lecture", "Lab"]);
+});
+
+test("meeting-name presets appear only during editing and apply all four names without advancing", async () => {
+  await mount(); await submit(); await click("Monday");
+  assert.equal(host.querySelector('[aria-label="Meeting name presets"]'), null);
+  for (const [index, name] of ["Lecture", "Lab", "Discussion", "Office Hours"].entries()) {
+    await click(`Rename ${index === 0 ? "Meeting 1" : ["Lecture", "Lab", "Discussion"][index - 1]}`);
+    const presets = host.querySelector('[aria-label="Meeting name presets"]');
+    assert.deepEqual([...presets.querySelectorAll("button")].map((node) => node.textContent), ["Lecture", "Lab", "Discussion", "Office Hours"]);
+    await change("Meeting name", "Unfinished custom name");
+    await act(async () => button(name).focus());
+    assert.ok(host.querySelector('[aria-label="Meeting name"]'), "tabbing to a preset keeps editing active");
+    await click(name);
+    assert.equal(host.querySelector("h2").textContent, "Class schedule");
+    assert.equal(host.querySelector(".class-setup-meeting-title").textContent, name);
+    assert.equal(button("Select meeting 1").querySelector("strong").textContent, name);
+    assert.equal(host.querySelector('[aria-label="Meeting name presets"]'), null);
+    assert.equal(document.activeElement, button(`Rename ${name}`));
+  }
+  await submit(); await submit();
+  assert.equal(saved[1].meetings[0].name, "Office Hours");
+});
+
+test("preset hover previews replacement text without changing or saving the typed meeting name", async () => {
+  await mount(); await submit(); await click("Monday"); await click("Rename Meeting 1");
+  await change("Meeting name", "My custom meeting");
+  const title = host.querySelector('[aria-label="Meeting name"]');
+  for (const name of ["Lecture", "Lab", "Discussion", "Office Hours"]) {
+    await act(async () => button(name).dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+    assert.equal(title.dataset.preview, name);
+    assert.equal(title.textContent, "My custom meeting");
+    assert.equal(button("Select meeting 1").querySelector("strong").textContent, "Meeting 1");
+    await act(async () => button(name).dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+    assert.equal(title.hasAttribute("data-preview"), false);
+    assert.equal(title.textContent, "My custom meeting");
+  }
+  await act(async () => button("Lab").focus());
+  assert.equal(title.dataset.preview, "Lab");
+  await act(async () => title.focus());
+  assert.equal(title.hasAttribute("data-preview"), false);
+  await act(async () => title.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+  await submit(); await submit();
+  assert.equal(saved[1].meetings[0].name, "My custom meeting");
+});
+
+test("Escape on a meeting-name preset cancels the draft without closing the dialog", async () => {
+  await mount(); await submit(); await click("Rename Meeting 1");
+  await change("Meeting name", "Unfinished custom name");
+  await act(async () => button("Lab").focus());
+  await act(async () => button("Lab").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(closed, 0);
+  assert.equal(host.querySelector(".class-setup-meeting-title").textContent, "Meeting 1");
+  assert.equal(document.activeElement, button("Rename Meeting 1"));
 });
 
 test("clearing a meeting title restores its default numbered title", async () => {

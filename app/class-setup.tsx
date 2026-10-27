@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, ChevronRight, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import { addDays, emptyCourseDetails, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { MAX_FILE_BYTES } from "../lib/files";
@@ -28,6 +28,8 @@ const isMeetingComplete = (meeting: Meeting) => {
 function MeetingTitle({ title, onRename }: { title: string; onRename: (name: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [caretAtEnd, setCaretAtEnd] = useState(true);
+  const [previewName, setPreviewName] = useState<string | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLSpanElement>(null);
   const pencilRef = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
@@ -88,10 +90,18 @@ function MeetingTitle({ title, onRename }: { title: string; onRename: (name: str
     if (heading) heading.textContent = save ? name || title : title;
     if (save) onRename(name);
     restoreFocus.current = focus;
+    setPreviewName(null);
     setEditing(false);
   };
-  return <div className="class-setup-section-heading">
-    <h3><span ref={titleRef} className="class-setup-meeting-title" contentEditable={editing ? "plaintext-only" : false} suppressContentEditableWarning role={editing ? "textbox" : undefined} aria-label={editing ? "Meeting name" : undefined} aria-multiline={editing ? false : undefined} tabIndex={editing ? 0 : undefined} spellCheck={false} data-caret-at-end={caretAtEnd} onDoubleClick={() => { if (!editing) beginEditing(true); }} onInput={(event) => {
+  const handleEditingKey = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (editing && !event.nativeEvent.isComposing && (event.key === "Escape" || (event.key === "Enter" && event.currentTarget === titleRef.current))) {
+      event.preventDefault(); event.stopPropagation();
+      finishEditing(event.key === "Enter", true);
+    }
+  };
+  return <div ref={editorRef} className="class-setup-section-heading" onBlur={(event) => { if (editing && !editorRef.current?.contains(event.relatedTarget)) finishEditing(true); }}>
+    <h3><span ref={titleRef} className="class-setup-meeting-title" contentEditable={editing ? "plaintext-only" : false} suppressContentEditableWarning role={editing ? "textbox" : undefined} aria-label={editing ? "Meeting name" : undefined} aria-multiline={editing ? false : undefined} tabIndex={editing ? 0 : undefined} spellCheck={false} data-caret-at-end={caretAtEnd} data-preview={editing ? previewName ?? undefined : undefined} onDoubleClick={() => { if (!editing) beginEditing(true); }} onInput={(event) => {
+      setPreviewName(null);
       const heading = event.currentTarget;
       const text = (heading.textContent ?? "").replace(/[\r\n]+/g, " ").slice(0, 160);
       if (text !== heading.textContent) {
@@ -102,12 +112,11 @@ function MeetingTitle({ title, onRename }: { title: string; onRename: (name: str
         selection?.removeAllRanges(); selection?.addRange(range);
       }
       updateCaret();
-    }} onKeyUp={updateCaret} onMouseUp={updateCaret} onBlur={() => { if (editing) finishEditing(true); }} onKeyDown={(event) => {
-      if (editing && !event.nativeEvent.isComposing && (event.key === "Enter" || event.key === "Escape")) {
-        event.preventDefault(); event.stopPropagation();
-        finishEditing(event.key === "Enter", true);
-      }
-    }}>{title}</span></h3>
+    }} onKeyUp={updateCaret} onMouseUp={updateCaret} onKeyDown={handleEditingKey}>{title}</span></h3>
+    {editing && <div className="class-setup-meeting-presets" role="group" aria-label="Meeting name presets">{["Lecture", "Lab", "Discussion", "Office Hours"].map((name) => <button key={name} type="button" onMouseEnter={() => setPreviewName(name)} onMouseLeave={() => setPreviewName(null)} onFocus={() => setPreviewName(name)} onBlur={() => setPreviewName(null)} onPointerDown={(event) => event.preventDefault()} onKeyDown={handleEditingKey} onClick={() => {
+      if (titleRef.current) titleRef.current.textContent = name;
+      finishEditing(true, true);
+    }}>{name}</button>)}</div>}
     {!editing && <button ref={pencilRef} type="button" className="class-setup-meeting-rename" aria-label={`Rename ${title}`} onClick={() => beginEditing(false)}><Pencil size={17} aria-hidden="true" /></button>}
   </div>;
 }
@@ -220,7 +229,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose 
     <h2 className="class-setup-accessible-title" id="class-setup-title" ref={headingRef} tabIndex={-1}>{steps[step]}</h2>
     <div className="modal-header class-setup-header">
       <ol className="class-setup-progress" aria-label="Class setup progress">{steps.map((label, index) => <li key={label} aria-label={`${label}${index < step ? ", completed" : ""}`} aria-current={step === index ? "step" : undefined} className={index < step ? "is-complete" : undefined}>
-        {index < step && <CircleCheck size={18} aria-hidden="true" />}
+        {index < step ? <CircleCheck className="class-setup-step-indicator" size={18} aria-hidden="true" /> : <Circle className="class-setup-step-indicator" size={18} aria-hidden="true" />}
         <span>{stepLabels[index]}</span>
         {index < steps.length - 1 && <ChevronRight className="class-setup-step-separator" size={18} aria-hidden="true" />}
       </li>)}</ol>
