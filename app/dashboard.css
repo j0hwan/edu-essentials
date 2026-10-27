@@ -197,8 +197,10 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .expanded-class-section p { margin: 6px 0; color: var(--muted); font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .expanded-class-section .text-button { margin-top: 8px; }
 .expanded-class-section .expanded-class-actions { margin-bottom: 12px; }
-.expanded-class-section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.expanded-class-section-header h3, .expanded-class-section-header .expanded-class-actions { margin: 0; }
+.expanded-class-schedule { display: flex; align-items: flex-start; gap: 24px; }
+.expanded-class-schedule > .expanded-class-actions { flex: 0 0 auto; margin: 0; }
+.expanded-class-meetings { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr); gap: 24px; flex: 1; min-width: 0; overflow-x: auto; }
+.expanded-class-meeting { min-width: 0; }
 .expanded-class-section > summary { cursor: pointer; font-size: 13px; font-weight: 650; }
 .expanded-class-section .syllabus-source { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
 .expanded-class-grid { display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -257,6 +259,9 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
   .expanded-class-section { padding: 14px; }
   .expanded-class-details { grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .expanded-class-details > div + div { padding-left: 0; padding-top: 18px; border-left: 0; border-top: 1px solid var(--border); }
+  .expanded-class-schedule { flex-wrap: wrap; gap: 18px; }
+  .expanded-class-schedule > .expanded-class-actions { margin-left: auto; }
+  .expanded-class-meetings { order: 1; flex-basis: 100%; }
   .expanded-class-body .assignment-table.compact .assignment-row { grid-template-columns: 28px minmax(0, 1fr) 60px 16px; gap: 8px; padding: 10px; }
   .expanded-class-body .assignment-row .row-progress { display: none; }
   .expanded-class-body .assignment-row .status-badge { width: 25px; justify-content: center; padding: 0; }

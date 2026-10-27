@@ -1563,7 +1563,10 @@ test("class cards enlarge in place with all class tools and retain nested assign
     trashed_at: null, trash_operation_id: null, original_folder_id: null,
   };
   const profile = { ...baseProfile, id: "12121212-1212-4121-8121-121212121212" };
-  const details = { officeHours: "Tuesday, 2–3 PM", meetings: [], syllabusText: "Keep this saved syllabus source.", syllabusName: "Saved History guide", syllabusFileId: sourceId };
+  const details = { officeHours: "Tuesday, 2–3 PM", meetings: [
+    { id: "lecture", name: "Lecture", days: [1, 3, 5], start: "09:00", end: "10:00", from: "2026-10-01", until: "2027-01-25", location: "Lecture Hall" },
+    { id: "discussion", days: [2], start: "11:00", end: "12:00", from: "2026-10-01", until: "2027-01-25", location: "Discussion Room" },
+  ], syllabusText: "Keep this saved syllabus source.", syllabusName: "Saved History guide", syllabusFileId: sourceId };
   const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment], courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse], profile);
   filesFetcher = async (url, init = {}) => {
     if (url === "/api/files") return Response.json({ files: [sourceFile], activities: { files: [], folders: [] } });
@@ -1596,7 +1599,7 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.ok(expanded.querySelector(".expanded-class-heading h2").textContent.includes(sampleCourse.name));
     assert.equal(rootNode.querySelector(".side-panel-backdrop"), null);
     assert.equal(card.getAttribute("aria-expanded"), "true");
-    for (const label of ["Instructor", "Office hours", "Schedule", "Assignments", "Syllabus", "Saved History guide", "Tuesday, 2–3 PM"]) assert.ok(expanded.textContent.includes(label), label);
+    for (const label of ["Instructor", "Office hours", "Lecture", "Meeting 2", "Assignments", "Syllabus", "Saved History guide", "Tuesday, 2–3 PM"]) assert.ok(expanded.textContent.includes(label), label);
     const classActions = [...expanded.querySelectorAll(".expanded-class-heading .expanded-class-actions button")];
     assert.deepEqual(classActions.map((button) => button.textContent.trim()), ["Add assignment", "Edit class"]);
     assert.ok(classActions[0].classList.contains("primary-button"));
@@ -1605,7 +1608,11 @@ test("class cards enlarge in place with all class tools and retain nested assign
     const courseDetails = expanded.querySelector('[aria-label="Course details"]');
     assert.deepEqual([...courseDetails.querySelectorAll(":scope > div > h3")].map((heading) => heading.textContent).slice(0, 2), ["Instructor", "Office hours"]);
     assert.equal(courseDetails.nextElementSibling.getAttribute("aria-label"), "Course schedule");
-    const scheduleActions = expanded.querySelectorAll('[aria-label="Course schedule"] .expanded-class-section-header button');
+    const meetingColumns = [...expanded.querySelectorAll('[aria-label="Course schedule"] .expanded-class-meeting')];
+    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("h3").textContent), ["Lecture", "Meeting 2"]);
+    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("p").innerHTML.split(/<br\s*\/?\s*>/)), [["Monday, Wednesday, Friday", "09:00–10:00", "Lecture Hall"], ["Tuesday", "11:00–12:00", "Discussion Room"]]);
+    assert.ok(![...expanded.querySelectorAll('[aria-label="Course schedule"] h3')].some((heading) => heading.textContent === "Schedule"));
+    const scheduleActions = expanded.querySelectorAll('[aria-label="Course schedule"] > .expanded-class-actions button');
     assert.equal(scheduleActions.length, 1);
     assert.equal(scheduleActions[0].textContent.trim(), "View schedule");
     for (const label of ["Progress", "Files and images"]) assert.ok(![...expanded.querySelectorAll("h3")].some((heading) => heading.textContent.trim() === label), label);
