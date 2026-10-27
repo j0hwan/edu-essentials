@@ -1803,7 +1803,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await clickAria("Dashboard view"); await click("Add Class"); await click("Manual entry");
     assert.equal(rootNode.querySelector(".add-class-choice-modal"), null, "choosing Manual entry leaves the chooser");
     assert.ok(field("Course code"), "Manual entry opens the class form");
-    for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location / meeting notes": "Lab 4", "Office hours": "Friday by appointment" })) await edit(key, value);
+    for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Location": "Lab 4", "Meeting Notes": "Bring your field journal", "Office hours": "Friday by appointment" })) await edit(key, value);
     await click("Continue");
     assert.equal(rootNode.querySelectorAll(".class-setup-week button").length, 7);
     await clickAria("Monday"); await edit("Classes start", "2026-09-01"); await edit("Classes end", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
@@ -1815,6 +1815,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     server.offline = false; await click("Create class"); await saveAndReload(); await click("Dashboard");
     assert.equal(server.courses.length, 1); const course = server.courses[0]; assert.equal(course.credits, 4); assert.equal(course.room, "Lab 4");
     assert.equal(server.dashboard.d.courseDetails[course.id].meetings[0].location, "Garden");
+    assert.equal(server.dashboard.d.courseDetails[course.id].meetingNotes, "Bring your field journal");
     assert.deepEqual(server.dashboard.d.courseDetails[course.id].meetings[0].excludedDates, ["2026-11-02"]);
     await act(async () => rootNode.querySelector(".class-card").click()); await click("Edit class");
     assert.equal(field("Office hours").value, "Friday by appointment"); await edit("Instructor", "Dr. Lake"); await click("Save class"); await saveAndReload();

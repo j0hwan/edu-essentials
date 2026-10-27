@@ -22,6 +22,10 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-progress .class-setup-step-separator { color: var(--muted); margin-left: 2px; }
 .class-setup-body { padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
 .class-setup-body > .form-hint { margin: 0; }
+.class-setup:has(.class-setup-info-grid) .class-setup-header { margin-bottom: 8px; }
+.class-setup .class-setup-info-grid { padding-top: 0; gap: 12px 14px; }
+.class-setup-info-grid textarea { min-height: 64px; height: 64px; }
+.class-setup-info-grid .class-setup-meeting-notes { grid-column: 1 / -1; }
 .class-setup.class-setup-schedule-step { width: min(1080px, 100%); }
 .class-setup-schedule { display: grid; grid-template-columns: minmax(220px, 29%) minmax(0, 1fr); }
 .class-setup-meetings { position: relative; min-width: 0; padding: 24px 18px; }

@@ -7,6 +7,7 @@ import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { courseImageFramingStyle, DEFAULT_COURSE_IMAGE_FRAMING, moveCourseImage, type CourseImageFraming } from "../lib/course-image-framing";
 import { MAX_FILE_BYTES } from "../lib/files";
 import CourseIcon from "./course-icon";
+import LocationInput from "./location-input";
 import ClassCardBody from "./class-card-body";
 import ClassSetupDocumentPreview from "./class-setup-document-preview";
 import { useSaveProtection } from "./use-save-protection";
@@ -325,7 +326,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
       <button type="button" className="secondary-button" disabled={busy} aria-label="Close class setup" onClick={close}><X size={18} /></button>
     </div>
     <fieldset className="class-setup-body" disabled={busy}>
-      {step === 0 && <><div className="settings-form-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30)}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true)}{field("Credits", course.credits, (value) => changeCourse({ credits: Number(value) }), "number")}{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }))}{field("Location / meeting notes", course.room, (room) => changeCourse({ room }))}<label>Office hours (Zoom link, location, etc.)<textarea maxLength={2000} value={details.officeHours} onChange={(event) => setDetails({ ...details, officeHours: event.target.value })} /></label></div></>}
+      {step === 0 && <div className="settings-form-grid class-setup-info-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30)}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true)}{field("Credits", course.credits, (value) => changeCourse({ credits: Number(value) }), "number")}{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }))}<LocationInput value={course.room} onChange={(room) => changeCourse({ room })} />{field("Office hours (Zoom link, location, etc.)", details.officeHours, (officeHours) => setDetails({ ...details, officeHours }), "text", false, 2000)}<label className="class-setup-meeting-notes">Meeting Notes<textarea maxLength={2000} value={details.meetingNotes ?? ""} onChange={(event) => setDetails({ ...details, meetingNotes: event.target.value })} /></label></div>}
       {step === 1 && <div className="class-setup-schedule">
         <aside className="class-setup-meetings" aria-label="Class meetings">
           <div className="class-setup-meeting-list">

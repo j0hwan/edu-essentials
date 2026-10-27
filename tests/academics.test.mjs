@@ -5,6 +5,14 @@ const { academicSnapshot } = await import(await clientModule("lib/academic-snaps
 const { decodeWorkspaceState, encodeWorkspaceState } = await import(await clientModule("lib/workspace-codec.ts"));
 const { dayKey, weekStart, addDays, isDate, assignmentStatus, suggestSyllabusItems, validateCourseDetails } = await import(await clientModule("lib/academics.ts"));
 const base = { v: 2, a: "day", w: [["day", "Day", []]], d: { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" } };
+test("meeting notes validate separately and survive workspace serialization", () => {
+  const details = { officeHours: "Tuesday", meetingNotes: "Bring a lab coat\nSide entrance", meetings: [] };
+  const encoded = academicSnapshot([course], { ...base, d: { ...base.d, courseDetails: { c: details } } }).dashboard;
+  assert.deepEqual(decodeWorkspaceState(JSON.parse(JSON.stringify(encoded))).data.courseDetails.c, details);
+  assert.equal(validateCourseDetails({ officeHours: "", meetings: [] }).meetingNotes, undefined);
+  assert.throws(() => validateCourseDetails({ ...details, meetingNotes: 42 }));
+  assert.throws(() => validateCourseDetails({ ...details, meetingNotes: "x".repeat(2001) }));
+});
 const course = { id: "c", code: "BIO 1", name: "Biology", credits: 3, instructor: "", room: "", color: "#112233", soft: "#11223318", initials: "BI" };
 const assignment = { id: "a", courseId: "c", title: "Essay", dateKey: "2026-10-15", due: "", status: "later", progress: 25, description: "", weight: "" };
 test("class image framing is bounded and survives workspace snapshots", () => {
