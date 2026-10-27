@@ -163,7 +163,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
   const closeRef = useRef<() => void>(() => {});
   const dirty = JSON.stringify(course) !== JSON.stringify(initial) || JSON.stringify(details) !== JSON.stringify(initialDetails) || Boolean(uploads.image || uploads.syllabus);
   useSaveProtection(dirty || busy);
-  const close = () => { if (!saving.current && (!dirty || window.confirm("Discard this class setup? Selected files have not been uploaded unless you already tried saving."))) onClose(); };
+  const close = () => { if (!formRef.current?.closest("[data-modal-exiting]") && !saving.current && (!dirty || window.confirm("Discard this class setup? Selected files have not been uploaded unless you already tried saving."))) onClose(); };
   useEffect(() => { closeRef.current = close; });
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -280,7 +280,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
     setUploads((current) => ({ ...current, [kind]: { file, id } }));
   };
   const submit = async () => {
-    if (saving.current) return;
+    if (saving.current || formRef.current?.closest("[data-modal-exiting]")) return;
     setError("");
     setCheckedSteps((current) => current.includes(step) ? current : [...current, step]);
     if (!course.code.trim() || !course.name.trim()) {

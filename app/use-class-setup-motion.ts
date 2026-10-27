@@ -32,11 +32,11 @@ export function useClassSetupMotion(panelRef: RefObject<HTMLElement | null>, rev
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
-    if (!panel) return;
+    if (!panel || panel.closest("[data-modal-exiting]")) return;
     let disposed = false;
     let resizeFrame: number | null = null;
     const measure = (reveal = false) => {
-      if (disposed || (!reveal && animationsRef.current.length)) return;
+      if (disposed || panel.closest("[data-modal-exiting]") || (!reveal && animationsRef.current.length)) return;
       const previous = boundsRef.current;
       cancel();
       const next = getPanelBounds(panel);
