@@ -142,7 +142,7 @@ async function openWorkspaceSaveError() {
 function field(label) {
   const scope = rootNode.querySelector(".academic-editor") ?? rootNode;
   const node = [...scope.querySelectorAll("label")].find((node) => node.textContent.startsWith(label));
-  assert.ok(node, `Missing field ${label}`); return node.querySelector("input,select,textarea");
+  assert.ok(node, `Missing field ${label}`); return node.control;
 }
 function uploadChooser() {
   const input = rootNode.querySelector('.files-upload-dialog input[type="file"]');

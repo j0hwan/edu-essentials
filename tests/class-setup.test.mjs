@@ -34,7 +34,7 @@ const button = (text) => [...host.querySelectorAll("button")].find((node) => nod
 async function click(text) { assert.ok(button(text), `Missing button ${text}`); await act(async () => button(text).click()); }
 async function submit() { await act(async () => host.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }))); }
 async function change(label, value) {
-  const node = [...host.querySelectorAll("label")].find((item) => item.textContent.replace(/\s*\*$/, "").trim() === label)?.querySelector("input,textarea") ?? [...host.querySelectorAll("[aria-label]")].find((input) => input.getAttribute("aria-label") === label);
+  const node = [...host.querySelectorAll("label")].find((item) => item.textContent.replace(/\s*\*$/, "").trim() === label)?.control ?? [...host.querySelectorAll("[aria-label]")].find((input) => input.getAttribute("aria-label") === label);
   assert.ok(node, `Missing field ${label}`);
   if (node.hasAttribute("contenteditable")) {
     await act(async () => {
@@ -392,11 +392,13 @@ test("manual setup separates information, seven-day schedule, and appearance; Ba
   assert.deepEqual(infoFields.slice(-3).map((label) => label.textContent), ["Location", "Office hours (Zoom link, location, etc.)", "Meeting Notes"]);
   assert.equal(infoFields.at(-2).querySelector("input").type, "text");
   assert.equal(infoFields.at(-2).querySelector("textarea"), null);
+  assert.equal(infoFields.at(-1).querySelector("input").type, "text");
+  assert.equal(infoFields.at(-1).querySelector("textarea"), null);
   assert.doesNotMatch(host.textContent, /Address search uses OpenStreetMap via Photon/);
   assert.equal(host.querySelector('input[type="color"]'), null);
   await change("Instructor", "Dr. Moss");
   await change("Location", "Science Hall");
-  await change("Meeting Notes", "Bring a lab coat\nUse the side entrance");
+  await change("Meeting Notes", "Bring a lab coat · Use the side entrance");
   await change("Office hours (Zoom link, location, etc.)", "Tuesday · Zoom");
   await submit();
   assert.equal(calls, 0);
@@ -417,7 +419,7 @@ test("manual setup separates information, seven-day schedule, and appearance; Ba
   assert.equal(saved[0].soft, "#b23b5318");
   assert.equal(saved[1].officeHours, "Tuesday · Zoom");
   assert.equal(saved[0].room, "Science Hall");
-  assert.equal(saved[1].meetingNotes, "Bring a lab coat\nUse the side entrance");
+  assert.equal(saved[1].meetingNotes, "Bring a lab coat · Use the side entrance");
   assert.notEqual(saved[1].meetings[0].location, saved[1].meetingNotes);
   assert.deepEqual(saved[1].meetings[0].days, [1, 3]);
   assert.deepEqual(saved[1].meetings[0].excludedDates, ["2026-11-02"]);
@@ -447,7 +449,7 @@ test("location suggestions autofill only location and support keyboard selection
     assert.equal(input.getAttribute("aria-expanded"), "true");
     await act(async () => input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     assert.equal(input.value, "10 College Ave, Davis");
-    assert.equal(host.querySelector("textarea").value, "Bring a lab coat");
+    assert.equal(host.querySelector(".class-setup-meeting-notes input").value, "Bring a lab coat");
     assert.equal(input.getAttribute("aria-expanded"), "false");
     globalThis.fetch = async () => new Response("Unavailable", { status: 503 });
     await change("Location", "Room 4");

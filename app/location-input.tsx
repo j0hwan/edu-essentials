@@ -44,7 +44,8 @@ export default function LocationInput({ value, onChange }: { value: string; onCh
     setQuery(null); setResults([]); setOpen(false); setActive(-1); setMessage("");
   };
   return <div className="location-field">
-    <label htmlFor={id}>Location
+    <label htmlFor={id}>Location</label>
+    <div className="location-input-control">
     <input id={id} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-results`} aria-activedescendant={open && active >= 0 ? `${id}-option-${active}` : undefined} autoComplete="off" maxLength={160} placeholder="Search an address or enter a room" value={value} onChange={(event) => {
       generation.current++; onChange(event.target.value); setQuery(event.target.value); setResults([]); setOpen(false); setActive(-1); setMessage("");
     }} onFocus={() => { focused.current = true; if (results.length) setOpen(true); }} onBlur={() => { focused.current = false; setOpen(false); setActive(-1); }} onKeyDown={(event) => {
@@ -54,8 +55,9 @@ export default function LocationInput({ value, onChange }: { value: string; onCh
         event.preventDefault(); setOpen(true); setActive((index) => event.key === "ArrowDown" ? (index + 1) % results.length : (index <= 0 ? results.length : index) - 1);
       }
       if (event.key === "Enter" && open) { event.preventDefault(); if (active >= 0) select(results[active]); }
-    }} /></label>
+    }} />
     <div id={`${id}-results`} role="listbox" aria-label="Address suggestions" hidden={!open}>{results.map((suggestion, index) => <button type="button" tabIndex={-1} id={`${id}-option-${index}`} key={suggestion.id} role="option" aria-selected={active === index} onMouseDown={(event) => event.preventDefault()} onClick={() => select(suggestion)}>{suggestion.address}</button>)}</div>
+    </div>
     <small role="status">{message}</small>
   </div>;
 }
