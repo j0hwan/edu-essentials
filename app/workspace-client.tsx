@@ -59,6 +59,7 @@ import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
 import AcademicEditor from "./academic-editor";
 import ClassSetup, { type ClassSetupUploads } from "./class-setup";
+import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
 import TopbarSearch from "./topbar-search";
 import SyllabusReview from "./syllabus-review";
 import { SyllabusAttachment, SyllabusTextPreview, type SyllabusAttachmentValue } from "./course-syllabus";
@@ -519,7 +520,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const closeExpandedClassRef = useRef<(() => void) | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [addClassOpen, setAddClassOpen] = useState(false);
-  const [classSetup, setClassSetup] = useState<{ course: Course; profileId: string; generation: number } | null>(null);
+  const addClassChoiceRef = useRef<HTMLElement>(null);
+  const transitionClassChoice = useClassSetupMotion(addClassChoiceRef, addClassOpen);
+  const [classSetup, setClassSetup] = useState<{ course: Course; profileId: string; generation: number; initialBounds?: ClassSetupBounds } | null>(null);
   const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent } | null>(null);
   const [syllabusDraft, setSyllabusDraft] = useState<SyllabusDraft | null>(null);
   const [syllabusAttachment, setSyllabusAttachment] = useState<{ courseId: string; folderId: string | null } | null>(null);
@@ -1446,7 +1449,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       {selectedClass && renderClassDetail(selectedClass)}
       {selectedAssignment && renderAssignmentDetail(selectedAssignment)}
       {addClassOpen && renderAddClassDialog()}
-      {classSetup && <ClassSetup key={`${classSetup.profileId}:${classSetup.generation}:${classSetup.course.id}`} initial={classSetup.course} today={today} canUpload={canWriteFiles} onSave={saveClassSetup} onClose={() => setClassSetup(null)} />}
+      {classSetup && <ClassSetup key={`${classSetup.profileId}:${classSetup.generation}:${classSetup.course.id}`} initial={classSetup.course} initialBounds={classSetup.initialBounds} today={today} canUpload={canWriteFiles} onSave={saveClassSetup} onClose={() => setClassSetup(null)} />}
       {editor && <AcademicEditor key={(editor.course ?? editor.assignment ?? editor.event)!.id} initial={editor} courses={courses} today={today} onApply={applyEditor} onClose={() => setEditor(null)} onDelete={editor.course && courses.some((c) => c.id === editor.course!.id) ? () => removeClass(editor.course!) : editor.assignment && storedAssignments.some((a) => a.id === editor.assignment!.id) ? () => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== editor.assignment!.id) })) setEditor(null); } } : editor.event && manualEvents.some((e) => e.id === editor.event!.id) ? () => { if (window.confirm("Delete this event?")) { if (commitAcademic(courses, { manualEvents: manualEvents.filter((e) => e.id !== editor.event!.id) })) setEditor(null); } } : undefined} />}
       {syllabusDraft && <SyllabusReview key={syllabusDraft.id} draft={syllabusDraft} onUpload={() => setFileDialog({ defaults: { kind: "syllabus" }, reviewId: syllabusDraft.id })} onFile={() => { const file = fileStore.files.find((f) => f.id === syllabusDraft.sourceFileId); if (file) { setSyllabusPreviewFileId(file.id); setFilePreview(file); } else flash("Refresh Files to load this saved source."); }} onChange={setSyllabusDraft} onApprove={() => approveReview(syllabusDraft)} onClose={() => { if (window.confirm("Discard this unsaved syllabus review? Reviews are not saved for later.")) setSyllabusDraft(null); }} onDelete={() => { if (window.confirm("Discard this syllabus review and its source text?")) setSyllabusDraft(null); }} />}
       {syllabusAttachment && courses.filter((course) => course.id === syllabusAttachment.courseId).map((course) => <SyllabusAttachment key={course.id} courseId={course.id} course={course} details={extraData.courseDetails[course.id] ?? emptyCourseDetails()} folderId={syllabusAttachment.folderId} store={fileStore} canWrite={canWriteFiles} onSave={(value) => saveCourseSyllabus(course.id, value)} onClose={() => setSyllabusAttachment(null)} />)}
@@ -2102,7 +2105,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
 
   function renderAddClassDialog() {
     return <div className="modal-backdrop">
-      <section className="small-modal add-class-choice-modal" role="dialog" aria-modal="true" aria-label="Add a class" aria-describedby="add-class-choice-description">
+      <section ref={addClassChoiceRef} className="small-modal add-class-choice-modal" role="dialog" aria-modal="true" aria-label="Add a class" aria-describedby="add-class-choice-description">
         <div className="modal-header">
           <div>
             <h2>Add a class</h2>
@@ -2117,7 +2120,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             <span className="add-class-choice-description" id="add-class-import-description">Upload or paste your syllabus, then review your class details and assignments.</span>
             <ArrowRight className="add-class-choice-arrow" size={18} aria-hidden="true" />
           </button>
-          <button className="add-class-choice add-class-choice-manual" aria-label="Manual entry" aria-describedby="add-class-manual-description" onClick={() => { setClassSetup({ course: emptyCourse(uid("course")), profileId: profile.id, generation: workspaceLoadGeneration.current }); setAddClassOpen(false); }}>
+          <button className="add-class-choice add-class-choice-manual" aria-label="Manual entry" aria-describedby="add-class-manual-description" onClick={() => transitionClassChoice((initialBounds) => { setClassSetup({ course: emptyCourse(uid("course")), profileId: profile.id, generation: workspaceLoadGeneration.current, initialBounds }); setAddClassOpen(false); })}>
             <span className="add-class-choice-icon"><Pencil size={24} aria-hidden="true" /></span>
             <span className="add-class-choice-title">Manual entry</span>
             <span className="add-class-choice-description" id="add-class-manual-description">Start with your class details and add assignments as you go.</span>

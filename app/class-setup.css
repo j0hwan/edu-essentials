@@ -1,5 +1,16 @@
 .modal-backdrop:has(> .class-setup) { display: flex; align-items: center; justify-content: center; height: 100dvh; overflow: hidden; }
 .modal-backdrop > .class-setup { width: min(760px, 100%); max-height: min(88dvh, calc(100dvh - 44px)); min-height: 0; overscroll-behavior: contain; }
+.class-setup[data-resizing], .add-class-choice-modal[data-resizing] { overflow: hidden; will-change: width, height; }
+.modal-backdrop:has(> .class-setup[data-morphing-entry]), .class-setup[data-morphing-entry] { animation: none; }
+.class-setup-progress li { transition: color 160ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop:has(> .class-setup, > .add-class-choice-modal), .class-setup, .add-class-choice-modal { animation: none; }
+  .class-setup-progress li { transition: none; }
+}
+html[data-motion="reduced"] .modal-backdrop:has(> .class-setup, > .add-class-choice-modal),
+html[data-motion="reduced"] .class-setup,
+html[data-motion="reduced"] .add-class-choice-modal { animation: none; }
+html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup .class-setup-required.is-missing { color: var(--red); }
 .class-setup-accessible-title { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .class-setup .class-setup-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; margin-bottom: 20px; }

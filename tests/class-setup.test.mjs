@@ -63,6 +63,203 @@ async function file(kind, value) {
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = undefined; });
 after(() => { URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; dom.window.close(); });
 
+function mockSetupMotion() {
+  const originalAnimate = HTMLElement.prototype.animate;
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  const originalMatchMedia = window.matchMedia;
+  const animations = [];
+  window.matchMedia = () => ({ matches: false });
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    const schedule = this.classList.contains("class-setup-schedule-step");
+    return { width: schedule ? 1080 : 760, height: schedule ? 720 : 540 };
+  };
+  HTMLElement.prototype.animate = function (frames, options) {
+    let finish;
+    let reject;
+    const finished = new Promise((resolve, fail) => { finish = resolve; reject = fail; });
+    const animation = { target: this, frames, options, finished, finish, cancelled: false, cancel() { this.cancelled = true; reject(new Error("cancelled")); } };
+    animations.push(animation);
+    return animation;
+  };
+  return {
+    animations,
+    async finish() { await act(async () => { for (const animation of [...animations]) if (!animation.cancelled) animation.finish(); }); },
+    restore() {
+      HTMLElement.prototype.animate = originalAnimate;
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      window.matchMedia = originalMatchMedia;
+      delete document.documentElement.dataset.motion;
+    },
+  };
+}
+
+function mockSetupFrames() {
+  const originalRequest = window.requestAnimationFrame;
+  const originalCancel = window.cancelAnimationFrame;
+  const frames = new Map();
+  let nextFrame = 0;
+  window.requestAnimationFrame = (callback) => { frames.set(++nextFrame, callback); return nextFrame; };
+  window.cancelAnimationFrame = (frame) => { frames.delete(frame); };
+  return {
+    frames,
+    async flush() {
+      const pending = [...frames.values()];
+      frames.clear();
+      await act(async () => { for (const callback of pending) callback(0); });
+    },
+    restore() {
+      window.requestAnimationFrame = originalRequest;
+      window.cancelAnimationFrame = originalCancel;
+    },
+  };
+}
+
+test("step changes fade old content before resizing and revealing, in both directions", async () => {
+  const motion = mockSetupMotion();
+  try {
+    await mount();
+    await submit();
+    assert.equal(host.querySelector("h2").textContent, "Course information");
+    assert.ok(host.querySelector("form").hasAttribute("inert"));
+    assert.ok(motion.animations.some((animation) => animation.options.duration === 110 && animation.frames.at(-1).opacity === 0));
+    await submit();
+    await motion.finish();
+    assert.equal(host.querySelector("h2").textContent, "Class schedule");
+    assert.equal(host.querySelector("form").hasAttribute("inert"), false);
+    const expansion = motion.animations.find((animation) => animation.target.tagName === "FORM");
+    assert.equal(expansion.options.duration, 460);
+    assert.equal(expansion.frames[0].width, "760px");
+    assert.equal(expansion.frames.at(-1).width, "1080px");
+    assert.equal(expansion.frames.at(-1).height, "720px");
+    assert.ok(motion.animations.some((animation) => animation.options.delay === 75 && animation.options.duration === 220));
+    await motion.finish();
+    await click("Back");
+    await motion.finish();
+    const shrink = motion.animations.filter((animation) => animation.target.tagName === "FORM").at(-1);
+    assert.equal(shrink.frames[0].width, "1080px");
+    assert.equal(shrink.frames.at(-1).width, "760px");
+    assert.equal(host.querySelector('input').value, "BIO 101");
+    await motion.finish();
+  } finally {
+    if (root) await act(async () => root.unmount());
+    root = undefined;
+    motion.restore();
+  }
+});
+
+test("manual-entry handoff resizes from the choice dialog and cancels safely on unmount", async () => {
+  const motion = mockSetupMotion();
+  try {
+    await mount({ initialBounds: { width: 620, height: 350 } });
+    const expansion = motion.animations.find((animation) => animation.target.tagName === "FORM");
+    assert.equal(expansion.frames[0].width, "620px");
+    assert.equal(expansion.frames[0].height, "350px");
+    await submit();
+    await act(async () => root.unmount());
+    root = undefined;
+    assert.ok(motion.animations.every((animation) => animation.cancelled));
+    assert.equal(document.activeElement.id, "opener");
+  } finally { motion.restore(); }
+});
+
+test("system and app reduced-motion preferences skip fades and resizing", async () => {
+  const motion = mockSetupMotion();
+  try {
+    for (const preference of ["system", "app"]) {
+      window.matchMedia = () => ({ matches: preference === "system" });
+      document.documentElement.dataset.motion = preference === "app" ? "reduced" : "full";
+      await mount();
+      await submit();
+      assert.equal(host.querySelector("h2").textContent, "Class schedule");
+      assert.equal(motion.animations.length, 0);
+      await act(async () => root.unmount());
+      root = undefined;
+    }
+  } finally { motion.restore(); }
+});
+
+test("content size changes animate the form height without replaying content fades", async () => {
+  const motion = mockSetupMotion();
+  const scheduled = mockSetupFrames();
+  const originalObserver = globalThis.ResizeObserver;
+  let resized;
+  let disconnected = false;
+  globalThis.ResizeObserver = class {
+    constructor(callback) { resized = callback; }
+    observe() {}
+    disconnect() { disconnected = true; }
+  };
+  try {
+    await mount();
+    const panel = host.querySelector("form");
+    panel.getBoundingClientRect = () => ({ width: 760, height: 650 });
+    await act(async () => resized());
+    assert.equal(motion.animations.length, 0);
+    await act(async () => { resized(); resized(); });
+    assert.equal(scheduled.frames.size, 1);
+    await scheduled.flush();
+    const resize = motion.animations.find((animation) => animation.target === panel);
+    assert.equal(resize.frames[0].height, "540px");
+    assert.equal(resize.frames.at(-1).height, "650px");
+    assert.equal(motion.animations.length, 1);
+    assert.ok(panel.hasAttribute("data-resizing"));
+    await act(async () => resized());
+    assert.equal(scheduled.frames.size, 0);
+    await motion.finish();
+    assert.equal(panel.hasAttribute("data-resizing"), false);
+    panel.getBoundingClientRect = () => ({ width: 760, height: 500 });
+    await act(async () => resized());
+    await scheduled.flush();
+    assert.equal(motion.animations.at(-1).frames.at(-1).height, "500px");
+    await motion.finish();
+    await act(async () => resized());
+    assert.equal(scheduled.frames.size, 1);
+    await act(async () => root.unmount());
+    root = undefined;
+    assert.equal(disconnected, true);
+    assert.equal(scheduled.frames.size, 0);
+  } finally {
+    globalThis.ResizeObserver = originalObserver;
+    scheduled.restore();
+    motion.restore();
+  }
+});
+
+test("missing required fields keep the current step and defer validation resizing outside observer delivery", async () => {
+  const motion = mockSetupMotion();
+  const scheduled = mockSetupFrames();
+  const originalObserver = globalThis.ResizeObserver;
+  let resized;
+  globalThis.ResizeObserver = class {
+    constructor(callback) { resized = callback; }
+    observe() {}
+    disconnect() {}
+  };
+  try {
+    await mount({ initial: { ...emptyCourse("incomplete-course"), code: "", name: "" } });
+    await submit();
+    assert.equal(host.querySelector("h2").textContent, "Course information");
+    assert.equal(host.querySelectorAll('input[aria-invalid="true"]').length, 2);
+    const panel = host.querySelector("form");
+    panel.getBoundingClientRect = () => ({ width: 760, height: 580 });
+    await act(async () => resized());
+    assert.equal(motion.animations.length, 0);
+    assert.equal(panel.hasAttribute("data-resizing"), false);
+    await scheduled.flush();
+    assert.equal(motion.animations.length, 1);
+    assert.equal(motion.animations[0].frames.at(-1).height, "580px");
+    await motion.finish();
+    assert.equal(host.querySelector("h2").textContent, "Course information");
+    assert.equal(calls, 0);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    root = undefined;
+    globalThis.ResizeObserver = originalObserver;
+    scheduled.restore();
+    motion.restore();
+  }
+});
+
 test("required fields have visible asterisks and setup omits the removed introductory copy", async () => {
   await mount();
   const removedCopy = /NEW CLASS|Start with the essentials|Meeting times use your saved time zone|Add holidays, breaks|Give your class a look of its own/;
