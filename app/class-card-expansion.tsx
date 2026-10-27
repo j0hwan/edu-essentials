@@ -1472,6 +1472,20 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [suspended, visible]);
 
+  useEffect(() => {
+    if (!visible || suspended) return;
+    const sidebar = document.querySelector<HTMLElement>(".sidebar");
+    if (!sidebar) return;
+    const handleSidebarClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (event.defaultPrevented || !(target instanceof Element)) return;
+      if (target.closest("a, button, input, select, textarea, label, summary, [role='button'], [role='link'], [contenteditable], [tabindex]")) return;
+      closeRef.current();
+    };
+    sidebar.addEventListener("click", handleSidebarClick);
+    return () => sidebar.removeEventListener("click", handleSidebarClick);
+  }, [suspended, visible]);
+
   if (!visible || typeof document === "undefined") return null;
   return <div
     className="class-card-expansion-backdrop"

@@ -1282,6 +1282,50 @@ test("closing during the reveal continues from the visible content instead of fl
   }
 });
 
+test("empty sidebar space closes expanded courses with the existing close animation", async () => {
+  for (const collapsed of [false, true]) {
+    for (const selector of [".sidebar", ".sidebar-scroll-region", ".sidebar-empty-space"]) {
+      const { render, cleanup } = setup();
+      let closing = 0;
+      try {
+        document.querySelector(".reference-ui").classList.toggle("sidebar-collapsed", collapsed);
+        document.querySelector(".sidebar").innerHTML = '<div class="sidebar-scroll-region"><div class="sidebar-empty-space"></div></div>';
+        await render({ onCloseStart: () => { closing += 1; } });
+        await act(async () => document.querySelector(selector).click());
+        assert.equal(closing, 1, `${selector} closes the course with sidebar collapsed=${collapsed}`);
+        assert.ok(document.querySelector(".class-card-expansion-dialog"), "the course remains mounted during its close animation");
+        assert.equal(callsFor(".class-card-expansion-dialog").at(-1).options.fill, "both");
+      } finally {
+        await cleanup();
+      }
+    }
+  }
+});
+
+test("sidebar controls and suspended courses do not trigger blank-space dismissal", async () => {
+  const { render, cleanup } = setup();
+  let closing = 0;
+  try {
+    const sidebar = document.querySelector(".sidebar");
+    sidebar.innerHTML = '<a href="/tasks"><span>Tasks</span></a><button><span>Collapse sidebar</span></button><input aria-label="Search"><div role="button" tabindex="0"><span>Custom control</span></div>';
+    const onCloseStart = () => { closing += 1; };
+    await render({ onCloseStart });
+    sidebar.querySelector("a").addEventListener("click", (event) => event.preventDefault());
+    for (const selector of ["a span", "button span", "input", "[role='button'] span"]) {
+      await act(async () => sidebar.querySelector(selector).click());
+      assert.equal(closing, 0, `${selector} preserves sidebar control behavior`);
+    }
+    await render({ suspended: true, onCloseStart });
+    await act(async () => sidebar.click());
+    assert.equal(closing, 0, "nested dialogs prevent sidebar blank-space dismissal");
+    await render({ suspended: false, onCloseStart });
+    await act(async () => sidebar.click());
+    assert.equal(closing, 1, "blank-space dismissal resumes after the nested dialog closes");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("suspended expansion leaves Escape to nested dialogs and restores its internal focus on resume", async () => {
   const { render, cleanup } = setup();
   let closed = 0;
