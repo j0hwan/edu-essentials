@@ -648,13 +648,18 @@ test("validation selects an invalid background meeting without opening collapsed
   assert.deepEqual(saved[1].meetings[1].days, [2]);
 });
 
-test("empty meeting days are invalid immediately and clear as soon as a day is selected", async () => {
+test("empty meeting days become invalid only after Continue and clear as soon as a day is selected", async () => {
   await mount(); await submit();
   const days = () => host.querySelector('.class-setup-week');
   assert.equal(host.querySelector(".class-setup-week-label"), null);
   assert.equal(days().getAttribute("aria-label"), "Weekdays for meeting 1");
-  assert.equal(days().getAttribute("aria-invalid"), "true");
+  assert.equal(days().hasAttribute("aria-invalid"), false);
   assert.equal(days().querySelectorAll('button[aria-pressed="false"]').length, 7);
+  await click("Monday"); await click("Monday");
+  assert.equal(days().hasAttribute("aria-invalid"), false);
+  await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Class schedule");
+  assert.equal(days().getAttribute("aria-invalid"), "true");
   await click("Monday");
   assert.equal(days().hasAttribute("aria-invalid"), false);
   assert.equal(button("Monday").getAttribute("aria-pressed"), "true");
