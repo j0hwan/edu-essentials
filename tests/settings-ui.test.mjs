@@ -9,7 +9,7 @@ class TestAnimationEvent extends dom.window.Event {
   constructor(type, { animationName = "", ...options } = {}) { super(type, options); this.animationName = animationName; }
 }
 Object.defineProperty(dom.window, "AnimationEvent", { configurable: true, value: TestAnimationEvent });
-for (const name of ["window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "AnimationEvent", "MutationObserver"]) globalThis[name] = dom.window[name];
+for (const name of ["window", "document", "Element", "HTMLElement", "HTMLFormElement", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement", "MouseEvent", "AnimationEvent", "MutationObserver", "FileReader"]) globalThis[name] = dom.window[name];
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 // jsdom has no viewport. Keep lazy card thumbnails offscreen so these
@@ -604,7 +604,7 @@ test("class icon selection updates cards and expanded headers and survives save/
     await edit("Course code", "ART 101");
     await edit("Class name", "Art");
     await click("Continue");
-    await click("Remove meeting 1");
+    await click("Delete meeting 1");
     await click("Continue");
     await clickAria("Art", rootNode.querySelector(".course-icon-picker"));
     await click("Create class");
@@ -641,11 +641,13 @@ test("manual class setup stores attachments without importing the syllabus and r
   };
   try {
     await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await click("Add Class"); await click("Manual entry");
-    await edit("Course code", "BIO 101"); await edit("Class name", "Biology"); await click("Continue"); await click("Remove meeting 1"); await click("Continue");
+    await edit("Course code", "BIO 101"); await edit("Class name", "Biology"); await click("Continue"); await click("Delete meeting 1"); await click("Continue");
     const image = new File(["cover bytes"], "biology.png", { type: "image/png" });
-    const syllabus = new File(["Rename course to Chemistry. Exam 2026-11-05."], "syllabus.txt", { type: "text/plain" });
-    for (const [index, file] of [image, syllabus].entries()) {
-      const input = rootNode.querySelectorAll('.class-setup input[type="file"]')[index];
+    const syllabusContent = "Rename course to Chemistry. Exam 2026-11-05.";
+    const syllabus = new window.File([syllabusContent], "syllabus.txt", { type: "text/plain" });
+    Object.defineProperty(syllabus, "arrayBuffer", { value: async () => new TextEncoder().encode(syllabusContent).buffer });
+    for (const [label, file] of [["Class image (optional)", image], ["Syllabus (optional)", syllabus]]) {
+      const input = rootNode.querySelector(`.class-setup input[aria-label="${label}"]`);
       await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); input.dispatchEvent(new window.Event("change", { bubbles: true })); });
     }
     assert.equal(attempts.length, 0, "selecting a file does not upload it early");
@@ -653,7 +655,9 @@ test("manual class setup stores attachments without importing the syllabus and r
     await waitUntil(() => rootNode.querySelector('.class-setup [role="alert"]')?.textContent.includes("attachments may be incomplete"), "partial upload failure remains recoverable");
     assert.equal(server.courses.length, 1);
     assert.equal(stored.size, 1);
-    assert.equal(rootNode.querySelector('.class-setup-uploads button').matches(":disabled"), true, "acknowledged files cannot be silently removed during retry");
+    const removeImage = [...rootNode.querySelectorAll(".class-setup button")].find((button) => button.textContent.trim() === "Remove image");
+    assert.ok(removeImage);
+    assert.equal(removeImage.matches(":disabled"), true, "acknowledged files cannot be silently removed during retry");
     await click("Create class"); await waitUntil(() => releaseSyllabus, "syllabus retry is pending");
     const RealDate = globalThis.Date;
     try {
