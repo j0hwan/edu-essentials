@@ -1991,7 +1991,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           </div>
         ) : renderAssignmentTable(assignments)}
         </section>
-        {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2><p>Your nearest deadlines across every class.</p></div><button className="text-button" onClick={() => setDashboardView("list")}>See all <ArrowRight size={14} /></button></div>{renderAssignmentTable(focusAssignments.slice(0, 5), true)}</section>}
+        {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2></div><button className="text-button" onClick={() => setDashboardView("list")}>See all <ArrowRight size={14} /></button></div>{renderAssignmentTable(focusAssignments.slice(0, 5), true)}</section>}
       </AnimatedDashboard>
     );
   }
