@@ -1,15 +1,23 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type Dispatch, type DragEvent as ReactDragEvent, type SetStateAction } from "react";
-import { Folder, FolderOpen, Link2, ShieldCheck, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ChangeEvent, type Dispatch, type DragEvent as ReactDragEvent, type SetStateAction } from "react";
+import { ChevronUp, Folder, FolderOpen, Link2, Settings2, ShieldCheck, Upload, X } from "lucide-react";
 import { folderCourseId, folderDestinationReason } from "../lib/files-browser-operations";
 import type { FileFolder } from "../lib/file-organization";
 import type { Course } from "../lib/academics";
-import { fileSize, type PrivateFile } from "../lib/files";
+import { fileMetadata, fileSize, MAX_FILE_BYTES, type PrivateFile } from "../lib/files";
 import { downloadDraft } from "./use-save-protection";
 import type { FileUploadDefaults, FileUploadQueue, FileUploadRow } from "./use-file-uploads";
 import { useFilesBrowserData } from "./use-files-browser";
 import { buildFolderUploadPlan, ensureFolderUploadHierarchy, type FolderUploadPlan } from "../lib/files-folder-upload";
+import LocalFilePreview from "./local-file-preview";
 import "./file-upload-dialog.css";
+
+const UPLOAD_PANEL_EXIT_FALLBACK_MS = 380;
+
+function prefersReducedUploadMotion(): boolean {
+  if (document.documentElement.dataset.motion === "reduced") return true;
+  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 export type PendingFolderUpload = FolderUploadPlan & {
   status: "ready" | "creating" | "error";
@@ -26,8 +34,20 @@ export type FileUploadDialogProps = {
   changeToken?: readonly PrivateFile[];
   folderUpload?: PendingFolderUpload | null;
   onFolderUploadChange?: Dispatch<SetStateAction<PendingFolderUpload | null>>;
+  initialFiles?: File[];
+  confirmUploads?: boolean;
+  onConfirmUploadsChange?: (enabled: boolean) => void;
   canWrite: boolean;
   onClose: () => void;
+};
+
+type LocalFileSelection = {
+  id: string;
+  file: File;
+  profileId: string;
+  generation: number;
+  error: string;
+  autoQueueWhenReady: boolean;
 };
 
 function statusLabel(row: FileUploadRow, currentProfileId: string): string {
@@ -140,23 +160,51 @@ export function FileUploadDialog({
   changeToken,
   folderUpload = null,
   onFolderUploadChange,
+  initialFiles = [],
+  confirmUploads,
+  onConfirmUploadsChange,
   canWrite,
   onClose,
 }: FileUploadDialogProps) {
+  const dialogId = useId();
   const dialogRef = useRef<HTMLElement>(null);
+  const panelToggleRef = useRef<HTMLButtonElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const localPreviewRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const chooseButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef(onClose);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  const panelOpenRef = useRef(true);
+  const fullDismissalPendingRef = useRef(false);
+  const dismissalTimerRef = useRef<number | null>(null);
   const activeFolderUploadRef = useRef<AbortController | null>(null);
   const currentStateRef = useRef({ currentProfileId, currentSessionGeneration, canWrite });
-  const capturedProfileId = defaults.profileId ?? currentProfileId;
+  const [capturedContext] = useState(() => ({
+    profileId: defaults.profileId ?? currentProfileId,
+    generation: defaults.generation ?? currentSessionGeneration,
+  }));
+  const capturedProfileId = capturedContext.profileId;
+  const capturedGeneration = capturedContext.generation;
   const [destinationId, setDestinationId] = useState<string | null>(defaults.folderId);
   const [courseId, setCourseId] = useState(defaults.courseId);
+  const [appliedDefaultsRequest, setAppliedDefaultsRequest] = useState(defaults);
   const [courseWasChosen, setCourseWasChosen] = useState(false);
   const [showDestinationPicker, setShowDestinationPicker] = useState(false);
   const [pickerError, setPickerError] = useState("");
   const [folderSelectionError, setFolderSelectionError] = useState("");
+  const [localFiles, setLocalFiles] = useState<LocalFileSelection[]>([]);
+  const localFilesRef = useRef<LocalFileSelection[]>([]);
+  const [localPreviewId, setLocalPreviewId] = useState("");
+  const [hideConfirmationForFuture, setHideConfirmationForFuture] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpenRef = useRef(false);
+  const [panelOpen, setPanelOpenState] = useState(true);
+  const [localConfirmUploads, setLocalConfirmUploads] = useState(confirmUploads ?? true);
+  const effectiveConfirmUploads = confirmUploads ?? localConfirmUploads;
+  const initialBatchesRef = useRef(new WeakSet<File[]>());
   const browserData = useFilesBrowserData(capturedProfileId, changeToken);
   const folders = activeFolders(browserData.data.folders);
   const uploadMode = folderUpload ? "folder" : mode;
@@ -165,11 +213,81 @@ export function FileUploadDialog({
   const destinationValid = isActiveDestination(destinationId, folders, browserData.loading, browserData.error);
   const courseValid = !courseId || courses.some((course) => course.id === courseId);
   const destinationLabel = destinationId ? folderLabel(destinationId, folders) : "Files";
+  const capturedSessionCurrent = currentProfileId === capturedProfileId && currentSessionGeneration === capturedGeneration;
+  const preferenceChangeAllowed = canWrite && capturedSessionCurrent;
+  const uploadScopeReady = appliedDefaultsRequest === defaults;
+
+  const setPanelOpen = useCallback((open: boolean) => {
+    if (open && fullDismissalPendingRef.current) return;
+    const shell = dialogRef.current?.parentElement;
+    if (open) {
+      shell?.style.removeProperty("--files-upload-exit-start");
+    } else {
+      const currentTransform = shell ? window.getComputedStyle(shell).transform : "";
+      shell?.style.setProperty("--files-upload-exit-start", currentTransform && currentTransform !== "none" ? currentTransform : "translateY(0)");
+    }
+    panelOpenRef.current = open;
+    setPanelOpenState(open);
+    if (!open) {
+      settingsOpenRef.current = false;
+      setSettingsOpen(false);
+    }
+  }, []);
+
+  const finishFullDismissal = useCallback(() => {
+    if (!fullDismissalPendingRef.current) return;
+    if (dismissalTimerRef.current !== null) {
+      window.clearTimeout(dismissalTimerRef.current);
+      dismissalTimerRef.current = null;
+    }
+    fullDismissalPendingRef.current = false;
+    onCloseRef.current();
+  }, []);
+
+  const cancelFullDismissal = useCallback(() => {
+    if (dismissalTimerRef.current !== null) {
+      window.clearTimeout(dismissalTimerRef.current);
+      dismissalTimerRef.current = null;
+    }
+    fullDismissalPendingRef.current = false;
+  }, []);
+
+  const requestFullDismissal = useCallback(() => {
+    if (fullDismissalPendingRef.current) return;
+    fullDismissalPendingRef.current = true;
+    setPanelOpen(false);
+    if (prefersReducedUploadMotion()) {
+      finishFullDismissal();
+      return;
+    }
+    dismissalTimerRef.current = window.setTimeout(finishFullDismissal, UPLOAD_PANEL_EXIT_FALLBACK_MS);
+  }, [finishFullDismissal, setPanelOpen]);
 
   useLayoutEffect(() => { currentStateRef.current = { currentProfileId, currentSessionGeneration, canWrite }; }, [canWrite, currentProfileId, currentSessionGeneration]);
-  useLayoutEffect(() => { closeRef.current = onClose; }, [onClose]);
+  useLayoutEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useLayoutEffect(() => { settingsOpenRef.current = settingsOpen; }, [settingsOpen]);
 
-  useEffect(() => () => activeFolderUploadRef.current?.abort(new DOMException("The folder upload panel was closed.", "AbortError")), []);
+  useLayoutEffect(() => {
+    panelOpenRef.current = panelOpen;
+    const frame = window.requestAnimationFrame(() => {
+      if (panelOpen) {
+        const focusTarget = chooseButtonRef.current?.disabled ? closeButtonRef.current : chooseButtonRef.current;
+        focusTarget?.focus({ preventScroll: true });
+      } else if (fullDismissalPendingRef.current) {
+        const returnFocusTarget = document.querySelector<HTMLElement>(".files-browser .files-new-button:not(:disabled)");
+        if (returnFocusTarget) returnFocusTarget.focus({ preventScroll: true });
+        else if (document.activeElement instanceof HTMLElement && dialogRef.current?.contains(document.activeElement)) document.activeElement.blur();
+      } else {
+        panelToggleRef.current?.focus({ preventScroll: true });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [panelOpen]);
+
+  useEffect(() => () => {
+    if (dismissalTimerRef.current !== null) window.clearTimeout(dismissalTimerRef.current);
+    activeFolderUploadRef.current?.abort(new DOMException("The folder upload panel was closed.", "AbortError"));
+  }, []);
 
   useLayoutEffect(() => {
     inputRef.current?.toggleAttribute("webkitdirectory", uploadMode === "folder");
@@ -178,18 +296,23 @@ export function FileUploadDialog({
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusTarget = chooseButtonRef.current?.disabled ? closeButtonRef.current : chooseButtonRef.current;
-    window.requestAnimationFrame(() => focusTarget?.focus({ preventScroll: true }));
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!panelOpenRef.current) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
-        closeRef.current();
+        if (settingsOpenRef.current) {
+          settingsOpenRef.current = false;
+          setSettingsOpen(false);
+          window.requestAnimationFrame(() => settingsButtonRef.current?.focus({ preventScroll: true }));
+          return;
+        }
+        requestFullDismissal();
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
       event.stopImmediatePropagation();
-      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(
+      const focusable = [...(panelToggleRef.current ? [panelToggleRef.current] : []), ...dialogRef.current.querySelectorAll<HTMLElement>(
         "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex='-1'])",
       )].filter((element) => {
         if (element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
@@ -199,10 +322,12 @@ export function FileUploadDialog({
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && (document.activeElement === first || !dialogRef.current.contains(document.activeElement))) {
+      const activeElement = document.activeElement;
+      const focusIsInLoop = activeElement instanceof HTMLElement && focusable.includes(activeElement);
+      if (event.shiftKey && (activeElement === first || !focusIsInLoop)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current.contains(document.activeElement))) {
+      } else if (!event.shiftKey && (activeElement === last || !focusIsInLoop)) {
         event.preventDefault();
         first.focus();
       }
@@ -220,13 +345,180 @@ export function FileUploadDialog({
         else if (fallback?.isConnected) fallback.focus({ preventScroll: true });
       });
     };
+  }, [requestFullDismissal]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const handleOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || settingsMenuRef.current?.contains(target) || settingsButtonRef.current?.contains(target)) return;
+      setSettingsOpen(false);
+    };
+    document.addEventListener("pointerdown", handleOutsidePointer, true);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointer, true);
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    const containOutsideFileDrop = (event: DragEvent) => {
+      if (!panelOpenRef.current) return;
+      if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
+      event.preventDefault();
+      const target = event.target;
+      const insidePanel = target instanceof Node && Boolean(dialogRef.current?.contains(target));
+      if (event.type === "drop" && !insidePanel) event.stopPropagation();
+    };
+    document.addEventListener("dragover", containOutsideFileDrop, true);
+    document.addEventListener("drop", containOutsideFileDrop, true);
+    return () => {
+      document.removeEventListener("dragover", containOutsideFileDrop, true);
+      document.removeEventListener("drop", containOutsideFileDrop, true);
+    };
   }, []);
+
+  const setLocalSelections = (next: LocalFileSelection[] | ((current: LocalFileSelection[]) => LocalFileSelection[])) => {
+    const value = typeof next === "function" ? next(localFilesRef.current) : next;
+    localFilesRef.current = value;
+    setLocalFiles(value);
+    if (value.length && !value.some((candidate) => candidate.id === localPreviewId)) setLocalPreviewId(value[0].id);
+    else if (!value.length) setLocalPreviewId("");
+  };
+
+  const preservePendingFilesForReview = useCallback(() => {
+    const current = localFilesRef.current;
+    if (!current.some((candidate) => candidate.autoQueueWhenReady)) return;
+    const next = current.map((candidate) => candidate.autoQueueWhenReady ? { ...candidate, autoQueueWhenReady: false } : candidate);
+    localFilesRef.current = next;
+    setLocalFiles(next);
+  }, []);
+
+  const scrollLocalPreviewIntoView = useCallback(() => {
+    const body = bodyRef.current;
+    const preview = localPreviewRef.current;
+    if (!body || !preview) return;
+    const bodyRect = body.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    const visibleTop = bodyRect.top + 8;
+    const visibleBottom = bodyRect.bottom - 8;
+    if (previewRect.bottom > visibleBottom) body.scrollTop += previewRect.bottom - visibleBottom;
+    else if (previewRect.top < visibleTop) body.scrollTop -= visibleTop - previewRect.top;
+  }, []);
+
+  const canAdmitForCapturedContext = () => {
+    const current = currentStateRef.current;
+    return current.canWrite && current.currentProfileId === capturedProfileId && current.currentSessionGeneration === capturedGeneration;
+  };
+
+  const capturedContextMatches = () => {
+    const current = currentStateRef.current;
+    return current.currentProfileId === capturedProfileId && current.currentSessionGeneration === capturedGeneration;
+  };
+
+  const validateLocalFile = useCallback((file: File, folderId = destinationId, course = courseId): string => {
+    try {
+      if (file.size > MAX_FILE_BYTES) throw new Error("Choose a file up to 25 MiB.");
+      fileMetadata({ name: file.name, courseId: course, assignmentId: "", kind: "resource", folderId });
+      return "";
+    } catch (error) {
+      return error instanceof Error && error.message ? error.message : "Choose a valid file name and destination.";
+    }
+  }, [courseId, destinationId]);
+
+  useLayoutEffect(() => {
+    if (appliedDefaultsRequest === defaults) return;
+    const scopeChanged = destinationId !== defaults.folderId || courseId !== defaults.courseId;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile a new request before its passive file-drop and admission effects run.
+    setAppliedDefaultsRequest(defaults);
+    cancelFullDismissal();
+    setPanelOpen(true);
+    if (!scopeChanged) return;
+    setDestinationId(defaults.folderId);
+    setCourseId(defaults.courseId);
+    setCourseWasChosen(false);
+    setShowDestinationPicker(false);
+    setPickerError("");
+    setFolderSelectionError("");
+    const revalidated = localFilesRef.current.map((candidate) => ({
+      ...candidate,
+      autoQueueWhenReady: false,
+      error: validateLocalFile(candidate.file, defaults.folderId, defaults.courseId),
+    }));
+    localFilesRef.current = revalidated;
+    setLocalFiles(revalidated);
+  }, [appliedDefaultsRequest, cancelFullDismissal, courseId, defaults, destinationId, setPanelOpen, validateLocalFile]);
+
+  const enqueueFiles = (files: readonly File[]) => {
+    if (!files.length) return;
+    if (!uploadScopeReady || !capturedContextMatches() || !currentStateRef.current.canWrite || !destinationValid || !courseValid) {
+      setPickerError(!capturedContextMatches()
+        ? "This selection belongs to a previous account session. Cancel it, close this panel, and reopen it to choose the files again."
+        : !uploadScopeReady ? "The upload destination is changing. Review the new destination, then retry the upload."
+        : !currentStateRef.current.canWrite ? "Uploads are paused. Return to the account that selected these files, then retry."
+          : !destinationValid ? "Choose an active Files destination first." : "Choose an active course for this upload.");
+      return;
+    }
+    queue.enqueue(files, { folderId: destinationId, courseId });
+  };
+
+  const addLocalFiles = (selected: File[], autoQueueWhenReady = false, folderId = destinationId, course = courseId) => {
+    if (!selected.length) return;
+    setPickerError("");
+    setFolderSelectionError("");
+    const current = currentStateRef.current;
+    const added = selected.map((file): LocalFileSelection => ({
+      id: crypto.randomUUID(),
+      file,
+      profileId: capturedProfileId,
+      generation: capturedGeneration,
+      error: validateLocalFile(file, folderId, course),
+      autoQueueWhenReady,
+    }));
+    setLocalSelections((previous) => [...previous, ...added]);
+    if (current.currentProfileId !== capturedProfileId || current.currentSessionGeneration !== capturedGeneration) {
+      setPickerError("This selection belongs to a previous account session. Cancel it, close this panel, and reopen it to choose the files again.");
+    } else if (!current.canWrite) {
+      setPickerError("Uploads are paused. Return to the account that selected these files, then retry.");
+    }
+  };
+
+  useEffect(() => {
+    if (uploadMode !== "files" || !initialFiles.length) return;
+    if (initialBatchesRef.current.has(initialFiles)) return;
+    initialBatchesRef.current.add(initialFiles);
+    setPanelOpen(true);
+    addLocalFiles(initialFiles, !effectiveConfirmUploads, defaults.folderId, defaults.courseId);
+  });
+
+  useEffect(() => {
+    if (!effectiveConfirmUploads) return;
+    preservePendingFilesForReview();
+  }, [effectiveConfirmUploads, preservePendingFilesForReview]);
+
+  useEffect(() => {
+    if (effectiveConfirmUploads) return;
+    const eligible = localFilesRef.current.filter((candidate) => candidate.autoQueueWhenReady);
+    if (!eligible.length || !uploadScopeReady || browserData.loading || browserData.error || !destinationValid || !courseValid || !canAdmitForCapturedContext()) return;
+    const ready = eligible.filter((candidate) => candidate.profileId === capturedProfileId && candidate.generation === capturedGeneration);
+    if (!ready.length) return;
+    const ids = new Set(ready.map((candidate) => candidate.id));
+    setLocalSelections((current) => current.filter((candidate) => !ids.has(candidate.id)));
+    enqueueFiles(ready.map((candidate) => candidate.file));
+  });
+
+  useEffect(() => {
+    if (!localFiles.length || !localPreviewId) return;
+    const frame = window.requestAnimationFrame(scrollLocalPreviewIntoView);
+    return () => window.cancelAnimationFrame(frame);
+  }, [localFiles.length, localPreviewId, scrollLocalPreviewIntoView]);
 
   const acceptFiles = (selected: File[]) => {
     if (!selected.length) return;
     setPickerError("");
     setFolderSelectionError("");
     if (uploadMode === "folder") {
+      if (!canAdmitForCapturedContext()) {
+        setPickerError("This selection belongs to a previous account session. Cancel it, close this panel, and reopen it to choose the folder again.");
+        return;
+      }
       if (!destinationValid || !courseValid) {
         setPickerError(!destinationValid ? "Choose an active Files destination first." : "Choose an active course for this upload.");
         return;
@@ -234,7 +526,7 @@ export function FileUploadDialog({
       try {
         const plan = buildFolderUploadPlan(selected, {
           profileId: capturedProfileId,
-          sessionGeneration: currentSessionGeneration,
+          sessionGeneration: capturedGeneration,
           folderId: destinationId,
           courseId,
         });
@@ -244,11 +536,8 @@ export function FileUploadDialog({
       }
       return;
     }
-    if (!destinationValid || !courseValid) {
-      setPickerError(!destinationValid ? "Choose an active Files destination first." : "Choose an active course for this upload.");
-      return;
-    }
-    queue.enqueue(selected, { folderId: destinationId, courseId });
+    if (effectiveConfirmUploads) addLocalFiles(selected);
+    else enqueueFiles(selected);
   };
 
   const handleFiles = (event: ChangeEvent<HTMLInputElement>) => {
@@ -258,14 +547,67 @@ export function FileUploadDialog({
 
   const handleUploadDrop = (event: ReactDragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    event.stopPropagation();
     if (!canWrite) return;
     acceptFiles(Array.from(event.dataTransfer.files ?? []));
   };
 
   const selectDestination = (value: string) => {
     const nextDestination = value || null;
+    const nextCourse = !courseWasChosen ? folderCourseId(nextDestination, folders) : courseId;
     setDestinationId(nextDestination);
-    if (!courseWasChosen) setCourseId(folderCourseId(nextDestination, folders));
+    if (!courseWasChosen) setCourseId(nextCourse);
+    setPickerError("");
+    if (uploadMode === "files") setLocalSelections((current) => current.map((candidate) => ({ ...candidate, error: validateLocalFile(candidate.file, nextDestination, nextCourse) })));
+  };
+
+  const selectCourse = (value: string) => {
+    setCourseWasChosen(true);
+    setCourseId(value);
+    setPickerError("");
+    if (uploadMode === "files") setLocalSelections((current) => current.map((candidate) => ({ ...candidate, error: validateLocalFile(candidate.file, destinationId, value) })));
+  };
+
+  const setConfirmationPreference = (enabled: boolean) => {
+    if (!canAdmitForCapturedContext()) return;
+    if (enabled) preservePendingFilesForReview();
+    setLocalConfirmUploads(enabled);
+    onConfirmUploadsChange?.(enabled);
+  };
+
+  const removeLocalFile = (id: string) => {
+    setLocalSelections((current) => current.filter((candidate) => candidate.id !== id));
+  };
+
+  const confirmLocalFiles = () => {
+    const selected = localFilesRef.current;
+    if (!selected.length) return;
+    if (!uploadScopeReady) {
+      setPickerError("The upload destination is changing. Review the new destination, then retry the upload.");
+      return;
+    }
+    const current = currentStateRef.current;
+    const selectionIsStale = current.currentProfileId !== capturedProfileId || current.currentSessionGeneration !== capturedGeneration ||
+      selected.some((candidate) => candidate.profileId !== capturedProfileId || candidate.generation !== capturedGeneration);
+    if (selectionIsStale || !current.canWrite || !destinationValid || !courseValid) {
+      setPickerError(selectionIsStale
+        ? "This selection belongs to a previous account session. Cancel it, close this panel, and reopen it to choose the files again."
+        : !current.canWrite ? "Uploads are paused. Return to the account that selected these files, then retry."
+          : !destinationValid ? "Choose an active Files destination first." : "Choose an active course for this upload.");
+      return;
+    }
+    const valid = selected.filter((candidate) => !candidate.error);
+    if (!valid.length) return;
+    const ids = new Set(valid.map((candidate) => candidate.id));
+    setLocalSelections((currentFiles) => currentFiles.filter((candidate) => !ids.has(candidate.id)));
+    enqueueFiles(valid.map((candidate) => candidate.file));
+    if (hideConfirmationForFuture) setConfirmationPreference(false);
+    setHideConfirmationForFuture(false);
+  };
+
+  const dismissLocalFiles = () => {
+    setLocalSelections([]);
+    setHideConfirmationForFuture(false);
     setPickerError("");
   };
 
@@ -360,14 +702,63 @@ export function FileUploadDialog({
     }
   };
 
-  return <div className="files-upload-backdrop files-action-sheet-backdrop">
-    <section className={`files-upload-dialog files-action-sheet${uploadMode === "folder" ? " is-folder-upload" : ""}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="files-upload-title" tabIndex={-1}>
+  const activeLocalPreview = localFiles.find((candidate) => candidate.id === localPreviewId);
+  const localValidCount = localFiles.filter((candidate) => !candidate.error).length;
+  const canConfirmLocalFiles = localFiles.length > 0 && localValidCount > 0 && canWrite && capturedSessionCurrent && uploadScopeReady && destinationValid && courseValid;
+
+  return <div
+    className={`files-upload-backdrop${panelOpen ? "" : " is-collapsed"}`}
+    onClickCapture={(event) => {
+      if (!panelOpenRef.current || event.button !== 0 || event.target !== event.currentTarget) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPanelOpen(false);
+    }}
+  >
+    <div
+      id={dialogId}
+      className={`files-upload-shell${panelOpen ? "" : " is-collapsed"}`}
+      role={panelOpen ? "dialog" : undefined}
+      aria-modal={panelOpen ? true : undefined}
+      aria-labelledby={`${dialogId}-title`}
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget && event.animationName === "files-upload-exit") finishFullDismissal();
+      }}
+    >
+      <button
+        ref={panelToggleRef}
+        type="button"
+        className="files-upload-panel-toggle"
+        aria-controls={dialogId}
+        aria-expanded={panelOpen}
+        aria-label={panelOpen ? "Hide upload panel" : "Show upload panel"}
+        onClick={() => setPanelOpen(!panelOpen)}
+      >
+        <ChevronUp size={24} aria-hidden="true" />
+      </button>
+      <section
+      className={`files-upload-dialog${uploadMode === "folder" ? " is-folder-upload" : ""}`}
+      ref={dialogRef}
+      aria-hidden={!panelOpen}
+      inert={!panelOpen}
+      tabIndex={-1}
+    >
       <header className="files-upload-header">
-        <div><h2 id="files-upload-title">{uploadMode === "folder" ? "Upload folder" : "Upload files"}</h2><p>Add files to your library.</p></div>
-        <button ref={closeButtonRef} type="button" className="files-upload-close" onClick={onClose} aria-label="Close upload panel"><X size={22} /></button>
+        <div><h2 id={`${dialogId}-title`}>{uploadMode === "folder" ? "Upload folder" : "Upload files"}</h2><p>Add files to your library.</p></div>
+        <div className="files-upload-header-tools">
+          <div className="files-upload-settings-wrap">
+            <button ref={settingsButtonRef} type="button" className="files-upload-settings-trigger" aria-haspopup="menu" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>
+              <Settings2 size={15} aria-hidden="true" /> Upload settings
+            </button>
+            <div ref={settingsMenuRef} className="files-upload-settings-menu" role="menu" aria-label="Upload settings" hidden={!settingsOpen}>
+              <label><input type="checkbox" role="menuitemcheckbox" aria-checked={effectiveConfirmUploads} aria-label="Confirm before uploading" checked={effectiveConfirmUploads} disabled={!preferenceChangeAllowed} onChange={(event) => setConfirmationPreference(event.currentTarget.checked)} /> Confirm before uploading</label>
+            </div>
+          </div>
+          <button ref={closeButtonRef} type="button" className="files-upload-close" onClick={requestFullDismissal} aria-label="Close upload panel"><X size={22} /></button>
+        </div>
       </header>
 
-      <div className="files-upload-body">
+      <div className="files-upload-body" ref={bodyRef}>
         <div
           className={`files-upload-dropzone${canWrite ? "" : " is-disabled"}`}
           onDragOver={(event) => { event.preventDefault(); }}
@@ -377,7 +768,7 @@ export function FileUploadDialog({
           <Upload size={54} strokeWidth={1.8} aria-hidden="true" />
           <strong>{uploadMode === "folder" ? "Choose a folder to upload" : "Drop files here"}</strong>
           <span className="files-upload-drop-divider">or</span>
-          <button ref={chooseButtonRef} type="button" className="files-upload-choose" disabled={!canWrite || Boolean(folderUpload && (planBusy || folderHasCreated))} onClick={() => inputRef.current?.click()}>
+          <button ref={chooseButtonRef} type="button" className="files-upload-choose" disabled={!preferenceChangeAllowed || Boolean(folderUpload && (planBusy || folderHasCreated))} onClick={() => inputRef.current?.click()}>
             {uploadMode === "folder" ? "Choose folder" : "Choose files"}
           </button>
           <small>{uploadMode === "folder" ? "Folder structure stays intact · up to 25 MiB per file" : "Multiple files · up to 25 MiB each"}</small>
@@ -385,23 +776,24 @@ export function FileUploadDialog({
             ref={inputRef}
             type="file"
             multiple={uploadMode === "files"}
-            disabled={!canWrite || Boolean(folderUpload && (planBusy || folderHasCreated))}
+            disabled={!preferenceChangeAllowed || Boolean(folderUpload && (planBusy || folderHasCreated))}
             onChange={handleFiles}
             aria-hidden="true"
             tabIndex={-1}
           />
         </div>
         {!canWrite && <p className="files-upload-gate" role="status">Uploads are paused. Return to the account that selected these files, then retry.</p>}
+        {!capturedSessionCurrent && <p className="files-upload-gate" role="status">This upload panel belongs to a previous account session. Cancel any local selection, close this panel, and reopen it to choose files again.</p>}
 
         <section className="files-upload-destination" aria-label="Upload destination">
           <span className="files-upload-control-label">Destination</span>
           <div className="files-upload-destination-card">
             <Folder size={19} aria-hidden="true" />
             <span><strong>{destinationLabel}</strong>{(destinationId || browserData.loading || browserData.error) && <small>{browserData.loading ? "Loading active folders…" : browserData.error ? "Folder list unavailable" : "Active folder"}</small>}</span>
-            <button type="button" disabled={!canWrite || planBusy || Boolean(folderUpload)} onClick={() => setShowDestinationPicker((visible) => !visible)}>{showDestinationPicker ? "Done" : "Change"}</button>
+            <button type="button" disabled={!preferenceChangeAllowed || planBusy || Boolean(folderUpload)} onClick={() => setShowDestinationPicker((visible) => !visible)}>{showDestinationPicker ? "Done" : "Change"}</button>
           </div>
           {showDestinationPicker && <label className="files-upload-select-wrap"><span>Choose a destination folder</span>
-            <select aria-label="Destination folder" value={destinationId ?? ""} disabled={!canWrite || browserData.loading || Boolean(browserData.error) || Boolean(folderUpload)} onChange={(event) => selectDestination(event.currentTarget.value)}>
+            <select aria-label="Destination folder" value={destinationId ?? ""} disabled={!preferenceChangeAllowed || browserData.loading || Boolean(browserData.error) || Boolean(folderUpload)} onChange={(event) => selectDestination(event.currentTarget.value)}>
               <option value="">Files</option>
               {folders.slice().sort((left, right) => folderLabel(left.id, folders).localeCompare(folderLabel(right.id, folders))).map((folder) => <option key={folder.id} value={folder.id}>{"　".repeat(Math.min(8, folderDepth(folder, folders) - 1))}{folderLabel(folder.id, folders)}</option>)}
             </select>
@@ -413,7 +805,7 @@ export function FileUploadDialog({
         <section className="files-upload-course" aria-label="Optional course link">
           <label className="files-upload-select-wrap"><span>Course link (optional)</span>
             <span className="files-upload-course-card"><Link2 size={19} aria-hidden="true" />
-              <select aria-label="Course link" value={courseId} disabled={!canWrite || Boolean(folderUpload)} onChange={(event) => { setCourseWasChosen(true); setCourseId(event.currentTarget.value); setPickerError(""); }}>
+              <select aria-label="Course link" value={courseId} disabled={!preferenceChangeAllowed || Boolean(folderUpload)} onChange={(event) => selectCourse(event.currentTarget.value)}>
                 <option value="">Add after upload</option>
                 {courseId && !courseValid && <option value={courseId} disabled>Course unavailable</option>}
                 {courses.map((course) => <option key={course.id} value={course.id}>{course.code || course.name}</option>)}
@@ -422,6 +814,29 @@ export function FileUploadDialog({
             </span>
           </label>
         </section>
+
+        {localFiles.length > 0 && <section className="files-upload-review" aria-label="Files ready for upload">
+          <header><div><strong>Review files before upload</strong><small>Selected files stay on this device until you upload them.</small></div><span>{localFiles.length} {localFiles.length === 1 ? "file" : "files"}</span></header>
+          <div className="files-upload-review-list">
+            {localFiles.map((candidate) => <article className="files-upload-review-row" key={candidate.id} data-local-file-id={candidate.id}>
+              <div className="files-upload-review-main">
+                <strong title={candidate.file.name}>{candidate.file.name || "Unnamed file"}</strong>
+                <small>{candidate.file.type || "Unknown type"} · {fileSize(candidate.file.size)}</small>
+                <span className={candidate.error ? "has-error" : "is-ready"}>{candidate.error ? "Not uploaded · Needs attention" : "Not uploaded · Ready to upload"}</span>
+                {candidate.error && <p className="files-upload-error" role="alert">{candidate.error}</p>}
+              </div>
+              <div className="files-upload-review-actions">
+                <button type="button" className="files-upload-secondary" aria-label={`Preview ${candidate.file.name} locally`} aria-pressed={localPreviewId === candidate.id} onClick={() => {
+                  setLocalPreviewId(candidate.id);
+                  window.requestAnimationFrame(scrollLocalPreviewIntoView);
+                }}>Preview</button>
+                <button type="button" className="files-upload-dismiss" aria-label={`Remove ${candidate.file.name}`} onClick={() => removeLocalFile(candidate.id)}>Remove</button>
+              </div>
+            </article>)}
+          </div>
+          {activeLocalPreview && <div className="files-upload-preview-anchor" ref={localPreviewRef}><LocalFilePreview key={activeLocalPreview.id} file={activeLocalPreview.file} /></div>}
+          {capturedSessionCurrent && !canWrite && <p className="files-upload-gate" role="status">Uploads are paused. Cancel or close this selection, then return to the account that selected it.</p>}
+        </section>}
 
         {(pickerError || folderSelectionError) && <p className="files-upload-error" role="alert">{folderSelectionError || pickerError}</p>}
 
@@ -443,7 +858,7 @@ export function FileUploadDialog({
           {currentProfileId !== folderUpload.profileId && <p className="files-upload-gate" role="status">This folder belongs to the account that selected it.</p>}
         </section>}
 
-        {!queue.rows.length && !folderUpload && <p className="files-upload-empty">No files selected yet.</p>}
+        {!queue.rows.length && !folderUpload && !localFiles.length && <p className="files-upload-empty">No files selected yet.</p>}
         <div className="files-upload-list" aria-live="polite">
           {queue.rows.map((row) => {
             const inProgress = row.status === "uploading" || row.status === "refreshing";
@@ -471,9 +886,17 @@ export function FileUploadDialog({
 
       <footer className="files-upload-footer">
         <span><ShieldCheck size={16} aria-hidden="true" /> Your files stay private.</span>
-        {(queue.rows.length > 0 || folderUpload) && <button type="button" className="files-upload-close-action" onClick={onClose}>Close</button>}
+        <div className="files-upload-footer-actions">
+          {localFiles.length > 0 && <>
+            <label className="files-upload-opt-out"><input type="checkbox" aria-label="Do not show again" checked={hideConfirmationForFuture} disabled={!preferenceChangeAllowed} onChange={(event) => setHideConfirmationForFuture(event.currentTarget.checked)} /> Do not show again</label>
+            <button type="button" className="files-upload-cancel-review" onClick={dismissLocalFiles}>Cancel selection</button>
+            <button type="button" className="files-upload-close-action files-upload-confirm" disabled={!canConfirmLocalFiles} onClick={confirmLocalFiles}>Upload files</button>
+          </>}
+          {(queue.rows.length > 0 || folderUpload) && <button type="button" className="files-upload-close-action" onClick={requestFullDismissal}>Close</button>}
+        </div>
       </footer>
-    </section>
+      </section>
+    </div>
   </div>;
 }
 

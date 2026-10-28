@@ -268,8 +268,8 @@ test("create folders at root and nested course locations, allow duplicate names,
   await waitUntil(() => rootNode.textContent.includes("Root notes.txt"), "the initial Files list");
   const newTrigger = button("New");
   await act(async () => newTrigger.click());
-  assert.deepEqual(menuLabels(), ["Upload files", "Upload folder", "New folder", "Text document"]);
-  await click("New folder");
+  assert.deepEqual(menuLabels(), ["Upload files", "Create new folder", "Text document", "Google Slides", "Google Docs", "Google Drive"]);
+  await click("Create new folder");
   assert.match(dialog().textContent, /Create a folder in My files/);
   assert.ok(document.activeElement === field("Folder name"), "the folder name field receives focus");
   await setValue(field("Folder name"), "Class notes");
@@ -440,7 +440,7 @@ test("dialog keyboard focus is trapped, account changes preserve but disable dra
   await waitUntil(() => rootNode.textContent.includes("Root notes.txt"), "the initial Files list");
   const trigger = button("New");
   await act(async () => trigger.click());
-  await click("New folder");
+  await click("Create new folder");
   const createDialog = dialog();
   await waitUntil(() => document.activeElement === field("Folder name"), "the initial dialog focus");
   const closeButton = button("Close Files dialog", createDialog);
@@ -465,7 +465,7 @@ test("dialog keyboard focus is trapped, account changes preserve but disable dra
   await render();
   await waitUntil(() => rootNode.textContent.includes("Root notes.txt"), "the restarted Files list");
   await act(async () => button("New").click());
-  await click("New folder");
+  await click("Create new folder");
   await setValue(field("Folder name"), "Late response draft");
   holdNextMutation = true;
   await click("Create folder", dialog());

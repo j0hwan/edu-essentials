@@ -17,6 +17,8 @@ export type FilesBrowserPreferences = {
   fileType?: FilesBrowserFileType;
   includeArchived?: boolean;
   appearanceVersion?: 2;
+  // Older snapshots default to reviewing local files before upload.
+  confirmUploads?: boolean;
 };
 
 export const FILES_BROWSER_APPEARANCE_VERSION = 2 as const;

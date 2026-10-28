@@ -360,9 +360,10 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
   if (value.filePreferences !== undefined && (!isRecord(value.filePreferences) || typeof value.filePreferences.filter !== "string" || value.filePreferences.filter.length > 120 || !["list", "grid"].includes(String(value.filePreferences.view)))) throw new Error("Invalid file preferences.");
   if (isRecord(value.filePreferences)) {
     const preferences = value.filePreferences;
-    const fields = new Set(["filter", "view", "sortBy", "sortDirection", "fileType", "includeArchived", "appearanceVersion"]);
+    const fields = new Set(["filter", "view", "sortBy", "sortDirection", "fileType", "includeArchived", "appearanceVersion", "confirmUploads"]);
     if (Object.keys(preferences).some((key) => !fields.has(key)) ||
         (preferences.appearanceVersion !== undefined && preferences.appearanceVersion !== 2) ||
+        (preferences.confirmUploads !== undefined && typeof preferences.confirmUploads !== "boolean") ||
         (preferences.sortBy !== undefined && (typeof preferences.sortBy !== "string" || !["name", "modified"].includes(preferences.sortBy))) ||
         (preferences.sortDirection !== undefined && (typeof preferences.sortDirection !== "string" || !["asc", "desc"].includes(preferences.sortDirection))) ||
         (preferences.fileType !== undefined && (typeof preferences.fileType !== "string" || !["all", "text", "pdf", "image", "other"].includes(preferences.fileType))) ||

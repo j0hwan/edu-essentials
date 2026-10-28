@@ -232,12 +232,17 @@ async function waitUntil(predicate, description, timeoutMs = 4000) {
 }
 
 function button(label, container = rootNode) {
-  const found = [...container.querySelectorAll("button")].find((item) => item.getAttribute("aria-label") === label || item.textContent.trim() === label);
+  const expected = label === "Download ZIP" ? "Download" : label;
+  const found = [...container.querySelectorAll("button")].find((item) => item.getAttribute("aria-label") === expected || item.textContent.trim() === expected);
   assert.ok(found, `Missing button ${label}`);
   return found;
 }
 
 async function click(label, container = rootNode) {
+  const hasSelectionAction = [...rootNode.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent.trim() === label);
+  if (container === rootNode && (label === "Move to Trash" || label === "Restore") && !hasSelectionAction) {
+    await click("More actions");
+  }
   const found = button(label, container);
   await act(async () => found.click());
   return found;
@@ -274,7 +279,7 @@ test("zero selection hides the bulk toolbar while location actions expose Select
   await waitUntil(() => rootNode.textContent.includes("Root notes.txt"), "the root file list");
   assert.equal(rootNode.querySelector('[role="group"][aria-label="Bulk file actions"]'), null, "no bulk toolbar renders before a selection");
 
-  await click("Actions for My files");
+  await click("Actions for All files");
   assert.ok(rootNode.querySelector('[role="menu"]'), "the current location actions menu opens");
   assert.ok([...rootNode.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent.trim() === "Select visible"));
   await click("Select visible");
@@ -291,8 +296,10 @@ test("bulk download accepts managed course folders, sends scoped revisions, and 
   await selectItem("BIO 201");
   await selectItem("Root notes.txt");
   assert.equal(button("Move to…").disabled, true, "managed course roots block moving the whole selection");
+  await click("More actions");
   assert.equal(button("Move to Trash").disabled, true, "managed course roots block trashing the whole selection");
   assert.equal(button("Download ZIP").disabled, false, "managed course roots remain downloadable");
+  await click("More actions");
 
   const oldCreate = URL.createObjectURL;
   const oldRevoke = URL.revokeObjectURL;
@@ -444,7 +451,7 @@ test("external drops over a child row upload into the captured current folder; d
   const directoryDrop = dropEvent(transfer({ files: [file], directory: true }));
   await act(async () => rootNode.querySelector(".files-browser-content").dispatchEvent(directoryDrop));
   assert.equal(directoryDrop.defaultPrevented, true);
-  assert.match(rootNode.textContent, /Choose Upload folder from New to add a folder/);
+  assert.match(rootNode.textContent, /Folder drops aren't supported\. Use Upload files to choose individual files\./);
   assert.equal(callbacks.uploads.length, 1, "directory drops never enqueue a partial file set");
 
   await act(async () => button("Archives").click());
@@ -484,7 +491,7 @@ test("all-files search counts a selected folder and its selected descendant only
   state.files.push(makeFile(OVERLAP_FILE, "Overlap child.txt", OVERLAP_FOLDER));
   await render();
   await waitUntil(() => rootNode.textContent.includes("Overlap folder"), "the active file list");
-  await setValue(rootNode.querySelector('[aria-label="Search files"]'), "Overlap");
+  await setValue(rootNode.querySelector('input[aria-label="Search files"]'), "Overlap");
   await setValue(rootNode.querySelector('[aria-label="Search scope"]'), "all");
   await waitUntil(() => rootNode.textContent.includes("Overlap child.txt"), "the all-files search result");
   await selectItem("Overlap folder");

@@ -23,6 +23,10 @@ const cssFiles = [
   "app/auth.css",
 ];
 const cssSources = await Promise.all(cssFiles.map((file) => readFile(resolve(repoRoot, file), "utf8")));
+const googleMenuIcons = new Map(await Promise.all(["google-slides.svg", "google-docs.svg", "google-drive.svg"].map(async (name) => [
+  `/${name}`,
+  await readFile(resolve(repoRoot, "public", name)),
+])));
 const bundle = await esbuild.build({
   entryPoints: [resolve(repoRoot, "tests/fixtures/file-organization-browser.tsx")],
   bundle: true,
@@ -61,6 +65,8 @@ async function preparePage(viewport) {
     if (url.origin !== baseUrl) { await route.continue(); return; }
     if (url.pathname === "/fixture.js") {
       await route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", headers: { "cache-control": "no-store" }, body: js });
+    } else if (googleMenuIcons.has(url.pathname)) {
+      await route.fulfill({ status: 200, contentType: "image/svg+xml; charset=utf-8", body: googleMenuIcons.get(url.pathname) });
     } else if (url.pathname === "/favicon.ico") {
       await route.fulfill({ status: 204, body: "" });
     } else {
@@ -106,6 +112,29 @@ async function assertMenuInViewport(page, width) {
   assert.ok(rect.left >= 0 && rect.right <= width, `menu fits horizontally at ${width}px (${rect.left}–${rect.right})`);
   assert.ok(rect.top >= 0 && rect.bottom <= rect.viewportHeight, `menu fits vertically at ${width}px (${rect.top}–${rect.bottom})`);
   return rect;
+}
+
+async function assertNewMenuAnchor(page, width) {
+  const bounds = await page.evaluate(() => {
+    const trigger = document.querySelector('.files-new-button[aria-haspopup="menu"]');
+    const menu = document.querySelector(".files-new-menu");
+    if (!trigger || !menu) return null;
+    const rect = (element) => {
+      const { left, right, top, bottom } = element.getBoundingClientRect();
+      return { left, right, top, bottom };
+    };
+    return { trigger: rect(trigger), menu: rect(menu) };
+  });
+  assert.ok(bounds, `New menu and its trigger render at ${width}px`);
+  assert.ok(bounds.menu.top >= bounds.trigger.bottom - 1 && bounds.menu.top <= bounds.trigger.bottom + 14,
+    `New menu opens directly under its trigger at ${width}px (${JSON.stringify(bounds)})`);
+  if (width > 900) {
+    assert.ok(Math.abs((bounds.menu.left + bounds.menu.right) / 2 - (bounds.trigger.left + bounds.trigger.right) / 2) <= 2,
+      `New menu is centered under its trigger at ${width}px (${JSON.stringify(bounds)})`);
+  } else {
+    assert.ok(bounds.menu.left >= 0 && bounds.menu.right <= width && bounds.menu.left <= bounds.trigger.right && bounds.menu.right >= bounds.trigger.left,
+      `mobile New menu stays within the viewport and anchored to its trigger at ${width}px (${JSON.stringify(bounds)})`);
+  }
 }
 
 async function assertDialogTopmost(page, dialog, width) {
@@ -164,7 +193,7 @@ async function openNewFolderDialog(page) {
   await page.getByRole("button", { name: "New", exact: true }).click();
   const menu = page.getByRole("menu", { name: "New actions" });
   await menu.waitFor({ state: "visible" });
-  await menu.getByRole("menuitem", { name: "New folder", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Create new folder", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Create folder" });
   await dialog.waitFor({ state: "visible" });
   return dialog;
@@ -205,11 +234,12 @@ async function smokeViewport(viewport) {
     const menu = page.getByRole("menu", { name: "New actions" });
     await menu.waitFor({ state: "visible" });
     const menuItems = await menu.getByRole("menuitem").allTextContents().then((labels) => labels.map((label) => label.trim()));
-    assert.ok(menuItems.includes("Upload files"), `New menu includes Upload files at ${viewport.width}px (${menuItems.join(", ")})`);
-    assert.ok(menuItems.includes("New folder"), `New menu includes New folder at ${viewport.width}px`);
+    assert.deepEqual(menuItems, ["Upload files", "Create new folder", "Text document", "Google Slides", "Google Docs", "Google Drive"]);
+    assert.equal(await menu.getByRole("separator").count(), 0);
+    await assertNewMenuAnchor(page, viewport.width);
     await assertMenuInViewport(page, viewport.width);
     if (viewport.width === 1440) await page.screenshot({ path: resolve(screenshotDir, "desktop-new-menu.png"), animations: "disabled" });
-    await menu.getByRole("menuitem", { name: "New folder", exact: true }).click();
+    await menu.getByRole("menuitem", { name: "Create new folder", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Create folder" });
     await dialog.waitFor({ state: "visible" });
     await assertDialogTopmost(page, dialog, viewport.width);

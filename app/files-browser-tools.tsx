@@ -11,6 +11,8 @@ export type BrowserSortBy = "name" | "modified";
 export type BrowserSortDirection = "asc" | "desc";
 
 type Props = {
+  mode?: "all" | "search" | "filters";
+  searchPlaceholder?: string;
   query: string;
   onQueryChange: (query: string) => void;
   searchScope: BrowserSearchScope;
@@ -33,6 +35,8 @@ type Props = {
 };
 
 export default function FilesBrowserTools({
+  mode = "all",
+  searchPlaceholder,
   query,
   onQueryChange,
   searchScope,
@@ -59,16 +63,22 @@ export default function FilesBrowserTools({
     const focusSearch = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "k") return;
       if (disabled || document.activeElement?.closest("[role='dialog'], [aria-modal='true'], .files-action-sheet-backdrop")) return;
+      if (mode === "filters" || !searchInputRef.current) return;
       if (searchInputRef.current?.closest("[hidden]")) return;
       event.preventDefault();
       searchInputRef.current?.focus();
     };
     document.addEventListener("keydown", focusSearch);
     return () => document.removeEventListener("keydown", focusSearch);
-  }, [disabled]);
+  }, [disabled, mode]);
 
-  return <section className="files-browser-tools" aria-label="Search and filter files">
-    <div className="files-browser-search-row">
+  const showSearch = mode !== "filters";
+  const showAdvancedControls = mode === "filters" || ((mode === "all" || mode === "search") && advancedOpen);
+  const showMainFilters = mode !== "search";
+  const showSearchFilters = mode !== "filters";
+
+  return <section className={`files-browser-tools${mode !== "all" ? ` files-browser-tools--${mode}` : ""}`} aria-label={mode === "search" ? "Search files" : mode === "filters" ? "Filter files" : "Search and filter files"}>
+    {showSearch && <div className="files-browser-search-row">
       <label className="files-browser-search">
         <span className="files-tools-sr-only">Search files</span>
         <span className="files-browser-search-control">
@@ -77,7 +87,7 @@ export default function FilesBrowserTools({
             ref={searchInputRef}
             type="search"
             aria-label="Search files"
-            placeholder="Search in Files..."
+            placeholder={searchPlaceholder || "Search in Files..."}
             value={query}
             onChange={(event) => onQueryChange(event.currentTarget.value)}
             disabled={disabled}
@@ -89,10 +99,10 @@ export default function FilesBrowserTools({
           <kbd className="files-search-shortcut">Ctrl K</kbd>
         </span>
       </label>
-    </div>
+    </div>}
 
-    <div id="files-browser-filter-controls" className="files-browser-filter-controls" hidden={!advancedOpen}>
-      {searchScopeEnabled && <label>
+    <div id={mode === "filters" ? undefined : "files-browser-filter-controls"} className={`files-browser-filter-controls${mode === "filters" ? " files-browser-filter-controls--compact" : ""}`} hidden={!showAdvancedControls}>
+      {showSearchFilters && searchScopeEnabled && <label>
         <span>Search scope</span>
         <select aria-label="Search scope" value={searchScope} onChange={(event) => onSearchScopeChange(event.currentTarget.value as BrowserSearchScope)} disabled={disabled}>
           <option value="folder">Current folder</option>
@@ -100,35 +110,35 @@ export default function FilesBrowserTools({
         </select>
       </label>}
 
-      <label>
+      {showMainFilters && <label>
         <span>Course filter</span>
         <select aria-label="Course filter" value={courseFilter} onChange={(event) => onCourseFilterChange(event.currentTarget.value)} disabled={disabled}>
           <option value="all">All courses</option>
           <option value="personal">Personal</option>
           {courses.map((course) => <option key={course.id} value={course.id}>{course.code ? `${course.code} · ${course.name}` : course.name}</option>)}
         </select>
-      </label>
+      </label>}
 
-      <label>
+      {showMainFilters && <label>
         <span>File type</span>
         <select aria-label="File type" value={fileType} onChange={(event) => onFileTypeChange(event.currentTarget.value as BrowserFileType)} disabled={disabled}>
-          <option value="all">All types</option>
+          <option value="all">All file types</option>
           <option value="text">Text</option>
           <option value="pdf">PDF</option>
           <option value="image">Images</option>
           <option value="other">Other</option>
         </select>
-      </label>
+      </label>}
 
-      <label>
+      {mode === "all" && <label>
         <span>Sort by</span>
         <select aria-label="Sort by" value={sortBy} onChange={(event) => onSortByChange(event.currentTarget.value as BrowserSortBy)} disabled={disabled || sortDisabled}>
           <option value="name">Name</option>
           <option value="modified">Last modified</option>
         </select>
-      </label>
+      </label>}
 
-      <button
+      {mode === "all" && <button
         className="files-browser-sort-direction"
         type="button"
         aria-label={`Sort ${sortDirection === "asc" ? "ascending" : "descending"}`}
@@ -138,9 +148,9 @@ export default function FilesBrowserTools({
       >
         {sortDirection === "asc" ? <ArrowUp size={15} aria-hidden="true" /> : <ArrowDown size={15} aria-hidden="true" />}
         <span>{sortDirection === "asc" ? "Ascending" : "Descending"}</span>
-      </button>
+      </button>}
 
-      {includeArchivedEnabled && <label className="files-browser-include-archived">
+      {showSearchFilters && includeArchivedEnabled && <label className="files-browser-include-archived">
         <input type="checkbox" aria-label="Include archived" checked={includeArchived} onChange={(event) => onIncludeArchivedChange(event.currentTarget.checked)} disabled={disabled} />
         <span>Include archived</span>
       </label>}

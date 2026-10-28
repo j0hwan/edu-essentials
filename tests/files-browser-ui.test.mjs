@@ -70,7 +70,12 @@ const activeFiles = [
   makeFile("deep-file", "Week one.txt", "course-week", { course_id: "biology" }),
   makeFile("personal-file", "Research.txt", "personal-deep"),
   makeFile("archive-file", "Archived reading.txt", "archive-child", { course_id: "biology" }),
+  makeFile("recent-a", "Daily planner.txt", null),
+  makeFile("recent-b", "Lab setup.txt", "course-labs", { course_id: "biology" }),
+  makeFile("recent-c", "Reading summary.txt", null),
+  makeFile("recent-d", "Study checklist.txt", "personal-deep"),
   makeFile("pending-file", "Pending upload.txt", null, { state: "pending" }),
+  makeFile("deleting-file", "Deleting upload.txt", null, { state: "deleting" }),
 ];
 const trashedFiles = [makeFile("trash-file", "Removed.txt", null, { trashed_at: "2026-10-02T00:00:00.000Z", original_folder_id: "trash-root" })];
 const fileActivity = {
@@ -78,6 +83,13 @@ const fileActivity = {
     { file_id: "root-file", starred_at: null, last_opened_at: "2026-10-03T10:00:00.000Z" },
     { file_id: "course-file", starred_at: "2026-10-03T09:00:00.000Z", last_opened_at: "2026-10-03T11:00:00.000Z" },
     { file_id: "deep-file", starred_at: null, last_opened_at: "2026-10-03T12:00:00.000Z" },
+    { file_id: "recent-a", starred_at: null, last_opened_at: "2026-10-03T16:00:00.000Z" },
+    { file_id: "recent-b", starred_at: null, last_opened_at: "2026-10-03T15:00:00.000Z" },
+    { file_id: "recent-c", starred_at: null, last_opened_at: "2026-10-03T14:00:00.000Z" },
+    { file_id: "recent-d", starred_at: null, last_opened_at: "2026-10-03T13:00:00.000Z" },
+    { file_id: "pending-file", starred_at: null, last_opened_at: "2026-10-03T17:00:00.000Z" },
+    { file_id: "deleting-file", starred_at: null, last_opened_at: "2026-10-03T18:00:00.000Z" },
+    { file_id: "trash-file", starred_at: null, last_opened_at: "2026-10-03T19:00:00.000Z" },
   ],
 };
 const folderActivity = {
@@ -110,15 +122,17 @@ function reset(path = "/files") {
   root = createRoot(node);
 }
 
-function folderPayload(url) {
+function folderPayload(url, { emptyLibrary = false, createdFolders = [], emptyFolders = [] } = {}) {
+  if (emptyLibrary) return { folders: url.includes("view=active") ? [...emptyFolders, ...createdFolders] : [], activities: { folders: [] } };
   const folders = url.includes("view=archives") ? archivedFolders : url.includes("view=trash") ? trashedFolders : activeFolders;
   return { folders: folders.map((folder) => folderRename?.id === folder.id ? { ...folder, name: folderRename.name } : folder), activities: folderActivity };
 }
 
-function installApi({ failFirst = false, holdProfile = null, renamedAccount = null } = {}) {
+function installApi({ failFirst = false, holdProfile = null, renamedAccount = null, emptyLibrary = false, emptyFiles = [], emptyFolders = [] } = {}) {
   let shouldFail = failFirst;
   const pending = new Map();
   const released = new Set();
+  const createdFolders = [];
   const release = (profileId) => {
     released.add(profileId);
     for (const resolve of pending.get(profileId) ?? []) resolve();
@@ -139,9 +153,19 @@ function installApi({ failFirst = false, holdProfile = null, renamedAccount = nu
     }
 
     let body;
-    if (url === "/api/files?view=active" || url === "/api/files") body = { files: activeFiles, activities: fileActivity };
-    else if (url === "/api/files?view=trash") body = { files: trashedFiles, activities: fileActivity };
-    else if (url.startsWith("/api/file-folders?view=")) body = folderPayload(url);
+    if (url === "/api/files?view=active" || url === "/api/files") body = emptyLibrary
+      ? { files: emptyFiles, activities: { files: [], folders: [] } }
+      : { files: activeFiles, activities: fileActivity };
+    else if (url === "/api/files?view=trash") body = emptyLibrary
+      ? { files: [], activities: { files: [], folders: [] } }
+      : { files: trashedFiles, activities: fileActivity };
+    else if (url.startsWith("/api/file-folders?view=")) body = folderPayload(url, { emptyLibrary, createdFolders, emptyFolders });
+    else if (url === "/api/file-folders" && init.method === "POST") {
+      const input = JSON.parse(init.body);
+      const folder = makeFolder(input.id, input.name, input.parentId);
+      createdFolders.push(folder);
+      return Response.json({ folder });
+    }
     else if (url === "/api/workspace") {
       const dashboard = encodeWorkspaceState([{ id: "fixture-day", name: "Fixture day", widgets: [] }], "fixture-day", "");
       return Response.json({ initialized: true, courses: [course], dashboard, revision: baseProfile.updated_at, profile: baseProfile });
@@ -207,7 +231,7 @@ async function click(label) {
 }
 
 async function clickView(label) {
-  const control = [...node.querySelectorAll(".files-view-nav button")].find((item) => item.textContent.trim() === label);
+  const control = [...node.querySelectorAll(".files-revamp-nav button")].find((item) => item.textContent.trim() === label);
   assert.ok(control, `Missing file view ${label}`);
   await act(async () => control.click());
 }
@@ -252,7 +276,8 @@ test("Files Browser loads scoped data, navigates by stable folder IDs, saves lay
   assert.equal(new URL(window.location.href).searchParams.get("folder"), "course-labs");
   assert.match(node.querySelector(".files-breadcrumbs").textContent, /BIO 201.*Labs/);
   await click("New");
-  assert.deepEqual(menuLabels(), ["Upload files", "Upload folder", "New folder"]);
+  assert.deepEqual(menuLabels(), ["Upload files", "Create new folder", "Google Slides", "Google Docs", "Google Drive"]);
+  assert.equal(node.querySelectorAll('[role="menu"] [role="separator"]').length, 0, "the New menu has no dividers");
   await click("Upload files");
   assert.deepEqual(callbacks.uploads, [{ folderId: "course-labs", courseId: "biology" }]);
 
@@ -268,6 +293,138 @@ test("Files Browser loads scoped data, navigates by stable folder IDs, saves lay
   await waitUntil(() => requests.length >= 10, "folder data refresh after a renamed store item");
   await waitUntil(() => node.querySelector(".files-content-heading h2")?.textContent === "Lab work renamed", "renamed folder data");
   assert.equal(new URL(window.location.href).searchParams.get("folder"), "course-labs");
+});
+
+test("recent activity stays separate from the main file list during folder and search navigation", async () => {
+  reset("/files?view=my-files&layout=list");
+  installApi();
+  await render();
+  await waitUntil(() => node.querySelectorAll(".files-recent-activity-item").length >= 7, "the recent activity entries");
+
+  const recentRail = node.querySelector(".files-recent-activity");
+  assert.ok(recentRail, "the browser renders a persistent Recently opened rail");
+  assert.equal(node.querySelector(".files-recent-activity-heading h2 span")?.textContent, "Recently opened");
+  const recentEntries = [...node.querySelectorAll(".files-recent-activity-item")];
+  assert.deepEqual(recentEntries.slice(0, 6).map((entry) => entry.querySelector(".files-recent-activity-open")?.getAttribute("aria-label")), [
+    "Open recently opened file: Daily planner.txt",
+    "Open recently opened file: Lab setup.txt",
+    "Open recently opened file: Reading summary.txt",
+    "Open recently opened file: Study checklist.txt",
+    "Open recently opened file: Week one.txt",
+    "Open recently opened file: BIO reading.txt",
+  ], "ready file previews follow last_opened_at while trashed and unavailable uploads are excluded");
+  assert.ok(recentEntries.every((entry) => entry.querySelector(".files-recent-activity-preview")), "each history entry has a preview area");
+  assert.ok(recentEntries.every((entry) => !entry.closest(".files-item") && !entry.querySelector('input[type="checkbox"]') && entry.getAttribute("draggable") !== "true"),
+    "recent activity has no bulk-selection or drag identity that duplicates the main list");
+
+  await act(async () => recentEntries[0].querySelector("button")?.click());
+  assert.deepEqual(callbacks.opened, ["recent-a"], "activating the first recent preview opens its file");
+
+  await click("Open folder: BIO 201");
+  assert.equal(node.querySelector(".files-recent-activity"), recentRail, "the history rail remains available in a folder");
+  assert.equal(node.querySelectorAll(".files-recent-activity-item").length, recentEntries.length, "folder navigation does not duplicate or replace activity entries");
+
+  await click("Home");
+  await waitUntil(() => node.querySelector(".files-items.is-list"), "the root list after returning Home");
+  const search = node.querySelector('input[aria-label="Search files"]');
+  assert.ok(search, "the file search control is available");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(search, "Root");
+    search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await waitUntil(() => [...node.querySelectorAll(".files-item")].some((item) => item.textContent.includes("Root notes.txt")), "the filtered main file results");
+  assert.equal([...node.querySelectorAll(".files-item")].some((item) => item.textContent.includes("Daily planner.txt")), false, "search filters the main list");
+  assert.equal(node.querySelectorAll(".files-recent-activity-item").length, recentEntries.length, "search results do not replace the independent activity rail");
+});
+
+test("an empty root library offers working upload and folder actions without leaking into filtered views", async () => {
+  reset("/files?view=my-files&layout=list");
+  storeFiles = [];
+  const emptyProfileId = "b0000000-0000-4000-8000-000000000001";
+  installApi({ emptyLibrary: true });
+  await render(FilesBrowser, props({ profileId: emptyProfileId }));
+  await waitUntil(() => !!node.querySelector(".files-empty-home"), "the empty personal library welcome");
+
+  const welcome = node.querySelector(".files-empty-home");
+  assert.equal(welcome.querySelector("h3")?.textContent, "A home for every file.");
+  assert.equal(welcome.querySelector(".files-empty-home-art")?.getAttribute("aria-hidden"), "true", "the illustration stays decorative");
+  assert.ok(welcome.querySelector('[aria-label="Library features"]'), "the welcome content explains the library features");
+  assert.match(node.querySelector(".files-recent-empty")?.textContent ?? "", /Files you open will appear here/, "empty recent activity describes future behavior without inventing activity");
+
+  await click("Upload files");
+  assert.deepEqual(callbacks.uploads, [{ folderId: null, courseId: "" }], "the welcome upload action uses the existing root upload flow");
+
+  const search = node.querySelector('input[aria-label="Search files"]');
+  assert.ok(search, "the empty root keeps file search available");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(search, "no matching file");
+    search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await waitUntil(() => node.querySelector(".files-state-panel h3")?.textContent === "No files match your search", "the empty search result");
+  assert.equal(node.querySelector(".files-empty-home"), null, "search results do not show the root welcome illustration");
+
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(search, "");
+    search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await waitUntil(() => !!node.querySelector(".files-empty-home"), "the root welcome after clearing search");
+  const fileType = node.querySelector('select[aria-label="File type"]');
+  assert.ok(fileType);
+  await act(async () => {
+    fileType.value = "pdf";
+    fileType.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  await waitUntil(() => !!node.querySelector(".files-state-panel"), "the filtered empty result");
+  assert.equal(node.querySelector(".files-empty-home"), null, "file-type filters suppress the root welcome");
+
+  await act(async () => {
+    fileType.value = "all";
+    fileType.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  await waitUntil(() => !!node.querySelector(".files-empty-home"), "the root welcome after clearing filters");
+  await click("Create folder");
+  const dialog = node.querySelector('[role="dialog"][aria-labelledby="file-organization-title"]');
+  assert.equal(dialog.querySelector("h2")?.textContent, "Create folder", "the welcome folder action opens the existing folder dialog");
+  const folderName = dialog.querySelector('input[aria-label="Folder name"]');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(folderName, "Study resources");
+    folderName.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  assert.equal(folderName.value, "Study resources");
+  assert.equal(dialog.querySelector('button[type="submit"]').disabled, false, "the folder save is enabled after entering a name");
+  await act(async () => dialog.querySelector('button[type="submit"]').click());
+  await waitUntil(() => requests.some((request) => request.url === "/api/file-folders" && request.method === "POST"), "the folder creation request");
+  await waitUntil(() => [...node.querySelectorAll(".files-item")].some((item) => item.textContent.includes("Study resources")), `the created folder in the root library (${node.textContent.slice(-220)})`);
+  assert.ok(node.querySelector(".files-empty-home"), "the welcome stays while the library has no active files, even when it has folders");
+  await click("Open folder: Study resources");
+  await waitUntil(() => node.querySelector(".files-content-heading h2")?.textContent === "Study resources", "the created folder contents");
+  assert.equal(node.querySelector(".files-empty-home"), null, "a nested empty folder uses its own empty state");
+  assert.equal(node.querySelector(".files-state-panel h3")?.textContent, "This folder is empty");
+
+  await clickView("Trash");
+  await waitUntil(() => node.querySelector(".files-state-panel h3")?.textContent === "Trash is empty", "the empty Trash view");
+  assert.equal(node.querySelector(".files-empty-home"), null, "Trash never shows the personal-library welcome");
+});
+
+test("the empty root welcome preserves course folders and yields to files nested inside them", async () => {
+  const emptyProfileId = "b0000000-0000-4000-8000-000000000001";
+  const courseFolder = makeFolder("empty-course", "CPE 281", null, { kind: "course", course_id: course.id, course_code: course.code });
+  reset("/files?view=my-files&layout=list");
+  storeFiles = [];
+  installApi({ emptyLibrary: true, emptyFolders: [courseFolder] });
+  await render(FilesBrowser, props({ profileId: emptyProfileId }));
+  await waitUntil(() => !!node.querySelector(".files-empty-home"), "the empty welcome alongside a course folder");
+  assert.equal(node.querySelector(".files-empty-existing-folders h3")?.textContent, "Your folders", "existing root folders have a separate, named section below the welcome");
+  assert.ok([...node.querySelectorAll(".files-empty-existing-folders .files-item")].some((item) => item.textContent.includes("CPE 281")), "the course folder remains available below the welcome");
+
+  const nestedFile = makeFile("nested-course-file", "Week 1 notes.txt", courseFolder.id, { course_id: course.id });
+  reset("/files?view=my-files&layout=list");
+  storeFiles = [nestedFile];
+  installApi({ emptyLibrary: true, emptyFiles: [nestedFile], emptyFolders: [courseFolder] });
+  await render(FilesBrowser, props({ profileId: emptyProfileId }));
+  await waitUntil(() => [...node.querySelectorAll(".files-item")].some((item) => item.textContent.includes("CPE 281")), "the root course folder with a nested active file");
+  assert.equal(node.querySelector(".files-empty-home"), null, "an active file in a nested course folder suppresses the empty-library welcome");
+  assert.equal(node.querySelector(".files-empty-existing-folders"), null, "the empty welcome section is absent when any active library file exists");
 });
 
 test("file and folder menus expose keyboard, pointer, details, preview, edit, and download actions", async () => {
@@ -324,7 +481,15 @@ test("New, folder, background, and keyboard menus preserve destination scope and
   await waitUntil(() => node.textContent.includes("Root notes.txt"), "the root file list");
 
   await click("New");
-  assert.deepEqual(menuLabels(), ["Upload files", "Upload folder", "New folder", "Text document"]);
+  assert.deepEqual(menuLabels(), ["Upload files", "Create new folder", "Text document", "Google Slides", "Google Docs", "Google Drive"]);
+  assert.equal(node.querySelectorAll('[role="menu"] [role="separator"]').length, 0, "the New menu has no dividers");
+  const googleLinks = [...node.querySelectorAll('[role="menu"] a[role="menuitem"]')];
+  assert.deepEqual(googleLinks.map((link) => [link.textContent.trim(), link.getAttribute("href"), link.getAttribute("target"), link.getAttribute("rel")]), [
+    ["Google Slides", "https://slides.google.com/", "_blank", "noopener noreferrer"],
+    ["Google Docs", "https://docs.google.com/", "_blank", "noopener noreferrer"],
+    ["Google Drive", "https://drive.google.com/", "_blank", "noopener noreferrer"],
+  ]);
+  assert.equal(requests.some((request) => /^https:\/\/(slides|docs|drive)\.google\.com\//.test(request.url)), false, "opening the menu makes no Google requests");
   await click("Text document");
   assert.deepEqual(callbacks.newTextFiles, [[null, "", "Untitled (2).txt"]], "root creation increments a case-insensitive sibling name");
   await click("New");
@@ -491,4 +656,107 @@ test("workspace keeps the legacy files screen by default and renders Files Brows
   await waitUntil(() => node.querySelector(".files-browser") && node.textContent.includes("BIO 201"), "the enabled Files Browser page");
   assert.ok(requests.filter((request) => request.url.startsWith("/api/file-folders?")).length >= 3);
   assert.ok(requests.filter((request) => request.profileId === baseProfile.id).length >= 6);
+
+  const brand = node.querySelector(".files-revamp-brand");
+  assert.ok(brand, "the Files top bar includes the product brand");
+  assert.equal(brand.getAttribute("href"), "/", "the brand link returns to the main workspace");
+  const fileNavigation = node.querySelector('nav.files-revamp-nav[aria-label="File navigation"]');
+  assert.ok(fileNavigation, "Files has its dedicated top navigation");
+  assert.equal(node.querySelectorAll(".files-revamp-nav").length, 1, "the top navigation has one mounted instance");
+  assert.deepEqual([...fileNavigation.querySelectorAll(".files-revamp-nav-link span")].map((item) => item.textContent.trim()), [
+    "Files", "Starred", "Pinned", "Courses", "Archives", "Trash",
+  ]);
+  assert.ok(node.querySelector(".files-recent-activity"), "the root view includes a recently opened activity panel");
+  assert.ok(node.querySelector('select[aria-label="Files view"]'), "the main view selector is present");
+  assert.ok(node.querySelector('select[aria-label="Course filter"]'), "the course filter is present");
+  assert.ok(node.querySelector('select[aria-label="File type"]'), "the file type filter is present");
+  assert.ok(node.querySelector('select[aria-label="Sort by"]'), "the sort control is present");
+  assert.ok(node.querySelector(".files-revamp-top-search [aria-label='Search files']"), "the top bar has file search");
+  assert.ok(node.querySelector(".files-revamp-new .files-new-button"), "the top bar has New actions");
+
+  const sidebar = node.querySelector("#workspace-sidebar");
+  assert.ok(sidebar, "the primary workspace sidebar remains mounted on Files");
+  const filesLink = sidebar.querySelector('a[aria-label="Files"]');
+  assert.ok(filesLink, "Files uses the normal workspace sidebar link");
+  assert.equal(sidebar.querySelectorAll('a[aria-label="Files"]').length, 1, "the sidebar has one Files link");
+  assert.equal(filesLink.getAttribute("href"), "/files", "the Files link points to the Files route");
+  assert.equal(filesLink.getAttribute("aria-current"), "page", "the Files link is active on the Files route");
+  assert.equal(sidebar.querySelector('button[aria-label="Files"]'), null, "Files is not a disclosure toggle");
+  assert.equal(node.querySelector("#files-primary-navigation-slot"), null, "the Files-only sidebar slot is absent");
+  assert.equal(node.querySelector(".files-primary-navigation"), null, "the Files-only sidebar submenu is absent");
+
+  const initialHistoryLength = window.history.length;
+  const viewSelector = node.querySelector('select[aria-label="Files view"]');
+  await act(async () => {
+    viewSelector.value = "recent";
+    viewSelector.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  await waitUntil(() => new URL(window.location.href).searchParams.get("view") === "recent", "the Recent view from the main selector");
+  assert.equal(viewSelector.value, "recent", "the main view selector controls the Files view");
+  assert.ok(window.history.length > initialHistoryLength, "changing the Files view adds a browser history entry");
+
+  await act(async () => fileNavigation.querySelector('[aria-label="Show starred files"]').click());
+  await waitUntil(() => new URL(window.location.href).searchParams.get("view") === "starred" && node.textContent.includes("BIO reading.txt"), "the Starred files and folders");
+  assert.equal(node.querySelector('select[aria-label="Files view"]').value, "starred", "the top navigation route is reflected in the main view selector");
+  assert.equal(fileNavigation.querySelector('[aria-label="Show starred files"]')?.getAttribute("aria-current"), "page", "the top navigation marks Starred as active");
+  assert.ok([...node.querySelectorAll(".files-item")].some((item) => item.textContent.includes("Class notes")), "a starred folder remains available in Starred");
+
+  const pinnedTrigger = fileNavigation.querySelector('button[aria-label="Show pinned folders"]');
+  assert.ok(pinnedTrigger, "the Pinned top navigation control is available");
+  await act(async () => pinnedTrigger.click());
+  const pinnedPopover = node.querySelector('[role="group"][aria-label="Pinned folders"]');
+  assert.ok(pinnedPopover, "Pinned opens its folder picker");
+  const pinnedFolder = [...pinnedPopover.querySelectorAll("button")].find((item) => item.textContent.trim() === "Class notes");
+  assert.ok(pinnedFolder, "the picker includes the starred Class notes folder");
+  const topPinTrigger = pinnedPopover.querySelector(".files-primary-pin-action");
+  assert.ok(topPinTrigger, "the top navigation retains its own Pin folder action");
+  await act(async () => topPinTrigger.click());
+  assert.equal(node.querySelectorAll("#files-primary-pinned-picker").length, 0, "the removed sidebar does not mount a pin picker");
+  assert.equal(node.querySelectorAll("#files-pinned-picker").length, 1, "the top navigation keeps one pin picker");
+  await act(async () => pinnedFolder.click());
+  await waitUntil(() => new URL(window.location.href).searchParams.get("folder") === "personal-root", "the pinned folder destination");
+  await click("Home");
+  await waitUntil(() => new URL(window.location.href).searchParams.get("view") === "my-files" && !new URL(window.location.href).searchParams.has("folder"), "the Files Home destination");
+
+  const courseTrigger = fileNavigation.querySelector('button[aria-label="Show course folders"]');
+  await act(async () => courseTrigger.click());
+  const coursePopover = node.querySelector('[role="group"][aria-label="Course folders"]');
+  assert.ok(coursePopover, "Courses opens its course-folder picker");
+  const courseFolder = [...coursePopover.querySelectorAll("button")].find((item) => item.textContent.trim() === "BIO 201");
+  assert.ok(courseFolder, "the Courses picker includes the Biology folder");
+  await act(async () => courseFolder.click());
+  await waitUntil(() => new URL(window.location.href).searchParams.get("folder") === "course-root", "the course folder destination");
+  assert.match(node.querySelector(".files-content-heading h2")?.textContent ?? "", /BIO 201/);
+
+  await click("Archives");
+  await waitUntil(() => new URL(window.location.href).searchParams.get("view") === "archives", "the Archives view");
+  assert.ok(node.querySelector(".files-state-panel") || node.querySelector(".files-items"), "Archives renders a usable view");
+  await act(async () => fileNavigation.querySelector(".files-revamp-nav-link")?.click());
+  await waitUntil(() => new URL(window.location.href).searchParams.get("view") === "my-files", "the Files root after Archives");
+  await click("List view");
+  assert.ok(node.querySelector(".files-items.is-list"), "the list layout remains available");
+  await click("Grid view");
+  assert.ok(node.querySelector(".files-items.is-grid"), "the card grid remains available");
+
+  const homeLink = node.querySelector('#workspace-sidebar a[aria-label="Home"]');
+  assert.ok(homeLink, "the primary workspace still exposes its Home route");
+  await act(async () => homeLink.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true })));
+  await waitUntil(() => node.querySelector(".home-page"), "the Home route");
+  assert.equal(node.querySelector(".files-revamp-nav"), null, "the Files top navigation is removed on Home");
+  assert.equal(node.querySelector(".files-primary-navigation"), null, "the Files-only sidebar submenu remains absent on Home");
+  assert.equal(node.querySelector("#workspace-sidebar"), sidebar, "the primary sidebar remains mounted on Home");
+
+  const homeFilesLink = node.querySelector('#workspace-sidebar a[aria-label="Files"]');
+  assert.ok(homeFilesLink, "the workspace keeps its ordinary Files link on Home");
+  assert.equal(homeFilesLink.getAttribute("href"), "/files");
+  await act(async () => homeFilesLink.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true })));
+  await waitUntil(() => node.querySelector(".files-revamp-nav"), "the Files top navigation after returning to Files");
+  assert.equal(node.querySelectorAll(".files-revamp-nav").length, 1, "returning to Files restores one top navigation");
+  assert.equal(node.querySelector("#workspace-sidebar"), sidebar, "the primary sidebar remains mounted after returning to Files");
+  assert.equal(node.querySelectorAll('#workspace-sidebar a[aria-label="Files"]').length, 1, "returning to Files keeps one ordinary Files link");
+  assert.equal(node.querySelector('#workspace-sidebar a[aria-label="Files"]')?.getAttribute("href"), "/files");
+  assert.equal(node.querySelector('#workspace-sidebar a[aria-label="Files"]')?.getAttribute("aria-current"), "page", "the Files link is active after returning to Files");
+  assert.equal(node.querySelector('#workspace-sidebar button[aria-label="Files"]'), null, "returning to Files does not create a disclosure toggle");
+  assert.equal(node.querySelector("#files-primary-navigation-slot"), null);
+  assert.equal(node.querySelector(".files-primary-navigation"), null);
 });

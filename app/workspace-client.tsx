@@ -445,7 +445,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [filePreview, setFilePreview] = useState<PrivateFile | null>(null);
   const [filePreviewReadOnly, setFilePreviewReadOnly] = useState(false);
   const [fileDialog, setFileDialog] = useState<{ initial?: PrivateFile; defaults?: Partial<FileMetadata>; reviewId?: string } | null>(null);
-  const [uploadDialog, setUploadDialog] = useState<{ profileId: string; folderId: string | null; courseId: string; generation: number; mode?: "files" | "folder" } | null>(null);
+  const [uploadDialog, setUploadDialog] = useState<{ profileId: string; folderId: string | null; courseId: string; generation: number; mode?: "files" | "folder"; initialFiles?: File[] } | null>(null);
+  const [pendingUploadConfirmationPreference, setPendingUploadConfirmationPreference] = useState<{ profileId: string; generation: number; confirmUploads: boolean; previousConfirmUploads: boolean; phase: "queued" | "saving" } | null>(null);
   const [pendingFolderUpload, setPendingFolderUpload] = useState<PendingFolderUpload | null>(null);
   const [filesDataRevision, setFilesDataRevision] = useState(0);
   const [nativeDocumentDialog, setNativeDocumentDialog] = useState<{ file?: PrivateFile; create?: NativeDocumentCreate; readOnly?: boolean } | null>(null);
@@ -635,6 +636,41 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     try { autosave.change(canonicalJson(academicSnapshot(courses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData })))); }
     catch (error) { autosave.invalidate(error instanceof Error ? error.message : "Invalid workspace data."); }
   }, [activeWorkspaceId, notes, workspaces, storedAssignments, manualEvents, dashboardView, calendarFilter, extraData, courses, autosave, experimentalMode, onboardingTest]);
+
+  // Coordinate this preference with the external autosave and upload queues:
+  // apply it only after uploads settle, then wait for the save acknowledgement.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    const pending = pendingUploadConfirmationPreference;
+    if (!pending) return;
+    if (pending.profileId !== initialProfile.id || pending.generation !== fileActionSession.generation) {
+      setPendingUploadConfirmationPreference(null);
+      return;
+    }
+    if (pending.phase === "saving") {
+      const currentSave = autosave.getSnapshot();
+      if (currentSave.ready && !currentSave.dirty && currentSave.status === "saved" && (extraData.filePreferences.confirmUploads !== false) === pending.confirmUploads) setPendingUploadConfirmationPreference(null);
+      return;
+    }
+    // Saving workspace preferences briefly disables file writes. Keep the
+    // explicit choice active locally and wait until admitted uploads finish.
+    if (!canWriteFiles || profilePending || organizationState || nativeDocumentDialog || fileUploads.rows.some((row) => row.status === "queued" || row.status === "uploading" || row.status === "refreshing")) return;
+    if ((extraData.filePreferences.confirmUploads !== false) === pending.confirmUploads) {
+      setPendingUploadConfirmationPreference(null);
+      return;
+    }
+    const filePreferences = { ...extraData.filePreferences, confirmUploads: pending.confirmUploads };
+    const data = { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData, filePreferences };
+    try {
+      validateAcademicEdit(courses, encodeWorkspaceState(workspaces, activeWorkspaceId, notes, data), { assignments: storedAssignments, manualEvents, dashboardView });
+      setPendingUploadConfirmationPreference({ ...pending, phase: "saving" });
+      setExtraData((current) => ({ ...current, filePreferences: { ...current.filePreferences, confirmUploads: pending.confirmUploads } }));
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Unable to save upload confirmation settings.");
+      setPendingUploadConfirmationPreference(null);
+    }
+  }, [pendingUploadConfirmationPreference, initialProfile.id, fileActionSession.generation, canWriteFiles, profilePending, organizationState, nativeDocumentDialog, fileUploads.rows, extraData, storedAssignments, manualEvents, dashboardView, calendarFilter, courses, workspaces, activeWorkspaceId, notes, autosave, persistenceStatus]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const downloadUnsavedWork = () => downloadDraft("eduessentials-unsaved-work.json", { profile, settingsDraft: profileDraft, courses, assignments: storedAssignments, manualEvents, workspaces, activeWorkspaceId, notes, dashboardView, calendarFilter, nativeDocumentDraft, fileOrganizationDraft: organizationState?.draft, fileUploads: fileUploads.draft, pendingFolderUpload: pendingFolderUpload && { profileId: pendingFolderUpload.profileId, sessionGeneration: pendingFolderUpload.sessionGeneration, folderId: pendingFolderUpload.folderId, courseId: pendingFolderUpload.courseId, files: pendingFolderUpload.files.map(({ relativePath }) => relativePath), directories: pendingFolderUpload.directories.map(({ id, path, parentPath, created }) => ({ id, path, parentPath, created })) }, ...extraData });
   const reloadWorkspace = () => {
@@ -1232,11 +1268,17 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       {fileDialog && <FileEditor key={fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file"} store={fileStore} courses={courses} assignments={assignments} initial={fileDialog.initial} defaults={fileDialog.defaults} canWrite={canWriteFiles} onClose={() => setFileDialog(null)} onSaved={(file) => { if (fileDialog.initial?.state === "ready") handleFileOpened(file); if (fileDialog.reviewId) setExtraData((current) => ({ ...current, syllabusDrafts: current.syllabusDrafts.map((draft) => draft.id === fileDialog.reviewId ? { ...draft, sourceFileId: file.id, sourceName: file.name } : draft) })); }} />}
       {filePreview && <FilePreview key={`${initialProfile.id}-${fileActionSession.generation}-${filePreview.id}`} file={fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview} store={fileStore} onOpened={handleFileOpened} onClose={() => { setFilePreview(null); setFilePreviewReadOnly(false); setSyllabusPreviewFileId(null); }} canWrite={canWriteFiles && !filePreviewReadOnly} onEdit={() => { setFileDialog({ initial: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview }); setFilePreview(null); setSyllabusPreviewFileId(null); }} onReview={syllabusPreviewFileId === filePreview.id ? undefined : (file, text) => { createReview(file, text); setFilePreview(null); }} />}
       {uploadDialog && <FileUploadDialog
-        key={`${uploadDialog.profileId}:${uploadDialog.folderId ?? "root"}:${uploadDialog.courseId}:${uploadDialog.generation}:${uploadDialog.mode ?? "files"}`}
+        key={`${uploadDialog.profileId}:${uploadDialog.generation}:${uploadDialog.mode ?? "files"}`}
         queue={fileUploads}
         currentProfileId={initialProfile.id}
         currentSessionGeneration={fileActionSession.generation}
         defaults={uploadDialog}
+        initialFiles={uploadDialog.initialFiles}
+        confirmUploads={pendingUploadConfirmationPreference?.profileId === initialProfile.id && pendingUploadConfirmationPreference.generation === fileActionSession.generation ? pendingUploadConfirmationPreference.confirmUploads || pendingUploadConfirmationPreference.previousConfirmUploads : extraData.filePreferences.confirmUploads !== false}
+        onConfirmUploadsChange={(confirmUploads) => {
+          if (uploadDialog.profileId !== initialProfile.id || uploadDialog.generation !== fileActionSession.generation || !canWriteFiles || profilePending || organizationState || nativeDocumentDialog) return;
+          setPendingUploadConfirmationPreference({ profileId: initialProfile.id, generation: fileActionSession.generation, confirmUploads, previousConfirmUploads: extraData.filePreferences.confirmUploads !== false, phase: "queued" });
+        }}
         mode={pendingFolderUpload ? "folder" : uploadDialog.mode}
         courses={courses}
         changeToken={fileStore.files}
@@ -1734,6 +1776,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     const layoutMigrationPending = filesBrowserEnabled && storedPreferences.appearanceVersion !== FILES_BROWSER_APPEARANCE_VERSION;
     const prefs = filesBrowserEnabled ? migrateFilesBrowserPreferences(storedPreferences) : storedPreferences;
     if (filesBrowserEnabled) return <FilesBrowser
+      onPrimaryNavigate={() => setSidebarOpen(false)}
       profileId={initialProfile.id} courses={courses} assignments={storedAssignments} courseDetails={extraData.courseDetails}
       store={fileStore} layout={prefs.view}
       preferences={prefs} layoutMigrationPending={layoutMigrationPending} currentTerm={profile.current_term ?? ""} onFileOpened={handleFileOpened}
@@ -1744,7 +1787,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       onTrashCompleted={handleTrashCompleted}
       onUpload={(folderId, courseId) => { if (!organizationState && !nativeDocumentDialog) setUploadDialog({ profileId: initialProfile.id, folderId, courseId, generation: fileActionSession.generation, mode: "files" }); }}
       onUploadFolder={(folderId, courseId) => { if (!organizationState && !nativeDocumentDialog) setUploadDialog({ profileId: initialProfile.id, folderId, courseId, generation: fileActionSession.generation, mode: "folder" }); }}
-      onUploadFiles={(files, folderId, courseId) => { if (!organizationState && !nativeDocumentDialog && canWriteFiles && !profilePending) { fileUploads.enqueue(files, { folderId, courseId }); setUploadDialog({ profileId: initialProfile.id, folderId, courseId, generation: fileActionSession.generation, mode: "files" }); } }}
+      onUploadFiles={(files, folderId, courseId) => { if (!organizationState && !nativeDocumentDialog && canWriteFiles && !profilePending) setUploadDialog({ profileId: initialProfile.id, folderId, courseId, generation: fileActionSession.generation, mode: "files", initialFiles: files }); }}
       onNewTextFile={(folderId, courseId, name) => { if (canWriteFiles && !profilePending && !nativeDocumentDialog && !organizationState) setNativeDocumentDialog({ create: { id: crypto.randomUUID(), folderId, courseId, name, body: "" } }); }}
       onOpen={(file, options) => { if (nativeDocumentDialog || organizationState) return; if (file.content_backend === "native-text" && file.state === "ready" && !file.trashed_at) setNativeDocumentDialog({ file, readOnly: options?.readOnly }); else { setFilePreviewReadOnly(!!options?.readOnly); setFilePreview(file); } }}
       onEdit={(initial) => { if (!organizationState) setFileDialog({ initial }); }}

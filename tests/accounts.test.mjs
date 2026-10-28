@@ -65,6 +65,18 @@ test("file discovery preferences round trip without persisting search text", () 
     assert.throws(() => decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: { ...preferences, ...patch } } }), /Invalid file preferences/);
   }
 });
+test("upload confirmation preferences preserve older snapshots and require a boolean opt-out", () => {
+  const defaults = { assignments: [], manualEvents: [], dashboardView: "list" };
+  const preferences = { filter: "all", view: "grid" };
+  const decodePreferences = (value) => decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: value } }).data.filePreferences;
+  assert.equal(decodePreferences(preferences).confirmUploads, undefined);
+  for (const confirmUploads of [true, false]) {
+    assert.deepEqual(decodePreferences({ ...preferences, confirmUploads }), { ...preferences, confirmUploads });
+  }
+  for (const confirmUploads of [null, "false", 0, [], {}]) {
+    assert.throws(() => decodePreferences({ ...preferences, confirmUploads }), /Invalid file preferences/);
+  }
+});
 // No live users or production data are created by these tests.
 const state = globalThis.__accountTests = { user: null, calls: [], profile: null };
 function query(table) {
