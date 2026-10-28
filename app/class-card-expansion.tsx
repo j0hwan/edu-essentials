@@ -1398,7 +1398,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
       });
       backdropDimTimer = window.setTimeout(() => {
         if (!released && !closing && backdrop) backdrop.dataset.dimmed = "true";
-      }, 50);
+      }, 100);
     } else {
       applyRect(expansionDialog, destination);
       applyVisualAppearance(expansionDialog, expandedAppearance);

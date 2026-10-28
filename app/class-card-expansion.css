@@ -10,8 +10,8 @@
 }
 
 .class-card-expansion-backdrop[data-dimmed="true"]:not([data-suspended="true"]) {
-  background: rgba(12, 18, 30, 0.48);
-  transition-duration: 600ms;
+  background: rgba(12, 18, 30, 0.72);
+  transition-duration: 750ms;
 }
 
 .class-card-expansion-backdrop[data-suspended="true"] {

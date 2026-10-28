@@ -1290,11 +1290,11 @@ test("dashboard dimming starts during expansion and clears before the close anim
     await render();
     const backdrop = document.querySelector(".class-card-expansion-backdrop");
     assert.equal(backdrop.dataset.dimmed, undefined, "the dashboard stays bright at the start of expansion");
-    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    await new Promise((resolve) => window.setTimeout(resolve, 130));
     assert.equal(backdrop.dataset.dimmed, "true");
     assert.equal(callsFor(".class-card-expansion-dialog")[0].animation.cancelled, false, "dimming starts before expansion finishes");
-    assert.equal(window.getComputedStyle(backdrop).backgroundColor, "rgba(12, 18, 30, 0.48)");
-    assert.equal(window.getComputedStyle(backdrop).transitionDuration, "600ms", "the dashboard dims smoothly during expansion");
+    assert.equal(window.getComputedStyle(backdrop).backgroundColor, "rgba(12, 18, 30, 0.72)");
+    assert.equal(window.getComputedStyle(backdrop).transitionDuration, "750ms", "the dashboard dims smoothly during expansion");
     await act(async () => document.querySelector(".test-class-details button").click());
     assert.equal(backdrop.dataset.dimmed, undefined);
     assert.equal(window.getComputedStyle(backdrop).backgroundColor, "rgba(12, 18, 30, 0)");
@@ -1314,7 +1314,7 @@ test("closing before the dimming delay cancels delayed dashboard dimming", async
     const opening = callsFor(".class-card-expansion-dialog")[0];
     await act(async () => document.querySelector(".test-class-details button").click());
     await act(async () => opening.animation.finish());
-    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    await new Promise((resolve) => window.setTimeout(resolve, 130));
     assert.equal(backdrop.dataset.dimmed, undefined);
   } finally {
     await cleanup();
