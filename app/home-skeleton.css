@@ -96,6 +96,7 @@
   background: #0d1b30;
 }
 
+.home-skeleton__action[data-control="save-status"] { width: calc(44 * var(--ui-unit, 1px)); }
 .home-skeleton__action[data-control="widget-customization"] { width: calc(190 * var(--ui-unit, 1px)); }
 .home-skeleton__action[data-control="add-widget"] { width: calc(128 * var(--ui-unit, 1px)); }
 
@@ -189,6 +190,10 @@ html[data-motion="reduced"] .home-skeleton__card::after {
 
 .home-load-transition .home-page {
   animation: none;
+}
+
+.home-load-transition[data-page-entry="true"] .home-load-transition__content .home-page {
+  animation: page-in 0.22s ease-out;
 }
 
 @keyframes home-skeleton-sweep {

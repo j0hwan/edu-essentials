@@ -121,7 +121,7 @@ try {
         await mobileNav.waitFor({ state: "visible" });
         const mobileNavBounds = await mobileNav.boundingBox();
         assert.ok(mobileNavBounds && mobileNavBounds.y + mobileNavBounds.height >= viewport.height - 2, `the mobile bottom navigation reaches the viewport bottom (${JSON.stringify(mobileNavBounds)})`);
-        await mobileNav.getByRole("link", { name: "Courses", exact: true }).click();
+        await mobileNav.getByRole("link", { name: "Dashboard", exact: true }).click();
         await page.waitForFunction(() => location.pathname === "/dashboard", null, { timeout: 12000 });
         await mobileNav.getByRole("link", { name: "Home", exact: true }).click();
         await page.waitForFunction(() => location.pathname === "/home", null, { timeout: 12000 });

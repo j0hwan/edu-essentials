@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertOctagon, Circle, LoaderCircle } from "lucide-react";
-import { Children, useEffect, useRef, useState, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, useEffect, useRef, useState, type ReactNode } from "react";
 
 type SaveToastProps = {
   active: boolean;
@@ -14,6 +14,13 @@ type SaveToastProps = {
 
 const MIN_VISIBLE_MS = 450;
 const EXIT_MS = 220;
+
+function hasVisibleChildren(children: ReactNode): boolean {
+  return Children.toArray(children).some((child) => {
+    if (isValidElement<{ children?: ReactNode }>(child) && child.type === Fragment) return hasVisibleChildren(child.props.children);
+    return typeof child !== "string" || child.trim().length > 0;
+  });
+}
 
 export default function SaveToast({ active, title, message, error = false, loading = false, children }: SaveToastProps) {
   const [mounted, setMounted] = useState(active);
@@ -68,7 +75,7 @@ export default function SaveToast({ active, title, message, error = false, loadi
   const closing = !active;
   const isError = snapshot.error;
   const isLoading = snapshot.loading;
-  const hasActions = Children.toArray(snapshot.children).length > 0;
+  const hasActions = hasVisibleChildren(snapshot.children);
 
   return (
     <div

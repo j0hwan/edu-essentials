@@ -2,6 +2,17 @@
 
 A student workspace built with React, Vinext, Cloudflare Workers, and Supabase.
 
+## Design standard
+
+Use the [Home and sidebar design standard](docs/design-system.md) for future
+features and pages. It includes visual references, design tokens, responsive
+layout rules, component patterns, and an implementation acceptance checklist.
+
+Use the [widget design standard](docs/widget-design.md) when building or revising
+widgets. It defines the target shared frame, content composition across all five
+sizes, and smooth content motion during resize, using the supplied header and
+Small Alerts references. These are redesign requirements, not shipped behavior.
+
 ## Academic AI pilot
 
 See [ACADEMIC_AI.md](ACADEMIC_AI.md) for the implemented assistant, model selection,
@@ -115,7 +126,7 @@ loading alone does not rewrite it. No SQL migration is needed for this format ch
 The API prevents an old client from downgrading a v2 document back to shared notes.
 See PERSISTENCE_WORKSPACES.md for the Step 4 format, controls, and verification.
 
-Courses, assignments, calendar events, recurring schedules, and syllabus reviews
+Courses, assignments, calendar events, recurring schedules, and approved syllabuses
 now save through one complete course/dashboard snapshot. The API uses the installed
 save_account_workspace transaction, so approval and class removal cannot partially
 save related data. Reads retry when a concurrent commit changes the document
@@ -124,8 +135,11 @@ return 426 and require a reload after preserving pending edits.
 
 Dashboard provides class and assignment editors; Calendar provides event editing
 and actual month/week/day views with the saved time zone, week start, and filter.
-Syllabus review saves actual pasted/.txt source, editable course fields, and review
-rows before approval. Approval commits the course and typed assignments together.
+Syllabus reviews are temporary: source text, editable course fields, and review
+rows are not saved before approval, and closing or reloading discards the review.
+Approval commits the course, source, and typed assignments together. Existing
+courses have a Syllabus section with import and preview controls. The dashboard
+header places Add Class beside the Cards/List toggle.
 PDF/image storage and extraction are not claimed by this text-review workflow.
 See PERSISTENCE_ACADEMICS.md for the completed Step 5 surfaces, storage, recovery,
 and verification limits.
@@ -277,6 +291,9 @@ accounts or complete a real Google consent flow. A real end-to-end sign-in and
 cross-device save check requires the provider and migration setup above.
 
 ## Deployment
+
+For uploaded-PDF preview architecture, security controls, reuse, and regression
+checks, see [the secure PDF viewer guide](docs/secure-pdf-viewer.md).
 
 Preserve .openai/hosting.json and configure the same Supabase URL, publishable key,
 and secret key in the hosted Worker environment. Never include .env in a deployment

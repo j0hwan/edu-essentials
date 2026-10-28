@@ -203,7 +203,7 @@ function defaultServerWidgets() {
   ];
 }
 
-function installWorkspaceFetch({ failReads = 0, holdReads = true, widgets = defaultServerWidgets(), todayHidden = true, gap = 28, workspaces, activeWorkspaceId = "saved-home" } = {}) {
+function installWorkspaceFetch({ failReads = 0, holdReads = true, widgets = defaultServerWidgets(), todayHidden = true, gap = 28, workspaces, activeWorkspaceId = "saved-home", savedFilePreferences } = {}) {
   let getCalls = 0;
   let writes = 0;
   let failuresRemaining = failReads;
@@ -216,6 +216,7 @@ function installWorkspaceFetch({ failReads = 0, holdReads = true, widgets = defa
     assignments: [], manualEvents: [], dashboardView: "cards",
     widgetAppearance: { defaults: { ...globalThis.__homeSkeletonTestAppearance.defaultWidgetAppearance, gap }, overrides: {} },
   });
+  if (savedFilePreferences) dashboard.d.filePreferences = savedFilePreferences;
   const successPayload = () => ({ initialized: true, courses: [], dashboard, revision: profile.updated_at, profile });
   const fetcher = async (input, init = {}) => {
     const url = String(input);
@@ -307,6 +308,26 @@ test("Workspace restores the account cache before showing its pending skeleton a
     assert.equal(api.writes, 0, "loading and revealing never write the workspace snapshot");
   } finally {
     console.error = originalConsoleError;
+    if (root) await act(async () => root.unmount());
+    dom.window.close();
+    clearHomeGlobals();
+  }
+});
+
+test("a workspace saved with upload confirmation preferences loads without writing account data", async () => {
+  const dom = installDom();
+  let root;
+  try {
+    const { profile, Workspace } = await loadWorkspace();
+    const api = installWorkspaceFetch({ holdReads: false, savedFilePreferences: {
+      view: "grid", filter: "all", sortBy: "modified", sortDirection: "desc", confirmUploads: false, appearanceVersion: 2,
+    } });
+    const app = await renderWorkspace(Workspace, profile);
+    root = app.root;
+    await waitFor(() => app.rootNode.querySelector('[data-widget-id="saved-small"]'), "the workspace with saved upload confirmation preferences");
+    assert.equal(app.rootNode.textContent.includes("could not be loaded"), false);
+    assert.equal(api.writes, 0, "compatibility recovery does not rewrite the account workspace");
+  } finally {
     if (root) await act(async () => root.unmount());
     dom.window.close();
     clearHomeGlobals();
@@ -477,6 +498,9 @@ test("switching workspaces and changing size or Today visibility refresh the acc
     const customizeButton = app.rootNode.querySelector('.workspace-actions button[aria-pressed]');
     assert.ok(customizeButton, "workspace has a customization toggle");
     if (customizeButton.getAttribute("aria-pressed") !== "true") await act(async () => customizeButton.click());
+    const workspaceOptions = app.rootNode.querySelector('button[aria-label="Workspace options"]');
+    assert.ok(workspaceOptions, "customization exposes workspace options");
+    await act(async () => workspaceOptions.click());
     const restoreToday = app.rootNode.querySelector('button[aria-label="Restore Today section"]');
     assert.ok(restoreToday, "the hidden Today section has a restore action");
     await act(async () => restoreToday.click());

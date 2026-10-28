@@ -69,4 +69,29 @@ test("save toast cancels an exit when reopened and eventually unmounts after clo
   await render({ active: false, title: "Saving workspace…", loading: true, message: "A later edit is pending" });
   assert.ok(card(), "the second save also remains present for its exit");
   await waitForDismissal();
+
+  // Empty fragments should not create a visually empty action row.
+  const React = await import("react");
+  const empty = React.createElement(React.Fragment, null,
+    React.createElement(React.Fragment, null, null, false), null,
+  );
+  await render({ active: true, title: "Saving workspace…", loading: true, children: empty });
+  assert.ok(card()?.classList.contains("is-centered"), "empty nested fragments retain compact centered styling");
+  assert.equal(card()?.querySelector(".save-toast-actions"), null, "empty fragments do not create an action row");
+
+  let clicked = 0;
+  const action = React.createElement(React.Fragment, null,
+    React.createElement(React.Fragment, null,
+      React.createElement("button", { onClick: () => clicked++ }, "Retry"),
+    ),
+  );
+  await render({ active: true, title: "Saving workspace…", loading: true, children: action });
+  assert.equal(card()?.classList.contains("is-centered"), false, "real nested actions use the full toast layout");
+  assert.equal(card()?.querySelector(".save-toast-actions button")?.textContent, "Retry");
+  await act(async () => card().querySelector(".save-toast-actions button").click());
+  assert.equal(clicked, 1, "nested recovery action remains usable");
+
+  await render({ active: true, title: "Couldn't save", message: "Try again", error: true, children: action });
+  assert.equal(card()?.getAttribute("role"), "alert", "error toast retains its alert semantics");
+  assert.equal(card()?.querySelector(".save-toast-actions button")?.textContent, "Retry", "error actions remain available");
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { clientModule } from "../tests/helpers/client-modules.mjs";
 
@@ -9,10 +9,13 @@ const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const playwright = process.env.PLAYWRIGHT_MODULE
   ? await import(pathToFileURL(resolve(process.env.PLAYWRIGHT_MODULE)).href)
   : await import("playwright");
+const referenceCssPath = process.env.SIDEBAR_REFERENCE_CSS
+  ? resolve(process.env.SIDEBAR_REFERENCE_CSS)
+  : resolve(repoRoot, "app/reference-ui.css");
 const [{ SIDEBAR_COLLAPSED_BOOTSTRAP, SIDEBAR_COLLAPSED_STORAGE_KEY }, globalCss, referenceCss, widgetCss] = await Promise.all([
   import(await clientModule("lib/sidebar-preference.ts")),
   readFile(resolve(repoRoot, "app/globals.css"), "utf8"),
-  readFile(resolve(repoRoot, "app/reference-ui.css"), "utf8"),
+  readFile(referenceCssPath, "utf8"),
   readFile(resolve(repoRoot, "app/widget-block-layout.css"), "utf8"),
 ]);
 const css = [globalCss, referenceCss, widgetCss].map((source) => source.replace(/^@import[^;]+;\s*/gm, "")).join("\n");
@@ -27,18 +30,38 @@ const html = `<!doctype html>
   <body>
     <div class="app-shell reference-ui">
       <aside class="sidebar" aria-label="Primary navigation">
+        <div class="sidebar-scroll-region">
         <div class="brand-row">
           <div class="brand-copy"><strong>EduEssentials</strong></div>
           <button class="icon-button sidebar-toggle" aria-label="Collapse sidebar"><svg aria-hidden="true" width="19" height="19"></svg></button>
-          <button class="icon-button sidebar-close" aria-label="Close navigation">Close</button>
+          <button class="icon-button sidebar-close" aria-label="Close navigation"><svg aria-hidden="true" width="20" height="20"></svg></button>
         </div>
         <nav class="main-nav">
-          <a class="nav-item active" href="/home"><svg aria-hidden="true" width="20" height="20"></svg><span>Home</span></a>
-          <div class="experimental-control"><button class="nav-item experimental-trigger"><svg aria-hidden="true" width="16" height="16"></svg><span>Experimental mode</span></button></div>
+          <a class="nav-item active" href="/home" aria-label="Home"><svg aria-hidden="true" width="20" height="20"></svg><span>Home</span></a>
+          <a class="nav-item" href="/dashboard" aria-label="Dashboard"><svg aria-hidden="true" width="20" height="20"></svg><span>Dashboard</span></a>
+          <a class="nav-item" href="/calendar" aria-label="Calendar"><svg aria-hidden="true" width="20" height="20"></svg><span>Calendar</span></a>
+          <a class="nav-item" href="/tasks" aria-label="Tasks"><svg aria-hidden="true" width="20" height="20"></svg><span>Tasks</span></a>
+          <a class="nav-item" href="/files" aria-label="Files"><svg aria-hidden="true" width="20" height="20"></svg><span>Files</span></a>
+          <a class="nav-item" href="/assistant" aria-label="Ask Edu"><svg aria-hidden="true" width="20" height="20"></svg><span>Ask Edu</span></a>
+          <div class="experimental-control"><button class="nav-item experimental-trigger" type="button" aria-label="Experimental mode" aria-expanded="false" aria-controls="experimental-options"><svg aria-hidden="true" width="16" height="16"></svg><span>Experimental mode</span><span class="experimental-badge">TEMP</span></button></div>
         </nav>
-        <button class="nav-item syllabus-nav"><svg aria-hidden="true" width="22" height="22"></svg><span>Upload syllabus</span></button>
-        <div class="sidebar-bottom"><a class="profile-card" href="/settings"><span class="avatar">A</span><span><strong>Alex</strong><small>Student workspace</small></span></a></div>
+        <button class="nav-item syllabus-nav" aria-label="Upload syllabus"><svg aria-hidden="true" width="22" height="22"></svg><span>Upload syllabus</span></button>
+        <div class="sidebar-focus-card"><div class="focus-card-top"><span>2 day streak</span><strong>No target</strong></div><div class="tiny-progress"><span></span></div><p>Set your study targets.</p><button>Study &amp; grades</button></div>
+        </div>
+        <div class="sidebar-bottom">
+          <a class="nav-item" href="/settings" aria-label="Settings"><svg aria-hidden="true" width="20" height="20"></svg><span>Settings</span></a>
+          <a class="profile-card" href="/profile" aria-label="Alexandria Montgomery-Harrington — profile settings" title="Alexandria Montgomery-Harrington — profile settings"><span class="avatar">A</span><span><strong>Alexandria Montgomery-Harrington</strong><small>Computer Engineering and Applied Data Systems</small></span><svg aria-hidden="true" width="18" height="18"></svg></a>
+        </div>
       </aside>
+      <div class="experimental-menu" id="experimental-options" hidden>
+        <p>Fake preview data</p>
+        <button type="button" aria-label="Load Clear experimental data"><span><strong>Clear</strong><small>0 classes · 0 tasks</small></span></button>
+        <button type="button" aria-label="Load Light experimental data"><span><strong>Light</strong><small>2 classes · 6 tasks</small></span></button>
+        <button type="button" aria-label="Load Medium experimental data"><span><strong>Medium</strong><small>4 classes · 14 tasks</small></span></button>
+        <button type="button" aria-label="Load Packed experimental data"><span><strong>Packed</strong><small>6 classes · 28 tasks</small></span></button>
+        <button type="button"><strong>Onboard test</strong></button>
+        <small>Your saved workspace stays untouched.</small>
+      </div>
       <div class="mountain-backdrop" aria-hidden="true"></div>
       <header class="mobile-header"><button class="mobile-open" aria-label="Open navigation">Menu</button><strong>EduEssentials</strong></header>
       <header class="desktop-topbar" aria-label="Workspace toolbar">
@@ -76,6 +99,65 @@ const html = `<!doctype html>
       });
       const sidebar = document.querySelector('.sidebar');
       const scrim = document.querySelector('.sidebar-scrim');
+      const experimentalTrigger = document.querySelector('.experimental-trigger');
+      const experimentalMenu = document.querySelector('#experimental-options');
+      const positionExperimentalMenu = () => {
+        const triggerRect = experimentalTrigger.getBoundingClientRect();
+        const controlRect = document.querySelector('.experimental-control').getBoundingClientRect();
+        const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+        const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+        experimentalMenu.hidden = false;
+        experimentalMenu.style.position = 'fixed';
+        experimentalMenu.style.visibility = 'hidden';
+        const menuRect = experimentalMenu.getBoundingClientRect();
+        const gap = 8;
+        const menuWidth = Math.min(menuRect.width, Math.max(0, viewportWidth - gap * 2));
+        const collapsedRail = document.documentElement.dataset.sidebarCollapsed === 'true' && window.matchMedia('(min-width: 821px)').matches;
+        let left = collapsedRail ? triggerRect.right + gap : controlRect.left;
+        if (collapsedRail && left + menuWidth > viewportWidth - gap) left = triggerRect.left - menuWidth - gap;
+        left = Math.max(gap, Math.min(left, viewportWidth - menuWidth - gap));
+        const maxHeight = Math.max(80, viewportHeight - gap * 2);
+        let top = triggerRect.bottom + gap;
+        if (top + menuRect.height > viewportHeight - gap) top = triggerRect.top - menuRect.height - gap;
+        top = Math.max(gap, Math.min(top, viewportHeight - Math.min(menuRect.height, maxHeight) - gap));
+        experimentalMenu.style.left = left + 'px';
+        experimentalMenu.style.top = top + 'px';
+        experimentalMenu.style.maxHeight = maxHeight + 'px';
+        experimentalMenu.style.overflowY = 'auto';
+        experimentalMenu.style.visibility = '';
+      };
+      const closeExperimentalMenu = (restoreFocus = false) => {
+        experimentalTrigger.setAttribute('aria-expanded', 'false');
+        experimentalMenu.hidden = true;
+        if (restoreFocus) experimentalTrigger.focus();
+      };
+      const openExperimentalMenu = () => {
+        experimentalTrigger.setAttribute('aria-expanded', 'true');
+        positionExperimentalMenu();
+        experimentalMenu.querySelector('button:not(:disabled)')?.focus();
+      };
+      experimentalTrigger.addEventListener('click', () => {
+        if (experimentalTrigger.getAttribute('aria-expanded') === 'true') closeExperimentalMenu();
+        else openExperimentalMenu();
+      });
+      experimentalTrigger.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown' && experimentalTrigger.getAttribute('aria-expanded') !== 'true') {
+          event.preventDefault();
+          openExperimentalMenu();
+        }
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && experimentalTrigger.getAttribute('aria-expanded') === 'true') {
+          event.preventDefault();
+          closeExperimentalMenu(true);
+        }
+      });
+      window.addEventListener('resize', () => {
+        if (experimentalTrigger.getAttribute('aria-expanded') === 'true') positionExperimentalMenu();
+      });
+      window.addEventListener('scroll', () => {
+        if (experimentalTrigger.getAttribute('aria-expanded') === 'true') positionExperimentalMenu();
+      }, true);
       document.querySelector('.mobile-open').addEventListener('click', () => { sidebar.classList.add('open'); scrim.style.display = ''; });
       const closeSidebar = () => { sidebar.classList.remove('open'); scrim.style.display = 'none'; };
       document.querySelector('.sidebar-close').addEventListener('click', closeSidebar);
@@ -101,8 +183,8 @@ else launchOptions.channel = "chrome";
 let browser;
 const errors = [];
 
-async function openPage({ value = undefined, blocked = false, width = 1440, reducedMotion = "no-preference", accountMotion = false } = {}) {
-  const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion });
+async function openPage({ value = undefined, blocked = false, width = 1440, height = 1000, rootFontSize = null, reducedMotion = "no-preference", accountMotion = false } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, reducedMotion });
   await context.addInitScript(({ key, value, blocked }) => {
     if (blocked) {
       Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("Storage blocked"); } });
@@ -114,6 +196,7 @@ async function openPage({ value = undefined, blocked = false, width = 1440, redu
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
   await page.goto(baseUrl, { waitUntil: "load" });
+  if (rootFontSize) await page.evaluate((size) => { document.documentElement.style.fontSize = `${size}px`; }, rootFontSize);
   if (accountMotion) await page.evaluate(() => { document.documentElement.dataset.motion = "reduced"; });
   return { context, page };
 }
@@ -125,6 +208,9 @@ async function metrics(page) {
       return { left: box.left, top: box.top, width: box.width, height: box.height };
     };
     const sidebar = shell.querySelector(".sidebar");
+    const scrollRegion = shell.querySelector(".sidebar-scroll-region");
+    const sidebarBottom = shell.querySelector(".sidebar-bottom");
+    const profile = shell.querySelector(".profile-card");
     const label = shell.querySelector(".nav-item > span");
     const widgetGrid = shell.querySelector(".widget-grid");
     const widgetCards = [...shell.querySelectorAll(".widget-card")];
@@ -132,6 +218,30 @@ async function metrics(page) {
       rootValue: document.documentElement.getAttribute("data-sidebar-collapsed"),
       sidebarWidth: sidebar.getBoundingClientRect().width,
       sidebarLeft: sidebar.getBoundingClientRect().left,
+      sidebar: rect(sidebar),
+      sidebarPaddingLeft: parseFloat(getComputedStyle(sidebar).paddingLeft),
+      sidebarPaddingTop: parseFloat(getComputedStyle(sidebar).paddingTop),
+      sidebarPaddingRight: parseFloat(getComputedStyle(sidebar).paddingRight),
+      sidebarPaddingBottom: parseFloat(getComputedStyle(sidebar).paddingBottom),
+      sidebarClientLeft: sidebar.clientLeft,
+      sidebarClientWidth: sidebar.clientWidth,
+      sidebarClientHeight: sidebar.clientHeight,
+      sidebarBorderTop: parseFloat(getComputedStyle(sidebar).borderTopWidth),
+      sidebarBorderBottom: parseFloat(getComputedStyle(sidebar).borderBottomWidth),
+      sidebarBottom: rect(sidebarBottom),
+      settingsNav: rect(sidebarBottom.querySelector(".nav-item")),
+      scrollRegion: rect(scrollRegion),
+      scrollHeight: scrollRegion.scrollHeight,
+      clientHeight: scrollRegion.clientHeight,
+      scrollTop: scrollRegion.scrollTop,
+      profile: rect(profile),
+      avatar: rect(profile.querySelector(".avatar")),
+      profileLabelDisplay: getComputedStyle(profile.querySelector("span:not(.avatar)")).display,
+      profileText: [...profile.querySelectorAll("strong, small")].map((element) => {
+        const style = getComputedStyle(element);
+        return { clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, overflow: style.overflow, textOverflow: style.textOverflow, whiteSpace: style.whiteSpace };
+      }),
+      navLinkCount: shell.querySelectorAll(".main-nav > a").length,
       brandCopy: rect(shell.querySelector(".brand-copy")),
       brandDisplay: getComputedStyle(shell.querySelector(".brand-copy")).display,
       brandRow: rect(shell.querySelector(".brand-row")),
@@ -179,6 +289,195 @@ function assertSquareWidgets(snapshot, context) {
   for (const [index, widget] of snapshot.widgets.entries()) {
     assert.ok(widget.width > 0 && widget.height > 0, `${context}: widget ${index} has a rendered footprint`);
     assert.ok(Math.abs(widget.width - widget.height) <= 1.5, `${context}: widget ${index} remains square (${widget.width.toFixed(2)}×${widget.height.toFixed(2)})`);
+  }
+}
+
+async function captureSidebarScreenshot(page, name) {
+  const directory = process.env.SIDEBAR_FIT_SCREENSHOTS;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  await page.screenshot({ path: join(directory, `${name}.png`), fullPage: false });
+  await page.locator(".sidebar").screenshot({ path: join(directory, `${name}-sidebar.png`) });
+}
+
+function assertProfileContained(snapshot, context, { collapsed = false, mobile = false } = {}) {
+  const innerLeft = snapshot.sidebar.left + snapshot.sidebarClientLeft + snapshot.sidebarPaddingLeft;
+  const innerRight = snapshot.sidebar.left + snapshot.sidebarClientLeft + snapshot.sidebarClientWidth - snapshot.sidebarPaddingRight;
+  const innerTop = snapshot.sidebar.top + snapshot.sidebarBorderTop + parseFloat(snapshot.sidebarPaddingTop ?? 0);
+  const innerBottom = snapshot.sidebar.top + snapshot.sidebarBorderTop + snapshot.sidebarClientHeight - snapshot.sidebarPaddingBottom;
+  assert.ok(snapshot.profile.width > 0 && snapshot.profile.height > 0, `${context}: profile card has a rendered footprint`);
+  assert.ok(snapshot.sidebarBottom.left >= innerLeft - 1, `${context}: footer begins inside the sidebar's horizontal padding`);
+  assert.ok(snapshot.sidebarBottom.left + snapshot.sidebarBottom.width <= innerRight + 1, `${context}: footer ends inside the sidebar's horizontal padding`);
+  assert.ok(snapshot.sidebarBottom.top >= innerTop - 1, `${context}: footer stays below the sidebar's top padding`);
+  assert.ok(snapshot.sidebarBottom.top + snapshot.sidebarBottom.height <= innerBottom + 1, `${context}: footer stays above the sidebar's bottom edge`);
+  assert.ok(snapshot.settingsNav.left >= innerLeft - 1 && snapshot.settingsNav.left + snapshot.settingsNav.width <= innerRight + 1, `${context}: Settings stays inside the sidebar's horizontal padding`);
+  assert.ok(snapshot.settingsNav.top >= snapshot.sidebarBottom.top - 1 && snapshot.settingsNav.top + snapshot.settingsNav.height <= snapshot.profile.top + 1, `${context}: Settings stays above the profile card inside the pinned footer`);
+  assert.ok(snapshot.profile.left >= innerLeft - 1, `${context}: profile card stays inside the sidebar's left padding`);
+  assert.ok(snapshot.profile.left + snapshot.profile.width <= innerRight + 1, `${context}: profile card stays inside the sidebar's right padding`);
+  assert.ok(snapshot.profile.top >= snapshot.sidebarBottom.top - 1, `${context}: profile card stays within its footer`);
+  assert.ok(snapshot.profile.top + snapshot.profile.height <= snapshot.sidebarBottom.top + snapshot.sidebarBottom.height + 1, `${context}: profile card stays within its footer height`);
+  assert.ok(snapshot.avatar.left >= snapshot.profile.left - 1 && snapshot.avatar.left + snapshot.avatar.width <= snapshot.profile.left + snapshot.profile.width + 1, `${context}: avatar stays within the profile card horizontally`);
+  assert.ok(snapshot.avatar.top >= snapshot.profile.top - 1 && snapshot.avatar.top + snapshot.avatar.height <= snapshot.profile.top + snapshot.profile.height + 1, `${context}: avatar stays within the profile card vertically`);
+  assert.equal(snapshot.navLinkCount, 6, `${context}: fixture has the six regular production navigation links`);
+  assert.ok(snapshot.profileText.every(({ textOverflow, whiteSpace }) => textOverflow === "ellipsis" && whiteSpace === "nowrap"), `${context}: long profile name and major are ellipsized on one line`);
+  assert.equal(snapshot.profileLabelDisplay === "none", collapsed && !mobile, `${context}: profile text visibility matches the desktop collapse state`);
+  if (collapsed && !mobile) {
+    const usableCenter = innerLeft + (innerRight - innerLeft) / 2;
+    const avatarCenter = snapshot.avatar.left + snapshot.avatar.width / 2;
+    assert.ok(Math.abs(avatarCenter - usableCenter) <= 1.5, `${context}: collapsed avatar is centered in the sidebar rail (${avatarCenter.toFixed(1)} vs ${usableCenter.toFixed(1)})`);
+  }
+}
+
+async function assertKeyboardNavigation(page, context) {
+  await page.locator(".sidebar-toggle").focus();
+  const expectedLabels = ["Home", "Dashboard", "Calendar", "Tasks", "Files", "Ask Edu", "Experimental mode", "Upload syllabus"];
+  for (const expected of expectedLabels) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(() => {
+      const element = document.activeElement;
+      const region = document.querySelector(".sidebar-scroll-region");
+      const stickyBrand = document.querySelector(".brand-row");
+      const box = element.getBoundingClientRect();
+      const viewport = region.getBoundingClientRect();
+      return {
+        label: element.getAttribute("aria-label"),
+        rect: { top: box.top, bottom: box.bottom },
+        viewport: { top: viewport.top, bottom: viewport.bottom },
+        stickyBottom: stickyBrand.getBoundingClientRect().bottom,
+        scrollTop: region.scrollTop,
+      };
+    });
+    assert.equal(focused.label, expected, `${context}: Tab reaches ${expected}`);
+    assert.ok(focused.rect.top >= focused.viewport.top - 2.5 && focused.rect.bottom <= focused.viewport.bottom + 2.5, `${context}: focused ${expected} control scrolls into the visible sidebar region (control ${focused.rect.top.toFixed(1)}–${focused.rect.bottom.toFixed(1)}, region ${focused.viewport.top.toFixed(1)}–${focused.viewport.bottom.toFixed(1)}, scrollTop ${focused.scrollTop})`);
+    assert.ok(focused.rect.top >= focused.stickyBottom - 1, `${context}: focused ${expected} control is not hidden under the sticky brand row`);
+    if (expected === "Ask Edu" || expected === "Upload syllabus") {
+      assert.ok(focused.scrollTop > 0, `${context}: short sidebar scrolls its navigation to reveal ${expected}`);
+    }
+  }
+  for (const expected of ["Experimental mode", "Ask Edu", "Files", "Tasks", "Calendar", "Dashboard", "Home"]) {
+    await page.keyboard.press("Shift+Tab");
+    const focused = await page.evaluate(() => {
+      const element = document.activeElement;
+      const region = document.querySelector(".sidebar-scroll-region");
+      const box = element.getBoundingClientRect();
+      const viewport = region.getBoundingClientRect();
+      return {
+        label: element.getAttribute("aria-label"),
+        rect: { top: box.top, bottom: box.bottom },
+        viewport: { top: viewport.top, bottom: viewport.bottom },
+        stickyBottom: document.querySelector(".brand-row").getBoundingClientRect().bottom,
+      };
+    });
+    assert.equal(focused.label, expected, `${context}: Shift+Tab reaches ${expected}`);
+    assert.ok(focused.rect.top >= focused.viewport.top - 2.5 && focused.rect.bottom <= focused.viewport.bottom + 2.5, `${context}: reverse-focused ${expected} stays within the visible navigation region`);
+    assert.ok(focused.rect.top >= focused.stickyBottom - 1, `${context}: reverse-focused ${expected} stays clear of the sticky brand row`);
+  }
+}
+
+async function assertExperimentalMenuReachable(page, context) {
+  await page.locator(".experimental-trigger").click();
+  const menu = page.locator(".experimental-menu");
+  await menu.waitFor({ state: "visible" });
+  const initial = await menu.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+      viewportWidth: document.documentElement.clientWidth,
+      viewportHeight: document.documentElement.clientHeight,
+      parentIsShell: element.parentElement === document.querySelector(".app-shell"),
+      position: style.position,
+      zIndex: Number(style.zIndex),
+      maxHeight: parseFloat(style.maxHeight),
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    };
+  });
+  assert.equal(initial.parentIsShell, true, `${context}: Experimental menu is portaled outside the scroll-clipped navigation region`);
+  assert.equal(initial.position, "fixed", `${context}: Experimental menu is viewport-positioned`);
+  assert.ok(initial.zIndex >= 80, `${context}: Experimental menu paints above the sidebar rail`);
+  assert.ok(initial.rect.left >= 0 && initial.rect.right <= initial.viewportWidth + 1, `${context}: Experimental menu remains within the viewport horizontally`);
+  assert.ok(initial.rect.top >= 0 && initial.rect.bottom <= initial.viewportHeight + 1, `${context}: Experimental menu remains within the viewport vertically`);
+  assert.ok(initial.rect.bottom - initial.rect.top <= initial.maxHeight + 1, `${context}: menu stays within its viewport-derived maximum height`);
+  const menuLabels = ["Load Clear experimental data", "Load Light experimental data", "Load Medium experimental data", "Load Packed experimental data", "Onboard test"];
+  const openedFocus = await page.evaluate(() => ({
+    label: document.activeElement.getAttribute("aria-label"),
+    insideMenu: document.querySelector(".experimental-menu").contains(document.activeElement),
+  }));
+  assert.equal(openedFocus.label, menuLabels[0], `${context}: opening Experimental mode focuses its first option`);
+  assert.equal(openedFocus.insideMenu, true, `${context}: keyboard focus enters the portaled Experimental menu when it opens`);
+  for (const expected of menuLabels.slice(1)) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(() => {
+      const element = document.activeElement;
+      const menuElement = document.querySelector(".experimental-menu");
+      const rect = element.getBoundingClientRect();
+      const menuRect = menuElement.getBoundingClientRect();
+      return {
+        label: element.getAttribute("aria-label") || element.querySelector("strong")?.textContent,
+        insideMenu: menuElement.contains(element),
+        rect: { top: rect.top, bottom: rect.bottom },
+        menuRect: { top: menuRect.top, bottom: menuRect.bottom },
+        scrollTop: menuElement.scrollTop,
+      };
+    });
+    assert.equal(focused.label, expected, `${context}: Tab reaches ${expected} in the Experimental menu`);
+    assert.equal(focused.insideMenu, true, `${context}: keyboard focus enters the portaled Experimental menu`);
+    assert.ok(focused.rect.top >= focused.menuRect.top - 1 && focused.rect.bottom <= focused.menuRect.bottom + 1, `${context}: focused ${expected} option scrolls into the visible menu region`);
+  }
+  const lastOption = await menu.locator("button").last().evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const menuRect = element.closest(".experimental-menu").getBoundingClientRect();
+    const menu = element.closest(".experimental-menu");
+    return { top: rect.top, bottom: rect.bottom, menuTop: menuRect.top, menuBottom: menuRect.bottom, scrollTop: menu.scrollTop };
+  });
+  assert.ok(lastOption.top >= lastOption.menuTop - 1 && lastOption.bottom <= lastOption.menuBottom + 1, `${context}: last Experimental option can be brought into the menu viewport`);
+  if (initial.scrollHeight > initial.clientHeight) assert.ok(lastOption.scrollTop > 0, `${context}: long Experimental menu scrolls to reveal its final option`);
+
+  await page.keyboard.press("Escape");
+  const closed = await page.evaluate(() => ({
+    expanded: document.querySelector(".experimental-trigger").getAttribute("aria-expanded"),
+    hidden: document.querySelector(".experimental-menu").hidden,
+    focusRestored: document.activeElement === document.querySelector(".experimental-trigger"),
+  }));
+  assert.equal(closed.expanded, "false", `${context}: Escape closes Experimental mode`);
+  assert.equal(closed.hidden, true, `${context}: closed Experimental menu is removed from view`);
+  assert.equal(closed.focusRestored, true, `${context}: Escape restores focus to the Experimental trigger`);
+
+  await page.keyboard.press("ArrowDown");
+  const reopenedFocus = await page.evaluate(() => ({
+    expanded: document.querySelector(".experimental-trigger").getAttribute("aria-expanded"),
+    firstOptionFocused: document.activeElement === document.querySelector(".experimental-menu button"),
+    hidden: document.querySelector(".experimental-menu").hidden,
+  }));
+  assert.equal(reopenedFocus.expanded, "true", `${context}: ArrowDown opens Experimental mode from its trigger`);
+  assert.equal(reopenedFocus.firstOptionFocused, true, `${context}: ArrowDown places focus on the first menu option`);
+  assert.equal(reopenedFocus.hidden, false, `${context}: ArrowDown reveals the portaled menu`);
+  await page.keyboard.press("Escape");
+}
+
+async function verifySidebarFit({ width, height, collapsed = false, rootFontSize = null, openMobileDrawer = false, keyboard = false, menu = false, screenshot = null }) {
+  const description = `${width}×${height}${rootFontSize ? ` at ${rootFontSize}px text scale` : ""} ${collapsed ? "collapsed" : "expanded"}`;
+  const { context, page } = await openPage({ width, height, value: String(collapsed), rootFontSize });
+  try {
+    if (openMobileDrawer) {
+      await page.locator(".mobile-open").click();
+      await page.waitForTimeout(230);
+    } else {
+      await page.waitForTimeout(35);
+    }
+    if (screenshot) await captureSidebarScreenshot(page, screenshot);
+    const snapshot = await metrics(page);
+    assertProfileContained(snapshot, description, { collapsed, mobile: width <= 820 });
+    assert.ok(snapshot.scrollRegion.top >= snapshot.sidebar.top + snapshot.sidebarBorderTop - 1, `${description}: scroll region stays inside the sidebar`);
+    assert.ok(snapshot.scrollRegion.top + snapshot.scrollRegion.height <= snapshot.sidebarBottom.top + 1, `${description}: scroll region ends before the pinned footer`);
+    if (height <= 480 || rootFontSize) {
+      assert.ok(snapshot.scrollHeight > snapshot.clientHeight, `${description}: compact navigation has a usable vertical scroll region (${snapshot.scrollHeight}px content / ${snapshot.clientHeight}px viewport)`);
+    }
+    if (keyboard) await assertKeyboardNavigation(page, description);
+    if (menu) await assertExperimentalMenuReachable(page, description);
+  } finally {
+    await context.close();
   }
 }
 
@@ -292,6 +591,25 @@ function assertReversalStartsSmoothly(before, firstFrame) {
 
 try {
   browser = await playwright.chromium.launch(launchOptions);
+  for (const width of [1280, 1440]) {
+    for (const height of [320, 480, 768]) {
+      for (const collapsed of [false, true]) {
+        await verifySidebarFit({
+          width,
+          height,
+          collapsed,
+          keyboard: width === 1280 && height === 320,
+          menu: width === 1280 && height === 320,
+          screenshot: width === 1280 && height === 320 ? `desktop-${collapsed ? "collapsed" : "expanded"}-1280x320` : null,
+        });
+      }
+    }
+  }
+  await verifySidebarFit({ width: 1440, height: 480, rootFontSize: 20, keyboard: true, menu: true, screenshot: "desktop-text-scale-20px-1440x480" });
+  await verifySidebarFit({ width: 1280, height: 600, rootFontSize: 20, collapsed: true, keyboard: true, screenshot: "desktop-text-scale-20px-collapsed-1280x600" });
+  await verifySidebarFit({ width: 390, height: 320, openMobileDrawer: true, menu: true, screenshot: "mobile-drawer-390x320" });
+  await verifySidebarFit({ width: 390, height: 844, openMobileDrawer: true, screenshot: "mobile-drawer-390x844" });
+
   let collapsedDesktop;
   const { context: collapsedContext, page: collapsedPage } = await openPage({ value: "true" });
   try {
@@ -406,7 +724,7 @@ try {
   }
 
   assert.deepEqual(errors, [], "browser console and page errors are empty");
-  console.log("Sidebar motion browser QA passed: synchronized collapse/expansion, reversal, saved first paint, reduced motion, mobile overlay, and square widgets.");
+  console.log("Sidebar browser QA passed: profile/footer containment, compact scrolling and keyboard navigation, Experimental menu reachability, synchronized collapse/expansion, reversal, saved first paint, reduced motion, mobile drawer, and square widgets.");
 } finally {
   if (browser) await browser.close();
   await new Promise((resolvePromise, reject) => server.close((error) => error ? reject(error) : resolvePromise()));

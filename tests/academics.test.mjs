@@ -2,10 +2,33 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { clientModule } from "./helpers/client-modules.mjs";
 const { academicSnapshot } = await import(await clientModule("lib/academic-snapshot.ts"));
+const { decodeWorkspaceState, encodeWorkspaceState } = await import(await clientModule("lib/workspace-codec.ts"));
 const { dayKey, weekStart, addDays, isDate, assignmentStatus, suggestSyllabusItems, validateCourseDetails } = await import(await clientModule("lib/academics.ts"));
 const base = { v: 2, a: "day", w: [["day", "Day", []]], d: { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" } };
+test("meeting notes validate separately and survive workspace serialization", () => {
+  const details = { officeHours: "Tuesday", meetingNotes: "Bring a lab coat\nSide entrance", meetings: [] };
+  const encoded = academicSnapshot([course], { ...base, d: { ...base.d, courseDetails: { c: details } } }).dashboard;
+  assert.deepEqual(decodeWorkspaceState(JSON.parse(JSON.stringify(encoded))).data.courseDetails.c, details);
+  assert.equal(validateCourseDetails({ officeHours: "", meetings: [] }).meetingNotes, undefined);
+  assert.throws(() => validateCourseDetails({ ...details, meetingNotes: 42 }));
+  assert.throws(() => validateCourseDetails({ ...details, meetingNotes: "x".repeat(2001) }));
+});
 const course = { id: "c", code: "BIO 1", name: "Biology", credits: 3, instructor: "", room: "", color: "#112233", soft: "#11223318", initials: "BI" };
 const assignment = { id: "a", courseId: "c", title: "Essay", dateKey: "2026-10-15", due: "", status: "later", progress: 25, description: "", weight: "" };
+test("class image framing is bounded and survives workspace snapshots", () => {
+  const imageFraming = { fileId: "cover", x: 15, y: 90, zoom: 2.5, imageAspectRatio: 1.5, frameAspectRatio: 300 / 132 };
+  const details = { officeHours: "", meetings: [], imageFraming };
+  assert.deepEqual(validateCourseDetails(details).imageFraming, imageFraming);
+  const snapshot = academicSnapshot([course], { ...base, d: { ...base.d, courseDetails: { c: details } } });
+  assert.deepEqual(decodeWorkspaceState(JSON.parse(JSON.stringify(snapshot.dashboard))).data.courseDetails.c.imageFraming, imageFraming);
+  for (const patch of [{ x: -1 }, { x: 101 }, { y: Infinity }, { y: "50" }, { zoom: 0.9 }, { zoom: 3.1 }, { zoom: NaN }, { fileId: "" }]) {
+    assert.throws(() => validateCourseDetails({ ...details, imageFraming: { ...imageFraming, ...patch } }));
+  }
+  assert.throws(() => validateCourseDetails({ ...details, imageFraming: null }));
+  for (const key of ["imageAspectRatio", "frameAspectRatio"]) {
+    for (const value of [0, -1, Infinity, NaN, "1.5", null]) assert.throws(() => validateCourseDetails({ ...details, imageFraming: { ...imageFraming, [key]: value } }));
+  }
+});
 test("calendar dates honor time zones, week start, leap days and month/year boundaries", () => {
   const now = new Date("2026-09-06T00:30:00Z");
   assert.equal(dayKey(now, "America/Los_Angeles"), "2026-09-05"); assert.equal(dayKey(now, "Asia/Tokyo"), "2026-09-06");
@@ -20,6 +43,18 @@ test("syllabus suggestions use actual ISO dates and preserve exam/project types"
   assert.deepEqual(rows.map((r) => [r.title, r.date, r.type]), [["Essay", "2026-10-15", "Assignment"], ["Exam", "2026-11-02", "Exam"], ["Project", "2026-12-03", "Project"]]);
   assert.deepEqual(suggestSyllabusItems("No dated work provided", () => "unused"), []);
 });
+test("legacy syllabus drafts are discarded by decoding, encoding, and academic snapshots", () => {
+  const draft = { id: "review", sourceText: "Do not persist this source", course, items: [] };
+  const legacy = { ...base, d: { ...base.d, syllabusDrafts: [draft] } };
+  const decoded = decodeWorkspaceState(legacy);
+  assert.deepEqual(decoded.data.syllabusDrafts, []);
+  const encoded = encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, legacy.d);
+  assert.deepEqual(encoded.d.syllabusDrafts, []);
+  const snapshot = academicSnapshot([course], legacy);
+  assert.deepEqual(snapshot.dashboard.d.syllabusDrafts, []);
+  assert.ok(!JSON.stringify(snapshot).includes(draft.sourceText));
+  assert.deepEqual(academicSnapshot([], { ...base, d: { ...base.d, syllabusDrafts: "obsolete" } }).dashboard.d.syllabusDrafts, []);
+});
 test("academic snapshots reject malformed dates, ownership references and invalid completion state", () => {
   const make = (patch = {}) => ({ ...base, d: { ...base.d, assignments: [{ ...assignment, ...patch }] } });
   assert.doesNotThrow(() => academicSnapshot([course], make({ type: "Exam", dueTime: "23:59" })));
@@ -33,4 +68,13 @@ test("meeting schedules reject backwards times, invalid days, ranges and duplica
   assert.doesNotThrow(() => validateCourseDetails({ officeHours: "Friday", meetings: [meeting] }));
   for (const patch of [{ days: [] }, { days: [1, 1] }, { days: [7] }, { end: "08:00" }, { start: "noon" }, { until: "2026-08-01" }]) assert.throws(() => validateCourseDetails({ officeHours: "", meetings: [{ ...meeting, ...patch }] }));
   assert.throws(() => validateCourseDetails({ officeHours: "", meetings: [meeting, meeting] }), /Duplicate/);
+});
+
+test("meeting names are optional, bounded strings and survive workspace persistence", () => {
+  const meeting = { id: "m", name: "Lecture", days: [1], start: "09:00", end: "10:00", from: "2026-09-01", until: "2026-12-15", location: "Room" };
+  for (const name of [undefined, "", "Lab", "x".repeat(160)]) assert.doesNotThrow(() => validateCourseDetails({ officeHours: "", meetings: [{ ...meeting, name }] }));
+  for (const name of [null, 42, {}, "x".repeat(161)]) assert.throws(() => validateCourseDetails({ officeHours: "", meetings: [{ ...meeting, name }] }), /meeting name/);
+  const snapshot = academicSnapshot([course], { ...base, d: { ...base.d, courseDetails: { c: { officeHours: "", meetings: [meeting] } } } });
+  const decoded = decodeWorkspaceState(JSON.parse(JSON.stringify(snapshot.dashboard)));
+  assert.equal(decoded.data.courseDetails.c.meetings[0].name, "Lecture");
 });

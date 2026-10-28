@@ -1,0 +1,15 @@
+.location-field { display: flex; min-width: 0; flex-direction: column; gap: 6px; align-self: start; }
+.academic-editor .location-field { margin: 12px 0; }
+.location-field > label[for] { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; align-self: flex-start; margin: 0; }
+.location-spinner-slot { display: inline-flex; width: 12px; height: 12px; flex: 0 0 12px; align-items: center; justify-content: center; visibility: hidden; }
+.location-field > label[data-loading="true"] .location-spinner-slot { visibility: visible; }
+.location-loading-spinner { width: 10px; height: 10px; border: 1.5px solid var(--border); border-top-color: var(--brand); border-radius: 50%; animation: location-loading-spin .7s linear infinite; }
+@keyframes location-loading-spin { to { transform: rotate(360deg); } }
+.location-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.location-input-control { position: relative; font-weight: 650; }
+.location-field small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.location-field small:empty { display: none; }
+.location-field [role="listbox"]:not([hidden]) { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); box-shadow: 0 8px 24px #0003; font-weight: 400; }
+.location-field [role="option"] { display: block; width: 100%; border: 0; background: transparent; padding: 10px 12px; text-align: left; cursor: pointer; color: var(--ink); font-size: 12px; }
+.location-field [role="option"]:hover, .location-field [aria-selected="true"] { background: var(--brand-soft); }
+@media (prefers-reduced-motion: reduce) { .location-loading-spinner { animation: none; border-top-color: var(--muted); } }
