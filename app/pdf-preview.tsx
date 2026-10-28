@@ -1,34 +1,82 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { renderPdfPreviewPage } from "../lib/pdf-preview-client";
 
-export function PdfPreview({ data, name, downloadUrl }: { data: Blob; name: string; downloadUrl?: string }) {
+type PreviewProps = { data: Blob; name: string; downloadUrl?: string };
+type RenderQueue = { current: Promise<void> };
+
+function PdfPageCanvas({ data, name, downloadUrl, page, queueRef, onReady }: PreviewProps & {
+  page: number; queueRef: RenderQueue; onReady: (pages: number, ratio: number) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ data: Blob; page: number; attempt: number; pages?: number; error?: string } | null>(null);
-  const [documentInfo, setDocumentInfo] = useState<{ data: Blob; pages: number } | null>(null);
-  const current = result?.data === data && result.page === page && result.attempt === attempt ? result : null;
-  const pages = documentInfo?.data === data ? documentInfo.pages : undefined;
+  const [result, setResult] = useState<{ attempt: number; error?: string } | null>(null);
+  const current = result?.attempt === attempt ? result : null;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const controller = new AbortController();
-    void renderPdfPreviewPage(data, canvas, page, controller.signal).then((pages) => {
-      if (!controller.signal.aborted) { setResult({ data, page, attempt, pages }); setDocumentInfo({ data, pages }); }
-    }).catch((cause) => {
-      const detail = cause instanceof Error ? ` ${cause.message}` : "";
-      if (!controller.signal.aborted) setResult({ data, page, attempt, error: `This PDF could not be previewed.${detail} Download the original file to open it.` });
+    queueRef.current = queueRef.current.then(async () => {
+      if (controller.signal.aborted) return;
+      try {
+        const pages = await renderPdfPreviewPage(data, canvas, page, controller.signal);
+        if (!controller.signal.aborted) {
+          setResult({ attempt });
+          onReady(pages, canvas.width / canvas.height);
+        }
+      } catch (cause) {
+        const detail = cause instanceof Error ? ` ${cause.message}` : "";
+        if (!controller.signal.aborted) setResult({ attempt, error: `This PDF could not be previewed.${detail} Download the original file to open it.` });
+      }
     });
     return () => { controller.abort(); canvas.width = 0; canvas.height = 0; };
-  }, [data, page, attempt]);
+  }, [data, page, attempt, queueRef, onReady]);
 
-  return <div className="private-pdf-preview">
+  return <>
     {!current && <p role="status">Rendering PDF preview…</p>}
     {current?.error && <p role="alert">{current.error} <button type="button" onClick={() => setAttempt((previous) => previous + 1)}>Retry PDF preview</button> {downloadUrl && <a href={downloadUrl} download={name}>Download original PDF</a>}</p>}
-    <canvas key={`${page}:${attempt}`} ref={canvasRef} hidden={!current?.pages} role="img" aria-label={`${name}, page ${page}`} />
-    {pages && <div className="pdf-preview-controls"><button type="button" disabled={page <= 1} onClick={() => setPage((previous) => previous - 1)}>Previous page</button><span>Page {page} of {pages}</span><button type="button" disabled={page >= pages} onClick={() => setPage((previous) => previous + 1)}>Next page</button></div>}
+    <canvas key={attempt} ref={canvasRef} hidden={!current || Boolean(current.error)} role="img" aria-label={`${name}, page ${page}`} />
+  </>;
+}
+
+function PdfPage({ page, root, queueRef, onDocumentReady, ...props }: PreviewProps & {
+  page: number; root: HTMLDivElement | null; queueRef: RenderQueue; onDocumentReady: (pages: number) => void;
+}) {
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [nearby, setNearby] = useState(page === 1 || typeof IntersectionObserver === "undefined");
+  const [ratio, setRatio] = useState(0.75);
+  const onReady = useCallback((pages: number, pageRatio: number) => {
+    if (Number.isFinite(pageRatio) && pageRatio > 0) setRatio(pageRatio);
+    onDocumentReady(pages);
+  }, [onDocumentReady]);
+
+  useEffect(() => {
+    const element = pageRef.current;
+    if (!root || !element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setNearby(entry.isIntersecting), { root, rootMargin: "800px 0px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [root]);
+
+  return <div ref={pageRef} className="pdf-preview-page" style={{ aspectRatio: ratio }} data-page={page}>
+    {nearby && <PdfPageCanvas {...props} page={page} queueRef={queueRef} onReady={onReady} />}
   </div>;
+}
+
+function PdfDocument(props: PreviewProps) {
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  const [pages, setPages] = useState(1);
+  const queueRef = useRef(Promise.resolve());
+
+  return <div ref={setRoot} className="private-pdf-preview" role="region" aria-label="PDF preview">
+    {Array.from({ length: pages }, (_, index) => <PdfPage key={index + 1} {...props} page={index + 1} root={root} queueRef={queueRef} onDocumentReady={setPages} />)}
+  </div>;
+}
+
+export function PdfPreview(props: PreviewProps) {
+  const [document, setDocument] = useState({ data: props.data, revision: 0 });
+  if (document.data !== props.data) setDocument({ data: props.data, revision: document.revision + 1 });
+  return <PdfDocument key={document.revision} {...props} />;
 }

@@ -1809,6 +1809,21 @@ test("expanded course uses balanced columns and a two-column meeting grid withou
   } finally { layout.window.close(); }
 });
 
+test("expanded course hides an available syllabus filename while preserving missing-syllabus guidance and actions", async () => {
+  const source = await readFile(new URL("../app/workspace-client.tsx", import.meta.url), "utf8");
+  const syllabusSection = source.match(/<section className="expanded-class-section expanded-class-syllabus"[\s\S]*?<\/section>/)?.[0];
+
+  assert.ok(syllabusSection, "the accessible course syllabus section remains present");
+  assert.doesNotMatch(syllabusSection, /details\.syllabusName/, "the filename is not rendered as a visible paragraph");
+  assert.match(syllabusSection, /!hasSyllabusPreview && <p>/, "status guidance is shown only when there is no syllabus preview");
+  assert.match(syllabusSection, /No syllabus imported\. Import a file or paste syllabus text for this course\./);
+  assert.match(syllabusSection, /The attached syllabus file is unavailable\. Import a replacement to preview it\./);
+  assert.match(syllabusSection, /aria-label="Course syllabus"/);
+  assert.match(syllabusSection, /<Upload size=\{15\} \/>Import syllabus/);
+  assert.match(syllabusSection, /Detach syllabus file/);
+  assert.match(syllabusSection, /aria-label="Syllabus preview"/);
+});
+
 test("unmount does not return focus over a newly opened dialog", async () => {
   const { source, render, cleanup } = setup();
   try {

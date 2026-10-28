@@ -10,7 +10,21 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const calls = [];
-globalThis.pdfPreviewTestRender = (data, canvas, page, signal) => new Promise((resolve, reject) => calls.push({ data, canvas, page, signal, resolve, reject }));
+globalThis.pdfPreviewTestRender = (data, canvas, page, signal) => new Promise((resolve, reject) => {
+  canvas.width = 900;
+  canvas.height = 1200;
+  signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+  calls.push({ data, canvas, page, signal, resolve, reject });
+});
+const observers = new Map();
+globalThis.IntersectionObserver = class {
+  constructor(callback, options) { this.callback = callback; this.options = options; }
+  observe(element) { this.element = element; observers.set(Number(element.dataset.page), this); }
+  disconnect() { if (observers.get(Number(this.element?.dataset.page)) === this) observers.delete(Number(this.element.dataset.page)); }
+};
+async function nearby(page, isIntersecting = true) {
+  await act(async () => observers.get(page).callback([{ isIntersecting }]));
+}
 const mockRenderer = `data:text/javascript;base64,${Buffer.from("export const renderPdfPreviewPage = (...args) => globalThis.pdfPreviewTestRender(...args);").toString("base64")}`;
 const source = await readFile(new URL("../app/pdf-preview.tsx", import.meta.url), "utf8");
 let compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
@@ -25,21 +39,23 @@ async function mount(data = new Blob(["pdf"])) {
 }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = undefined; calls.length = 0; });
 
-test("shows PDF pages with accessible controls without embedding a document", async () => {
+test("stacks lazy PDF pages in order without pagination or embedded documents", async () => {
   await mount();
   assert.match(host.textContent, /Rendering PDF/);
   assert.equal(host.querySelector("iframe, object, embed"), null);
   await act(async () => calls[0].resolve(3));
   assert.equal(host.querySelector("canvas").hidden, false);
   assert.equal(host.querySelector("canvas").getAttribute("aria-label"), "Private.pdf, page 1");
-  const [previous, next] = host.querySelectorAll("button");
-  assert.equal(previous.disabled, true);
-  await act(async () => next.click());
-  assert.equal(calls[0].signal.aborted, true);
+  assert.deepEqual([...host.querySelectorAll(".pdf-preview-page")].map((page) => page.dataset.page), ["1", "2", "3"]);
+  assert.equal(host.querySelector("button"), null);
+  assert.doesNotMatch(host.textContent, /Previous page|Next page|Page \d+ of/);
+  assert.equal(calls.length, 1);
+  assert.equal(observers.get(2).options.root, host.querySelector(".private-pdf-preview"));
+  await nearby(2);
   assert.equal(calls[1].page, 2);
   assert.notEqual(calls[0].canvas, calls[1].canvas);
   await act(async () => calls[1].resolve(3));
-  assert.match(host.textContent, /Page 2 of 3/);
+  assert.equal(host.querySelectorAll("canvas:not([hidden])").length, 2);
 });
 
 test("a changed source aborts old work and ignores its eventual completion", async () => {
@@ -50,22 +66,43 @@ test("a changed source aborts old work and ignores its eventual completion", asy
   await act(async () => old.resolve(100));
   assert.match(host.textContent, /Rendering PDF/);
   await act(async () => calls[1].resolve(2));
-  assert.match(host.textContent, /Page 1 of 2/);
+  assert.equal(host.querySelectorAll(".pdf-preview-page").length, 2);
 });
 
-test("a page-specific error retains navigation back to a working page", async () => {
+test("a page-specific error leaves other pages available and can be retried", async () => {
   await mount();
   await act(async () => calls[0].resolve(3));
-  await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Next page").click());
+  await nearby(2);
   await act(async () => calls[1].reject(new Error("Malformed page")));
   assert.ok(host.querySelector('[role="alert"]'));
-  const previous = [...host.querySelectorAll("button")].find((button) => button.textContent === "Previous page");
-  assert.equal(previous.disabled, false);
-  await act(async () => previous.click());
-  assert.equal(calls[2].page, 1);
+  assert.equal(host.querySelector('[data-page="1"] canvas').hidden, false);
+  assert.equal(host.querySelectorAll(".pdf-preview-page").length, 3);
+  await act(async () => host.querySelector("button").click());
+  assert.equal(calls[2].page, 2);
   await act(async () => calls[2].resolve(3));
   assert.equal(host.querySelector('[role="alert"]'), null);
-  assert.match(host.textContent, /Page 1 of 3/);
+  assert.equal(host.querySelectorAll("canvas:not([hidden])").length, 2);
+});
+
+test("serializes work and releases offscreen canvases while preserving page space", async () => {
+  await mount();
+  await act(async () => calls[0].resolve(4));
+  await nearby(2);
+  await nearby(3);
+  assert.equal(calls.length, 2);
+  await act(async () => calls[1].resolve(4));
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].page, 3);
+  const firstCanvas = calls[0].canvas;
+  await nearby(1, false);
+  assert.equal(firstCanvas.width, 0);
+  assert.equal(firstCanvas.height, 0);
+  assert.equal(host.querySelector('[data-page="1"] canvas'), null);
+  assert.match(host.querySelector('[data-page="1"]').style.aspectRatio, /^0\.75(?: \/ 1)?$/);
+  await nearby(4);
+  await nearby(3, false);
+  assert.equal(calls[2].signal.aborted, true);
+  assert.equal(calls[3].page, 4);
 });
 
 test("failure offers retry and a private download, and unmount aborts work", async () => {

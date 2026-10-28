@@ -2087,7 +2087,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           </section>
         <section className="expanded-class-section expanded-class-syllabus" aria-label="Course syllabus">
           <h3>Syllabus</h3>
-          <p>{details.syllabusName || (hasSyllabusPreview ? "Saved course syllabus" : details.syllabusFileId ? "The attached syllabus file is unavailable. Import a replacement to preview it." : "No syllabus imported. Import a file or paste syllabus text for this course.")}</p>
+          {!hasSyllabusPreview && <p>{details.syllabusFileId ? "The attached syllabus file is unavailable. Import a replacement to preview it." : "No syllabus imported. Import a file or paste syllabus text for this course."}</p>}
           <div className="expanded-class-actions">
             <button className="secondary-button" disabled={!canWriteFiles || profilePending} onClick={() => setSyllabusAttachment({ courseId: course.id, folderId: null })}><Upload size={15} />Import syllabus</button>
             {details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}
