@@ -87,6 +87,17 @@ export function classifyMeetingLocation(value: string): MeetingLocationTarget {
   return { kind: "address", address: input };
 }
 
+export function formatExpandedMeetingLocation(value: string): string {
+  const target = classifyMeetingLocation(value);
+  if (target.kind !== "address") return value.trim();
+  const parts = target.address.split(",").map((part) => part.trim()).filter(Boolean);
+  const candidates = parts.slice(0, 2);
+  const streetEnding = /\b(?:street|st|road|rd|avenue|ave|boulevard|blvd|drive|dr|lane|ln|way|court|ct|place|pl|terrace|ter|highway|hwy|parkway|pkwy|close|crescent|cres|square|sq|mews|walk|row|gardens|grove)\.?$/i;
+  let streetIndex = candidates.findIndex((part) => streetEnding.test(part));
+  if (streetIndex < 0) streetIndex = candidates.findIndex((part) => /^\d+[a-z]?(?:[-/]\d+[a-z]?)?\s+\S/i.test(part));
+  return streetIndex < 0 ? target.address : parts.slice(0, streetIndex + 1).join(", ");
+}
+
 export function buildMeetingMapUrls(latitude: number, longitude: number): { embedUrl: string; mapUrl: string } | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
   const embed = new URL("https://maps.google.com/maps");

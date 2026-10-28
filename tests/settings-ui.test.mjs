@@ -1554,6 +1554,44 @@ test("study controls persist targets, timers, history and grades", async (t) => 
   });
 });
 
+test("expanded class locations show venue and street while maps and editing keep full addresses", async () => {
+  reset();
+  const venueAddress = "Pizza Hut, 2 Station Road, Port Talbot, Cymru / Wales, SA13 1JB, United Kingdom";
+  const streetAddress = "10 College Ave, Davis, California, 95616, United States";
+  const meeting = { days: [1], start: "09:00", end: "10:00", from: "2026-01-01", until: "2027-12-31" };
+  const details = { officeHours: "", meetings: [
+    { ...meeting, id: "venue", name: "Lecture", location: venueAddress },
+    { ...meeting, id: "fallback", name: "Lab", start: "11:00", end: "12:00", location: "" },
+  ] };
+  const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: details } } }, [{ ...sampleCourse, room: streetAddress }]);
+  const workspaceFetcher = fetcher;
+  const searchedAddresses = [];
+  fetcher = async (url, init) => {
+    if (url.startsWith("/api/locations?")) {
+      searchedAddresses.push(new URL(url, "https://edu.example").searchParams.get("q"));
+      return Response.json({ locations: [{ latitude: 38.5449, longitude: -121.7405 }] });
+    }
+    return workspaceFetcher(url, init);
+  };
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    const expanded = rootNode.querySelector('[aria-label="Class details"]');
+    await waitUntil(() => expanded.querySelectorAll(".meeting-location-preview iframe").length === 2, "full-address map previews");
+    const locations = [...expanded.querySelectorAll(".expanded-class-meeting > p")].map((paragraph) => paragraph.lastChild.textContent);
+    assert.deepEqual(locations, ["Pizza Hut, 2 Station Road", "10 College Ave"]);
+    assert.deepEqual(searchedAddresses.sort(), [venueAddress, streetAddress].sort());
+    assert.deepEqual([...expanded.querySelectorAll(".meeting-location-preview")].map((preview) => preview.getAttribute("aria-label")), [`Open Google Maps for ${venueAddress}`, `Open Google Maps for ${streetAddress}`]);
+    await click("Edit class");
+    const values = [...rootNode.querySelectorAll(".academic-editor input")].map((input) => input.value);
+    assert.ok(values.includes(venueAddress), "meeting editor retains the full venue address");
+    assert.ok(values.includes(streetAddress), "course location retains the full fallback address");
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].meetings[0].location, venueAddress);
+    assert.equal(server.courses[0].room, streetAddress);
+  } finally { if (root) await unmount(); }
+});
+
 test("expanded class weekday tiles show only scheduled meeting abbreviations", async () => {
   reset();
   const { addDays, dayKey, weekStart } = await import(await clientModule("lib/academics.ts"));

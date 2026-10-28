@@ -4,7 +4,19 @@ import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
 const previewHelpers = await import(await clientModule("lib/meeting-location-preview.ts"));
-const { buildMeetingWebsiteScreenshotUrl, buildMeetingMapUrls, classifyMeetingLocation, parseLocationCoordinates } = previewHelpers;
+const { buildMeetingWebsiteScreenshotUrl, buildMeetingMapUrls, classifyMeetingLocation, formatExpandedMeetingLocation, parseLocationCoordinates } = previewHelpers;
+
+test("expanded locations show the venue and street without changing websites or manual rooms", () => {
+  assert.equal(formatExpandedMeetingLocation("Pizza Hut, 2 Station Road, Port Talbot, Cymru / Wales, SA13 1JB, United Kingdom"), "Pizza Hut, 2 Station Road");
+  assert.equal(formatExpandedMeetingLocation("Science Hall, 10 College Ave, Davis, California, 95616, United States"), "Science Hall, 10 College Ave");
+  assert.equal(formatExpandedMeetingLocation("2 Brothers Pizza, 10 Main Street, Davis, California"), "2 Brothers Pizza, 10 Main Street");
+  assert.equal(formatExpandedMeetingLocation("10 College Ave, Davis, California, 95616, United States"), "10 College Ave");
+  assert.equal(formatExpandedMeetingLocation("Main St, Springfield"), "Main St");
+  assert.equal(formatExpandedMeetingLocation("10 College Ave"), "10 College Ave");
+  for (const location of ["Room 204", "Science Hall, Room 204", "North Campus, Main Building, Room 4", "https://courses.example.edu/meetings/a,b?token=private", "Join https://zoom.us/j/1,2?pwd=secret", ""]) {
+    assert.equal(formatExpandedMeetingLocation(location), location);
+  }
+});
 
 test("meeting locations distinguish safe public websites, unsafe URL-like text, and addresses", () => {
   const original = "https://courses.example.edu/schedule?token=private#week";
