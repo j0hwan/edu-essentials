@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
 const previewHelpers = await import(await clientModule("lib/meeting-location-preview.ts"));
-const { buildMeetingWebsiteScreenshotUrl, buildOpenStreetMapUrls, classifyMeetingLocation, parseLocationCoordinates } = previewHelpers;
+const { buildMeetingWebsiteScreenshotUrl, buildMeetingMapUrls, classifyMeetingLocation, parseLocationCoordinates } = previewHelpers;
 
 test("meeting locations distinguish safe public websites, unsafe URL-like text, and addresses", () => {
   const original = "https://courses.example.edu/schedule?token=private#week";
@@ -50,8 +50,8 @@ test("meeting locations distinguish safe public websites, unsafe URL-like text, 
   assert.equal(classifyMeetingLocation("" ).kind, "empty");
 });
 
-test("OSM URLs encode a bounded bbox and validated coordinates", () => {
-  const urls = buildOpenStreetMapUrls(38.5449, -121.7405);
+test("map previews encode a bounded OSM bbox and open validated coordinates in Google Maps", () => {
+  const urls = buildMeetingMapUrls(38.5449, -121.7405);
   assert.ok(urls);
   const embed = new URL(urls.embedUrl);
   assert.equal(embed.origin, "https://www.openstreetmap.org");
@@ -63,9 +63,11 @@ test("OSM URLs encode a bounded bbox and validated coordinates", () => {
   assert.ok(bounds[0] < -121.7405 && bounds[2] > -121.7405);
   assert.ok(bounds[1] < 38.5449 && bounds[3] > 38.5449);
   const map = new URL(urls.mapUrl);
-  assert.equal(map.searchParams.get("mlat"), "38.5449");
-  assert.equal(map.searchParams.get("mlon"), "-121.7405");
-  assert.equal(buildOpenStreetMapUrls(91, 0), null);
+  assert.equal(map.origin, "https://www.google.com");
+  assert.equal(map.pathname, "/maps/search/");
+  assert.equal(map.searchParams.get("api"), "1");
+  assert.equal(map.searchParams.get("query"), "38.5449,-121.7405");
+  assert.equal(buildMeetingMapUrls(91, 0), null);
   assert.deepEqual(parseLocationCoordinates({ locations: [{ latitude: 91, longitude: 0 }, { latitude: 1, longitude: 2 }] }), { latitude: 1, longitude: 2 });
   assert.equal(parseLocationCoordinates({ locations: [{ latitude: "1", longitude: "2" }] }), null);
 });
@@ -117,7 +119,9 @@ test("meeting preview aborts stale lookups, uses coordinates, and falls back aft
   assert.equal(iframe.getAttribute("tabindex"), "-1");
   assert.match(iframe.title, /South Hall/);
   const mapLink = rootNode.querySelector("a.meeting-location-preview");
-  assert.equal(new URL(mapLink.href).origin, "https://www.openstreetmap.org");
+  assert.equal(new URL(mapLink.href).origin, "https://www.google.com");
+  assert.equal(new URL(mapLink.href).searchParams.get("query"), "38.5449,-121.7405");
+  assert.match(mapLink.getAttribute("aria-label"), /Open Google Maps/);
   assert.equal(mapLink.getAttribute("referrerpolicy"), "no-referrer");
 
   await render("South Hall");

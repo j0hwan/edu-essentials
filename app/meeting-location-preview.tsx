@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Globe, MapPin } from "lucide-react";
-import { buildOpenStreetMapUrls, classifyMeetingLocation, parseLocationCoordinates } from "../lib/meeting-location-preview";
+import { buildMeetingMapUrls, classifyMeetingLocation, parseLocationCoordinates } from "../lib/meeting-location-preview";
 
 type Coordinates = { latitude: number; longitude: number };
 type LookupResult = { key: string; coordinates: Coordinates | null };
@@ -106,9 +106,9 @@ export default function MeetingLocationPreview({ location }: { location: string 
     if (coordinateCache.has(lookupKey)) coordinates = coordinateCache.get(lookupKey) ?? null;
     else if (lookup?.key === lookupKey) coordinates = lookup.coordinates;
   }
-  const map = coordinates ? buildOpenStreetMapUrls(coordinates.latitude, coordinates.longitude) : null;
+  const map = coordinates ? buildMeetingMapUrls(coordinates.latitude, coordinates.longitude) : null;
   if (map && address) {
-    return <a className="meeting-location-preview" href={map.mapUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`Open map for ${address}`}>
+    return <a className="meeting-location-preview" href={map.mapUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`Open Google Maps for ${address}`}>
       <iframe src={map.embedUrl} title={`Map preview for ${address}`} loading="lazy" tabIndex={-1} referrerPolicy="no-referrer" />
     </a>;
   }

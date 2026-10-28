@@ -87,7 +87,7 @@ export function classifyMeetingLocation(value: string): MeetingLocationTarget {
   return { kind: "address", address: input };
 }
 
-export function buildOpenStreetMapUrls(latitude: number, longitude: number): { embedUrl: string; mapUrl: string } | null {
+export function buildMeetingMapUrls(latitude: number, longitude: number): { embedUrl: string; mapUrl: string } | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
   const delta = 0.012;
   const west = Math.max(-180, longitude - delta);
@@ -98,10 +98,9 @@ export function buildOpenStreetMapUrls(latitude: number, longitude: number): { e
   embed.searchParams.set("bbox", `${west},${south},${east},${north}`);
   embed.searchParams.set("layer", "mapnik");
   embed.searchParams.set("marker", `${latitude},${longitude}`);
-  const map = new URL("https://www.openstreetmap.org/");
-  map.searchParams.set("mlat", String(latitude));
-  map.searchParams.set("mlon", String(longitude));
-  map.hash = `map=16/${latitude}/${longitude}`;
+  const map = new URL("https://www.google.com/maps/search/");
+  map.searchParams.set("api", "1");
+  map.searchParams.set("query", `${latitude},${longitude}`);
   return { embedUrl: embed.href, mapUrl: map.href };
 }
 
