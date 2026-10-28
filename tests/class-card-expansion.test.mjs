@@ -1842,12 +1842,13 @@ test("expanded course hides an available syllabus filename while preserving miss
 
   assert.ok(syllabusSection, "the accessible course syllabus section remains present");
   assert.doesNotMatch(syllabusSection, /details\.syllabusName/, "the filename is not rendered as a visible paragraph");
-  assert.match(syllabusSection, /!hasSyllabusPreview && <p>/, "status guidance is shown only when there is no syllabus preview");
-  assert.match(syllabusSection, /No syllabus imported\. Import a file or paste syllabus text for this course\./);
+  assert.match(syllabusSection, /!hasSyllabusPreview && details\.syllabusFileId && <p>/, "missing-file guidance is shown only for an unavailable attachment");
+  assert.match(syllabusSection, /No Uploaded Syllabus/);
+  assert.match(syllabusSection, /<X size=\{36\} aria-hidden="true"/);
   assert.match(syllabusSection, /The attached syllabus file is unavailable\. Import a replacement to preview it\./);
   assert.match(syllabusSection, /aria-label="Course syllabus"/);
   assert.match(syllabusSection, /<Upload size=\{15\} \/>Import syllabus/);
-  assert.match(syllabusSection, /Detach syllabus file/);
+  assert.match(syllabusSection, /Delete Syllabus/);
   assert.match(syllabusSection, /aria-label="Syllabus preview"/);
 });
 

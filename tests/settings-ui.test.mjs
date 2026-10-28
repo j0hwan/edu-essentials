@@ -1639,10 +1639,32 @@ test("expanded syllabus deletion clears saved content before permanently removin
     await act(async () => [...dialog.querySelectorAll("button")].find((button) => button.textContent === "Delete Syllabus").click());
     await waitUntil(() => removed && !rootNode.querySelector('[aria-label="Delete syllabus"]'), "syllabus permanent deletion");
     assert.deepEqual(actions, ["trash", "permanent-delete"]);
-    assert.ok(rootNode.textContent.includes("No syllabus imported."));
+    assert.ok(rootNode.textContent.includes("No Uploaded Syllabus"));
     assert.equal(server.courses.length, 1);
-    assert.equal(rootNode.querySelector('[aria-label="Syllabus preview"]'), null);
+    assert.ok(rootNode.querySelector('[aria-label="Syllabus preview"] .expanded-class-syllabus-empty'));
   } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
+for (const missingFile of [false, true]) test(`expanded syllabus keeps its preview cutout with a centered empty state (missing file: ${missingFile})`, async () => {
+  reset();
+  const details = { officeHours: "", meetings: [], ...(missingFile ? { syllabusFileId: "79797979-7979-4979-8979-797979797979" } : {}) };
+  installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    const section = rootNode.querySelector('[aria-label="Course syllabus"]');
+    const preview = section.querySelector('[aria-label="Syllabus preview"]');
+    assert.ok(preview.classList.contains("expanded-class-syllabus-preview"));
+    const empty = preview.querySelector(".expanded-class-syllabus-empty");
+    assert.equal(empty.textContent, "No Uploaded Syllabus");
+    assert.equal(empty.firstElementChild.tagName.toLowerCase(), "svg");
+    assert.equal(empty.firstElementChild.getAttribute("aria-hidden"), "true");
+    assert.equal(empty.lastElementChild.tagName, "SPAN");
+    assert.equal(preview.querySelector(".syllabus-source, .inline-file-preview"), null);
+    assert.ok([...section.querySelectorAll("button")].some((button) => button.textContent === "Import syllabus"));
+    assert.equal(section.textContent.includes("The attached syllabus file is unavailable."), missingFile);
+  } finally { if (root) await unmount(); }
 });
 
 test("expanded syllabus preview shows a centered file icon and Loading Syllabus while content loads", async () => {
