@@ -1788,12 +1788,12 @@ test("an interrupted close and unmount cancel animations and restore source and 
   }
 });
 
-test("expanded course uses balanced columns and a two-column meeting grid without horizontal scrolling", async () => {
+test("expanded course uses a narrower syllabus column and a two-column meeting grid without horizontal scrolling", async () => {
   const styles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
   const layout = new JSDOM(`<style>${styles}</style><div class="expanded-class-grid"><section class="expanded-class-section expanded-class-details"></section><section class="expanded-class-section expanded-class-schedule"><div class="expanded-class-meetings"></div></section><section class="expanded-class-section expanded-class-syllabus"></section></div>`);
   try {
     const computed = (selector) => layout.window.getComputedStyle(layout.window.document.querySelector(selector));
-    assert.equal(computed(".expanded-class-grid").gridTemplateColumns, "repeat(2, minmax(0, 1fr))");
+    assert.equal(computed(".expanded-class-grid").gridTemplateColumns, "minmax(0, 1.12fr) minmax(0, 0.88fr)");
     assert.equal(computed(".expanded-class-details").gridColumn, "1");
     assert.equal(computed(".expanded-class-schedule").gridColumn, "1");
     assert.equal(computed(".expanded-class-syllabus").gridColumn, "2");
