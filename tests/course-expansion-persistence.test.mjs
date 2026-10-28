@@ -67,6 +67,17 @@ test("restores the expanded course after dashboard to home/files navigation", as
   assert.equal(latest.skipOpeningAnimation, true, "navigation restoration skips the entrance animation");
 });
 
+test("an expanded course resolves saved edits without reopening or losing its selection", async () => {
+  await mount();
+  await act(async () => latest.setSelectedClass(courseA));
+  const savedId = window.localStorage.getItem(storageKey("profile-one"));
+  const updated = { ...courseA, name: "Updated Biology", instructor: "Dr. Updated", credits: 4 };
+  await render({ courses: [updated] });
+  assert.equal(latest.selectedClass, updated);
+  assert.equal(latest.skipOpeningAnimation, false);
+  assert.equal(window.localStorage.getItem(storageKey("profile-one")), savedId);
+});
+
 test("explicit close removes the saved course and course-list changes do not reopen it", async () => {
   await mount();
   await act(async () => latest.setSelectedClass(courseA));

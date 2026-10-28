@@ -658,8 +658,11 @@ test("editing uses the prefilled setup wizard and preserves saved details throug
   try {
     await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard");
     await act(async () => rootNode.querySelector(`[data-course-card-id="${course.id}"]`).click());
+    const expanded = rootNode.querySelector('[aria-label="Class details"]');
     await click("Edit class");
     assert.ok(rootNode.querySelector(".class-setup"));
+    assert.equal(rootNode.querySelector('[aria-label="Class details"]'), expanded);
+    assert.equal(expanded.hasAttribute("inert"), true);
     assert.equal(field("Course code").value, course.code);
     assert.equal(field("Class name").value, course.name);
     assert.equal(field("Meeting Notes").value, details.meetingNotes);
@@ -673,8 +676,12 @@ test("editing uses the prefilled setup wizard and preserves saved details throug
     await waitUntil(() => rootNode.querySelector(".class-setup-document-preview")?.textContent.includes("Syllabus"), "saved syllabus preview");
     server.offline = true; await click("Save class");
     await waitUntil(() => rootNode.querySelector('.class-setup [role="alert"]'), "failed edit remains open");
+    assert.equal(expanded.querySelector('[data-course-morph="instructor"]').textContent, course.instructor);
     server.offline = false; await click("Save class");
     await waitUntil(() => !rootNode.querySelector(".class-setup"), "edit retry completes");
+    assert.equal(rootNode.querySelector('[aria-label="Class details"]'), expanded);
+    assert.equal(expanded.hasAttribute("inert"), false);
+    await waitUntil(() => expanded.querySelector('[data-course-morph="instructor"]').textContent === "Dr. Updated", "expanded instructor updates after save");
     assert.equal(server.courses.length, 1);
     assert.equal(server.courses[0].id, course.id);
     assert.equal(server.courses[0].instructor, "Dr. Updated");
@@ -686,6 +693,31 @@ test("editing uses the prefilled setup wizard and preserves saved details throug
     assert.equal(field("Instructor").value, "Dr. Updated");
     await click("Close class setup");
   } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
+test("canceling class setup preserves the expanded course and returns focus to Edit class", async () => {
+  reset();
+  installWorkspaceServer(savedDashboard, [sampleCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    const expanded = rootNode.querySelector('[aria-label="Class details"]');
+    const editButton = [...expanded.querySelectorAll("button")].find((button) => button.textContent === "Edit class");
+    await act(async () => { editButton.focus(); editButton.click(); });
+    assert.equal(rootNode.querySelector('[aria-label="Class details"]'), expanded);
+    assert.equal(expanded.hasAttribute("inert"), true);
+    assert.notEqual(expanded.getAttribute("aria-modal"), "true");
+    assert.ok(rootNode.querySelector(".class-setup").contains(document.activeElement));
+    await edit("Class name", "Unsaved course name");
+    await click("Close class setup");
+    assert.equal(rootNode.querySelector('[aria-label="Class details"]'), expanded);
+    assert.equal(expanded.hasAttribute("inert"), false);
+    assert.equal(expanded.getAttribute("aria-modal"), "true");
+    assert.equal(expanded.querySelector('[data-course-morph="name"]').textContent, sampleCourse.name);
+    assert.equal(document.activeElement, editButton);
+    assert.equal(window.localStorage.getItem(`edu-dashboard-expanded-course:${baseProfile.id}`), sampleCourse.id);
+  } finally { await unmount(); }
 });
 
 test("editing replaces a syllabus without retaining old text and preserves the original until upload succeeds", async () => {
@@ -1984,7 +2016,7 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.equal(meetingNotes.nextElementSibling.getAttribute("aria-label"), "Course schedule");
     const meetingColumns = [...expanded.querySelectorAll('[aria-label="Course schedule"] .expanded-class-meeting')];
     assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("h3").textContent), ["Lecture", "Meeting 2", "Lab", "Seminar"]);
-    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("p").innerHTML.split(/<br\s*\/?\s*>/)), [["Monday, Wednesday, Friday", "9:00am–10:00am", "Lecture Hall"], ["Tuesday", "11:00am–12:00pm", "Discussion Room"], ["Thursday", "1:00pm–2:00pm", "Lab Room"], ["Friday", "3:00pm–4:00pm", "Seminar Room"]]);
+    assert.deepEqual(meetingColumns.map((meeting) => [...meeting.querySelectorAll("p > span")].map((field) => field.textContent)), [["Monday, Wednesday, Friday", "9:00am–10:00am", "Lecture Hall"], ["Tuesday", "11:00am–12:00pm", "Discussion Room"], ["Thursday", "1:00pm–2:00pm", "Lab Room"], ["Friday", "3:00pm–4:00pm", "Seminar Room"]]);
     for (const meeting of meetingColumns) {
       assert.equal(meeting.querySelectorAll("p").length, 1);
       assert.doesNotMatch(meeting.textContent, /Oct 1, 2026|Jan 25, 2027/);
@@ -2055,8 +2087,14 @@ test("class cards enlarge in place with all class tools and retain nested assign
     await act(async () => card.click());
     await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Edit class");
     assert.ok(rootNode.querySelector(".class-setup"));
-    assert.equal(rootNode.querySelector('[aria-label="Class details"]'), null);
+    const editingExpansion = rootNode.querySelector('[aria-label="Class details"]');
+    assert.ok(editingExpansion);
+    assert.equal(editingExpansion.hasAttribute("inert"), true);
+    assert.ok(rootNode.querySelector(".class-setup").contains(document.activeElement));
     await click("Close class setup");
+    assert.equal(rootNode.querySelector('[aria-label="Class details"]'), editingExpansion);
+    assert.equal(editingExpansion.hasAttribute("inert"), false);
+    assert.equal(document.activeElement.textContent, "Edit class");
     await saveAndReload({ initialProfile: profile });
     await click("Dashboard");
     await waitUntil(() => rootNode.querySelector(".dashboard-classes-heading"), "dashboard after reload");

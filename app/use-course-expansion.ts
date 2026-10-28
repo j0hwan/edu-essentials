@@ -65,7 +65,7 @@ export function useCourseExpansion({ profileId, page, courses, ready, persist = 
 
   // Navigation and workspace reloads hide the detail without treating that as an explicit close.
   const resetSelectedClass = useCallback(() => setSelection(null), []);
-  const selectedClass = selection?.profileId === profileId && selection.page === page ? selection.course : null;
+  const selectedClass = selection?.profileId === profileId && selection.page === page ? courses.find((course) => course.id === selection.course.id) ?? selection.course : null;
   const skipOpeningAnimation = selectedClass !== null && selection?.restored === true;
   return { selectedClass, setSelectedClass, resetSelectedClass, clearSavedCourse, openDashboardCourse, skipOpeningAnimation };
 }

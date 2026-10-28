@@ -15,6 +15,8 @@ Research and local frame inspection, October 12, 2026. The goal is a continuous 
 
 ## Local evidence and decisions
 
+Editing keeps the same expanded course mounted beneath class setup. The expansion is suspended and inert while the form owns focus. Saved field values are held behind the form until it closes, then only changed values fade out for 140 ms and their replacements fade in for 180 ms. Meeting additions and removals transition by key; retained meetings and unrelated assignments remain visible. Reduced-motion preferences and unavailable animation APIs replace content immediately. Edit cancellation without saved changes does not animate content.
+
 Chrome screencast frames of the actual expansion component showed the previous 420 ms spring covering roughly 90% of the desktop header-width change by 80 ms. It overshot shortly afterward and appeared nearly stationary from 240 ms through completion. The artwork remained present; the rapid geometry and crop change was the main visible defect in that fixture.
 
 Use a course-specific response so that bounds and matching styles share one motion clock, retaining a modest settle while spreading movement across the transition. Leave widget resize motion independent. Changed content gets a short opacity overlap instead of blur or a gap where both states disappear. Identical artwork stays opaque. Differing background treatments must blend inside the same moving bounds rather than switch discretely.

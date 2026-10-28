@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref } from "react";
 import { Globe, MapPin } from "lucide-react";
 import { buildMeetingMapUrls, classifyMeetingLocation, parseLocationCoordinates } from "../lib/meeting-location-preview";
 
@@ -66,7 +66,11 @@ function PreviewFallback({ kind, label }: { kind: "map" | "website"; label: stri
   return <span className="meeting-location-preview-fallback"><Icon size={18} aria-hidden="true" /><span>{label}</span></span>;
 }
 
-export default function MeetingLocationPreview({ location }: { location: string }) {
+export default function MeetingLocationPreview({ location, ref }: { location: string; ref?: Ref<HTMLElement> }) {
+  const attachRef = (element: HTMLElement | null) => {
+    if (typeof ref === "function") ref(element);
+    else if (ref) ref.current = element;
+  };
   const target = classifyMeetingLocation(location);
   const address = target.kind === "address" ? target.address : null;
   const lookupKey = address?.toLowerCase() ?? null;
@@ -92,7 +96,7 @@ export default function MeetingLocationPreview({ location }: { location: string 
   if (target.kind === "empty") return null;
   if (target.kind === "website") {
     const failed = failedScreenshot === target.screenshotUrl;
-    return <a className="meeting-location-preview" href={target.href} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`Open ${target.hostname}`} title={target.hostname}>
+    return <a ref={attachRef} className="meeting-location-preview" href={target.href} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`Open ${target.hostname}`} title={target.hostname}>
       {failed
         ? <PreviewFallback kind="website" label={target.hostname} />
         // The fixed screenshot provider is loaded in-browser so its image error can use the local fallback.
@@ -108,13 +112,13 @@ export default function MeetingLocationPreview({ location }: { location: string 
   }
   const map = coordinates ? buildMeetingMapUrls(coordinates.latitude, coordinates.longitude) : null;
   if (map && address) {
-    return <a className="meeting-location-preview" href={map.mapUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`Open Google Maps for ${address}`}>
+    return <a ref={attachRef} className="meeting-location-preview" href={map.mapUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`Open Google Maps for ${address}`}>
       <iframe src={map.embedUrl} title={`Map preview for ${address}`} loading="lazy" tabIndex={-1} referrerPolicy="no-referrer" />
     </a>;
   }
 
   const waiting = !!address && address.length >= 3 && address.length <= 160 && coordinates === undefined;
-  return <div className="meeting-location-preview" aria-label={waiting ? "Loading map preview" : "Map preview unavailable"}>
+  return <div ref={attachRef} className="meeting-location-preview" aria-label={waiting ? "Loading map preview" : "Map preview unavailable"}>
     <PreviewFallback kind="map" label={waiting ? "Loading map preview…" : "Map preview unavailable"} />
   </div>;
 }
