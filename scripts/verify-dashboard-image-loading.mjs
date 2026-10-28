@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const playwright = await import(process.env.PLAYWRIGHT_MODULE
@@ -82,13 +82,7 @@ const bundle = await build({
   define: { "process.env.NODE_ENV": '"production"' },
   logLevel: "warning",
 });
-const cssFiles = [
-  "globals", "auth", "reference-ui", "dashboard", "home-skeleton", "courses-skeleton",
-  "widget-appearance", "widget-block-layout", "widget-reorder", "class-card-expansion",
-];
-const css = (await Promise.all(cssFiles.map((name) => readFile(resolve(root, `app/${name}.css`), "utf8"))))
-  .map((source) => source.replace(/^@import[^;]+;\s*/gm, ""))
-  .join("\n");
+const { css } = await readWorkspaceStylesheets();
 const server = createServer(async (request, response) => {
   if (request.url === "/fixture.js") {
     response.setHeader("content-type", "text/javascript");

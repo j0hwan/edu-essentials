@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "vite";
 import react from "@vitejs/plugin-react";
 import { clientModule } from "../tests/helpers/client-modules.mjs";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDir = resolve(repoRoot, ".vinext/verify-home-skeleton");
@@ -13,18 +14,7 @@ const playwrightModule = process.env.PLAYWRIGHT_MODULE;
 const playwright = playwrightModule
   ? await import(pathToFileURL(resolve(playwrightModule)).href)
   : await import("playwright");
-const cssFiles = [
-  "app/globals.css",
-  "app/reference-ui.css",
-  "app/auth.css",
-  "app/widget-appearance.css",
-  "app/widget-block-layout.css",
-  "app/widget-reorder.css",
-  "app/home-skeleton.css",
-];
-const css = (await Promise.all(cssFiles.map((file) => readFile(resolve(repoRoot, file), "utf8"))))
-  .map((source) => source.replace(/^@import[^;]+;\s*/gm, ""))
-  .join("\n");
+const { css } = await readWorkspaceStylesheets();
 const ignoreCss = {
   name: "home-skeleton-verify-ignore-css",
   enforce: "pre",

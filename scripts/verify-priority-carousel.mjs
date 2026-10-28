@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const playwright = process.env.PLAYWRIGHT_MODULE
@@ -55,14 +55,7 @@ const bundle = await build({
   define: { "process.env.NODE_ENV": "\"production\"" },
   logLevel: "warning",
 });
-const [globalCss, referenceCss, dashboardCss] = await Promise.all([
-  "app/globals.css",
-  "app/reference-ui.css",
-  "app/dashboard.css",
-].map((file) => readFile(resolve(repoRoot, file), "utf8")));
-const styles = [globalCss, referenceCss, dashboardCss]
-  .map((css) => css.replace(/^@import[^;]+;\s*/gm, ""))
-  .join("\n");
+const { css: styles } = await readWorkspaceStylesheets();
 const html = "<!doctype html><html data-theme=\"dark\"><head>"
   + "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
   + "<style>:root { --font-geist-sans: Arial, sans-serif; }" + styles

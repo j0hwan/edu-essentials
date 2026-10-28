@@ -1,133 +1,25 @@
 "use client";
 
-import Link from "next/link";
-import CourseIcon from "./course-icon";
-import ClassCardBody from "./class-card-body";
-import CourseEditTransition, { CourseEditTransitionContext, CourseEditTransitionList } from "./course-edit-transition";
-import MeetingLocationPreview from "./meeting-location-preview";
-import { formatExpandedMeetingLocation } from "../lib/meeting-location-preview";
-import ClassMeetingWeek from "./class-meeting-week";
-import CourseImageFrame from "./course-image-frame";
-import { usePathname, useRouter } from "next/navigation";
-import { createPortal } from "react-dom";
-import {
-  AlertOctagon,
-  ArrowLeft,
-  ArrowRight,
-  BarChart3,
-  Bell,
-  BookOpen,
-  CalendarDays,
-  CheckCircle2,
-  ChevronRight,
-  ChevronLeft,
-  ChevronDown,
-  Circle,
-  Clock3,
-  Copy,
-  FileSearch,
-  FileText,
-  FlaskConical,
-  Flame,
-  FolderOpen,
-  GraduationCap,
-  House,
-  LayoutGrid,
-  List,
-  Maximize2,
-  Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
-  MoreHorizontal,
-  Pencil,
-  PieChart,
-  Plus,
-  Quote as QuoteIcon,
-  Search,
-  MessageSquare,
-  Send,
-  Save,
-  Upload,
-  Settings,
-  SlidersHorizontal,
-  StickyNote,
-  Sun,
-  Target,
-  TimerReset,
-  Trash2,
-  X,
-} from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
-import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
-import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
-import { useCourseExpansion } from "./use-course-expansion";
-import { downloadDraft, useSaveProtection } from "./use-save-protection";
-import { usePreferences } from "./use-preferences";
-import AcademicEditor from "./academic-editor";
-import ClassSetup, { type ClassSetupUploads } from "./class-setup";
-import ModalPresence from "./modal-presence";
-import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
-import TopbarSearch from "./topbar-search";
-import SyllabusReview from "./syllabus-review";
-import { SyllabusAttachment, SyllabusTextPreview, type SyllabusAttachmentValue } from "./course-syllabus";
-import { DeleteSyllabusDialog } from "./delete-syllabus-dialog";
-import { CourseSyllabusUpload } from "./course-syllabus-upload";
-import AcademicCalendar from "./academic-calendar";
-import { calendarTime } from "../lib/calendar-layout";
-import { usePrivateFiles } from "./use-private-files";
-import { useFileActivity } from "./use-file-activity";
-import { useFileUploads } from "./use-file-uploads";
-import FileUploadDialog, { type PendingFolderUpload } from "./file-upload-dialog";
-import FilesBrowser from "./files-browser";
-import {
-  DEFAULT_FILES_BROWSER_PREFERENCES,
-  FILES_BROWSER_APPEARANCE_VERSION,
-  migrateFilesBrowserPreferences,
-  type FilesBrowserPreferences,
-} from "../lib/files-browser";
-import { restoreTrashItems, type TrashUndoReceipt } from "../lib/files-trash-operations";
-import { NativeDocumentEditor } from "./native-document-editor";
-import type { NativeDocumentCreate } from "../lib/native-documents";
-import { FileEditor, FileList, FilePreview, InlineFilePreview, PrivateImage } from "./private-files";
-import ExpandedCourseImage from "./expanded-course-image";
-import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
-import StudyWidget, { studyWidgetTypes } from "./study-widgets";
-import ReorderableWidgetGrid from "./reorderable-widget-grid";
-import WidgetCustomization from "./widget-customization";
-import HomeLoadTransition from "./home-load-transition";
-import WorkspaceSaveStatus from "./workspace-save-status";
-import { HomeGreeting, type HomeSkeletonGreeting } from "./home-skeleton";
-import {
-  cacheLayoutsMatch,
-  createHomeSkeletonLayout,
-  DEFAULT_HOME_SKELETON_LAYOUT,
-  layoutsMatch,
-  readHomeSkeletonLayout,
-  writeHomeSkeletonLayout,
-  type HomeSkeletonGeometry,
-  type HomeSkeletonLayout,
-} from "../lib/home-skeleton";
-import TodaySection from "./today-section";
-import { defaultTodaySections, type TodaySectionId } from "../lib/today-sections";
-import { resolveWidgetAppearance, widgetAppearanceStyle, type WidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
-import StudyPanel from "./study-panel";
-import { useStudyStats } from "./use-study-stats";
-import { emptyStudy, settleTimer, timerAction, goalPercent, durationLabel, completedInWeek, detachStudyCourse, segmentSeconds, type StudyData, type TimerKind } from "../lib/study";
-import { academicSnapshot, validateAcademicEdit } from "../lib/academic-snapshot";
-import { dayKey, dateLabel, addDays, weekStart, assignmentStatus, legacyEventTime, emptyCourse, emptyCourseDetails, meetingOccursOn, type Course, type CourseDetails, type SyllabusDraft } from "../lib/academics";
-import { experimentalData, type ExperimentalDensity } from "../lib/experimental-data";
-import OnboardingFlow from "./onboarding-flow";
-import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
-import ProfileEditor from "./profile-editor";
-import AcademicAssistant, { type AssistantPrompt } from "./academic-assistant";
-import DashboardStudyBrief from "./dashboard-study-brief";
-import AnimatedDashboard from "./animated-dashboard";
-import { useDashboardChat } from "./use-dashboard-chat";
-import DashboardLoadTransition, { courseImageLoadKey } from "./dashboard-load-transition";
-import ClassCardExpansion from "./class-card-expansion";
-import { dashboardFocus } from "../lib/dashboard-focus";
-import SaveToast from "./save-toast";
-import type { Profile } from "../lib/profile";
+import "./location-input.css";
+import "./course-icon-picker.css";
+import "./class-setup.css";
+import "./course-syllabus.css";
+import "./course-syllabus-upload.css";
+import "./calendar.css";
+import "./local-file-preview.css";
+import "./file-upload-dialog.css";
+import "./file-organization-dialogs.css";
+import "./files-trash-dialog.css";
+import "./files-browser-tools.css";
+import "./file-archive-dialog.css";
+import "./files-card-preview.css";
+import "./files-browser.css";
+import "./native-document-editor.css";
+import "./widget-customization.css";
+import "./workspace-save-status.css";
+import "./onboarding-flow.css";
+import "./assistant.css";
+import "./class-card-expansion.css";
 import "./auth.css";
 import "./reference-ui.css";
 import "./dashboard.css";
@@ -136,37 +28,66 @@ import "./courses-skeleton.css";
 import "./widget-appearance.css";
 import "./widget-block-layout.css";
 import "./widget-reorder.css";
-import { widgetSizeOptions, type WidgetResizePriority } from "../lib/widget-layout";
-import { getWidgetKeyboardResizeSize } from "../lib/widget-resize";
-import {
-  decodeWorkspaceState,
-  encodeWorkspaceState,
-  MAX_WORKSPACES,
-  MAX_WIDGETS_PER_WORKSPACE,
-  MAX_NOTES_LENGTH,
-  type WidgetInstance,
-  type WidgetSize,
-  type WidgetType,
-  type Workspace,
-} from "../lib/workspace-codec";
+import { WorkspaceAcademicDialogs } from "./workspace-academic-dialogs";
+import { WorkspaceFileDialogs } from "./workspace-file-dialogs";
+import { WorkspaceHome, WidgetPicker, WorkspaceDialog } from "./workspace-home";
+import { defaultWorkspaces, widgetTemplates } from "./workspace-widget-catalog";
+import type { WidgetActions, WidgetBodyData } from "./workspace-widget";
+import WorkspaceFilesPage from "./workspace-files";
+import WorkspaceSettingsPage from "./workspace-settings";
+import { createWorkspaceSearchResultGroups, WorkspaceQuickSearchResults, WorkspaceSearchPage } from "./workspace-search";
+import WorkspaceDashboard from "./workspace-dashboard";
+import CourseDetail from "./course-detail";
+import AssignmentDetailDialog from "./assignment-detail-dialog";
+import { AssignmentTable, CourseStamp, StatusBadge } from "./assignment-table";
+import WorkspaceNavigation, { WorkspaceMobileHeader, WorkspaceMobileNavigation, type PageId } from "./workspace-navigation";
+import { CourseEditTransitionContext } from "./course-edit-transition";
+import { usePathname, useRouter } from "next/navigation";
+import { Bell, CheckCircle2, FlaskConical, Plus, Search, Send } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
+import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
+import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
+import { useCourseExpansion } from "./use-course-expansion";
+import { downloadDraft, useSaveProtection } from "./use-save-protection";
+import { usePreferences } from "./use-preferences";
+import type { ClassSetupUploads } from "./class-setup";
+import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
+import TopbarSearch from "./topbar-search";
+import type { SyllabusAttachmentValue } from "./course-syllabus";
+import AcademicCalendar from "./academic-calendar";
+import { usePrivateFiles } from "./use-private-files";
+import { useFileActivity } from "./use-file-activity";
+import { useFileUploads } from "./use-file-uploads";
+import type { PendingFolderUpload } from "./file-upload-dialog";
+import { DEFAULT_FILES_BROWSER_PREFERENCES, FILES_BROWSER_APPEARANCE_VERSION, migrateFilesBrowserPreferences, type FilesBrowserPreferences } from "../lib/files-browser";
+import { restoreTrashItems, type TrashUndoReceipt } from "../lib/files-trash-operations";
+import type { NativeDocumentCreate } from "../lib/native-documents";
+import { InlineFilePreview } from "./private-files";
+import { type PrivateFile, type FileMetadata } from "../lib/files";
+import WidgetCustomization from "./widget-customization";
+import HomeLoadTransition from "./home-load-transition";
+import type { HomeSkeletonGreeting } from "./home-skeleton";
+import { cacheLayoutsMatch, createHomeSkeletonLayout, DEFAULT_HOME_SKELETON_LAYOUT, layoutsMatch, readHomeSkeletonLayout, writeHomeSkeletonLayout, type HomeSkeletonGeometry, type HomeSkeletonLayout } from "../lib/home-skeleton";
+import { resolveWidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
+import StudyPanel from "./study-panel";
+import { useStudyStats } from "./use-study-stats";
+import { emptyStudy, settleTimer, timerAction, goalPercent, completedInWeek, detachStudyCourse, type StudyData, type TimerKind } from "../lib/study";
+import { academicSnapshot, validateAcademicEdit } from "../lib/academic-snapshot";
+import { dayKey, dateLabel, assignmentStatus, legacyEventTime, emptyCourse, emptyCourseDetails, type Course, type CourseDetails, type SyllabusDraft } from "../lib/academics";
+import { experimentalData, type ExperimentalDensity } from "../lib/experimental-data";
+import OnboardingFlow from "./onboarding-flow";
+import type { SavedAssignment, SavedEvent, WorkspaceData } from "../lib/workspace-codec";
+import AcademicAssistant, { type AssistantPrompt } from "./academic-assistant";
+import { useDashboardChat } from "./use-dashboard-chat";
+import { courseImageLoadKey } from "./dashboard-load-transition";
+import { dashboardFocus } from "../lib/dashboard-focus";
+import SaveToast from "./save-toast";
+import type { Profile } from "../lib/profile";
+import type { WidgetResizePriority } from "../lib/widget-layout";
+import { decodeWorkspaceState, encodeWorkspaceState, type WidgetInstance, type WidgetSize, type WidgetType, type Workspace } from "../lib/workspace-codec";
 
-type PageId = "home" | "dashboard" | "calendar" | "tasks" | "search" | "files" | "settings" | "assistant";
-type Stoplight = "overdue" | "today" | "later" | "done";
 
 type Assignment = SavedAssignment;
-
-function appearanceAttributes(appearance: WidgetAppearance) {
-  return {
-    "data-wa-icon-style": appearance.iconStyle,
-    "data-wa-show-icons": String(appearance.showIcons),
-    "data-wa-header-divider": String(appearance.headerDivider),
-    "data-wa-accent-edge": appearance.accentEdge,
-    "data-wa-hover": appearance.hover,
-    "data-wa-content-mode": appearance.contentMode,
-    "data-wa-title-align": appearance.titleAlign,
-    "data-wa-texture": appearance.texture,
-  };
-}
 
 type WorkspaceResponse = {
   initialized: boolean;
@@ -177,86 +98,12 @@ type WorkspaceResponse = {
   error?: string;
 };
 
-const navItems: { id: PageId; label: string; icon: typeof House }[] = [
-  { id: "home", label: "Home", icon: House },
-  { id: "dashboard", label: "Dashboard", icon: BookOpen },
-  { id: "calendar", label: "Calendar", icon: CalendarDays },
-  { id: "tasks", label: "Tasks", icon: CheckCircle2 },
-  { id: "files", label: "Files", icon: FolderOpen },
-  { id: "assistant", label: "Ask Edu", icon: MessageSquare },
-];
-
 const pageIds = new Set<PageId>(["home", "dashboard", "calendar", "tasks", "search", "files", "settings", "assistant"]);
 
 function pageFromPathname(pathname: string): PageId {
   const segment = pathname.split("/").filter(Boolean)[0] as PageId | undefined;
   return segment && pageIds.has(segment) ? segment : "home";
 }
-
-const widgetTemplates: { type: WidgetType; title: string; description: string; icon: typeof Target; color: string; defaultSize: WidgetSize }[] = [
-  { type: "daily-goal", title: "Daily study goal", description: "Progress ring and time remaining", icon: Target, color: "indigo", defaultSize: "medium" },
-  { type: "weekly-goal", title: "Weekly study goal", description: "Seven-day progress overview", icon: BarChart3, color: "sky", defaultSize: "medium" },
-  { type: "upcoming", title: "Upcoming assignments", description: "Your next deadlines in order", icon: List, color: "violet", defaultSize: "large" },
-  { type: "stoplight", title: "Stoplight assignments", description: "Work grouped by urgency", icon: SlidersHorizontal, color: "coral", defaultSize: "medium" },
-  { type: "red-alerts", title: "Red-light alerts", description: "Overdue and due today only", icon: AlertOctagon, color: "red", defaultSize: "medium" },
-  { type: "mini-calendar", title: "Mini calendar", description: "A compact look at your week", icon: CalendarDays, color: "blue", defaultSize: "medium" },
-  { type: "pomodoro", title: "Pomodoro timer", description: "Focused 25-minute sessions", icon: TimerReset, color: "tomato", defaultSize: "small" },
-  { type: "focus-timer", title: "Focus timer", description: "Minimal countdown for deep work", icon: Clock3, color: "navy", defaultSize: "small" },
-  { type: "task-completion", title: "Task completion", description: "Track work across all classes", icon: CheckCircle2, color: "green", defaultSize: "medium" },
-  { type: "assignment-pie", title: "Assignment pie chart", description: "Workload split by class", icon: PieChart, color: "purple", defaultSize: "medium" },
-  { type: "gpa", title: "GPA tracker", description: "Current GPA and term trend", icon: GraduationCap, color: "gold", defaultSize: "small" },
-  { type: "class-links", title: "Class quick links", description: "Jump into your courses", icon: BookOpen, color: "teal", defaultSize: "medium" },
-  { type: "notes", title: "Quick notes", description: "An editable scratchpad", icon: StickyNote, color: "yellow", defaultSize: "medium" },
-  { type: "exams", title: "Upcoming exams", description: "Countdowns for important tests", icon: FileSearch, color: "rose", defaultSize: "medium" },
-  { type: "streak", title: "Study streak", description: "Keep your momentum going", icon: Flame, color: "orange", defaultSize: "small" },
-  { type: "today", title: "Today at a glance", description: "Agenda, classes, and deadlines", icon: Sun, color: "blue", defaultSize: "large" },
-  { type: "quote", title: "Daily motivation", description: "A calm reminder to keep going", icon: QuoteIcon, color: "lilac", defaultSize: "medium" },
-  { type: "spacer", title: "Empty spacer", description: "Create breathing room in your layout", icon: Maximize2, color: "neutral", defaultSize: "small" },
-];
-
-const defaultWorkspaces: Workspace[] = [
-  {
-    id: "my-day",
-    name: "My Day",
-    widgets: [
-      { instanceId: "w1", type: "daily-goal", size: "medium" },
-      { instanceId: "w2", type: "today", size: "large" },
-      { instanceId: "w3", type: "red-alerts", size: "medium" },
-      { instanceId: "w4", type: "pomodoro", size: "small" },
-      { instanceId: "w5", type: "mini-calendar", size: "medium" },
-      { instanceId: "w6", type: "task-completion", size: "medium" },
-      { instanceId: "w7", type: "notes", size: "medium" },
-    ],
-  },
-  {
-    id: "study-mode",
-    name: "Study Mode",
-    widgets: [
-      { instanceId: "w8", type: "pomodoro", size: "medium" },
-      { instanceId: "w9", type: "upcoming", size: "large" },
-      { instanceId: "w10", type: "weekly-goal", size: "medium" },
-      { instanceId: "w11", type: "class-links", size: "medium" },
-      { instanceId: "w12", type: "quote", size: "medium" },
-    ],
-  },
-  {
-    id: "finals-week",
-    name: "Finals Week",
-    widgets: [
-      { instanceId: "w13", type: "exams", size: "medium" },
-      { instanceId: "w14", type: "stoplight", size: "large" },
-      { instanceId: "w15", type: "assignment-pie", size: "medium" },
-      { instanceId: "w16", type: "streak", size: "small" },
-    ],
-  },
-];
-
-const statusMeta: Record<Stoplight, { label: string; short: string; icon: typeof Circle }> = {
-  overdue: { label: "Overdue", short: "Past due", icon: AlertOctagon },
-  today: { label: "Due today", short: "Today", icon: Clock3 },
-  later: { label: "Due later", short: "Upcoming", icon: Circle },
-  done: { label: "Completed", short: "Done", icon: CheckCircle2 },
-};
 
 async function workspaceFetch(input: string, init?: RequestInit) {
   const signal = init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000);
@@ -277,25 +124,6 @@ function courseFor(courses: Course[], id: string) {
 function courseImageFor(files: PrivateFile[], courseId: string) {
   return files.filter((file) => file.course_id === courseId && file.kind === "class-image" && file.state === "ready" && !file.trashed_at && !file.deleted_at)
     .sort((first, second) => second.created_at.localeCompare(first.created_at))[0];
-}
-
-function StatusBadge({ status, compact = false }: { status: Stoplight; compact?: boolean }) {
-  const meta = statusMeta[status];
-  const Icon = meta.icon;
-  return (
-    <span className={`status-badge status-${status}`} aria-label={meta.label}>
-      <Icon size={compact ? 13 : 14} strokeWidth={2.4} aria-hidden="true" />
-      {!compact && <span>{meta.short}</span>}
-    </span>
-  );
-}
-
-function CourseStamp({ course, small = false }: { course: Course; small?: boolean }) {
-  return (
-    <span className={`course-stamp ${small ? "small" : ""}`} style={{ background: course.soft, color: course.color }} aria-hidden="true">
-      {course.initials}
-    </span>
-  );
 }
 
 export default function EduEssentialsApp({ initialProfile, children, filesBrowserEnabled = false }: { initialProfile: Profile; children?: React.ReactNode; filesBrowserEnabled?: boolean }) {
@@ -576,7 +404,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const handleTrashCompleted = useCallback((receipt: TrashUndoReceipt) => {
     if (fileActionSessionRef.current !== fileActionSession || receipt.profileId !== fileActionSession.profileId) return;
     setTrashUndo({ session: fileActionSession, receipt, busy: false, error: "" });
-  }, [fileActionSession]);
+  }, [fileActionSession, setTrashUndo]);
   const handleLegacyTrashed = useCallback((file: PrivateFile) => handleTrashCompleted({ profileId: fileActionSession.profileId, items: [{ type: "file", id: file.id, file }], label: file.name }), [fileActionSession, handleTrashCompleted]);
   const fileStore = usePrivateFiles(initialProfile.id);
   const courseImages = useMemo(() => new Map(courses.map((course) => [course.id, courseImageFor(fileStore.files, course.id)])), [courses, fileStore.files]);
@@ -1189,7 +1017,6 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   };
   const controlTimer = (action: "start" | "pause" | "resume" | "finish" | "reset", kind: TimerKind) => {
     // This callback runs only from StudyPanel/StudyWidget user events.
-    // eslint-disable-next-line react-hooks/purity
     try { commitStudy(timerAction(study, action, kind, Date.now(), uid("session"))); setNow(new Date()); }
     catch (error) { flash(error instanceof Error ? error.message : "Unable to update the timer."); }
   };
@@ -1302,6 +1129,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return () => window.removeEventListener("keydown", exitCustomization);
   }, [page, widgetEditingEnabled]);
 
+  const syllabusAttachmentCourse = syllabusAttachment ? courses.find((course) => course.id === syllabusAttachment.courseId) : undefined;
+  const syllabusTextCourse = syllabusTextCourseId ? courses.find((course) => course.id === syllabusTextCourseId) : undefined;
+
   if (onboardingTest) return <OnboardingFlow initialProfile={profile} preview onExit={() => {
     setOnboardingTest(false);
     window.setTimeout(() => document.querySelector<HTMLButtonElement>(".experimental-trigger")?.focus(), 0);
@@ -1312,96 +1142,16 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       <div className="mountain-backdrop" aria-hidden="true" />
 
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <aside id="workspace-sidebar" className={`sidebar ${sidebarOpen ? "open" : ""}`} aria-label="Primary navigation">
-        <div className="sidebar-scroll-region">
-        <div className="brand-row">
-          <div className="brand-copy"><strong>EduEssentials</strong></div>
-          <button className="icon-button sidebar-toggle" onClick={toggleSidebar} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} aria-controls="workspace-sidebar">{sidebarCollapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}</button>
-          <button className="icon-button sidebar-close" onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label="Close navigation"><X size={20} /></button>
-        </div>
-
-        <nav className="main-nav">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link key={item.id} href={`/${item.id}`} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={(event) => handleSidebarNavigation(event, item.id)} aria-label={item.label} title={item.label} aria-current={page === item.id ? "page" : undefined}>
-                <Icon size={19} strokeWidth={2.1} />
-                <span>{item.label}</span>
-                {item.id === "dashboard" && <span className="nav-count">{courses.length}</span>}
-              </Link>
-            );
-          })}
-          <div className="experimental-control" ref={experimentalControlRef}>
-            <button
-              ref={experimentalTriggerRef}
-              className={`nav-item experimental-trigger ${experimentalMode ? "active" : ""}`}
-              type="button"
-              aria-label="Experimental mode"
-              title="Experimental mode"
-              aria-expanded={experimentalMenuOpen}
-              aria-controls="experimental-options"
-              onClick={() => setExperimentalMenuOpen((open) => !open)}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setExperimentalMenuOpen(true);
-                }
-              }}
-            >
-              <FlaskConical size={19} strokeWidth={2.1} />
-              <span>Experimental mode</span>
-              <span className="experimental-badge">TEMP</span>
-            </button>
-          </div>
-        </nav>
-
-        <button className="nav-item syllabus-nav" disabled={!saveState.ready} onClick={newReview} aria-label="Upload syllabus" title="Upload syllabus"><Upload size={22} /><span>Upload syllabus</span></button>
-        <div className="sidebar-focus-card">
-          <div className="focus-card-top"><span><Flame size={15} /> {stats.streak} day streak</span><strong>{study.dailyMinutes ? `${dailyPercent}%` : "No target"}</strong></div>
-          <div className="tiny-progress"><span style={{ width: `${dailyPercent}%` }} /></div>
-          <p>{study.dailyMinutes ? `${durationLabel(Math.max(0, study.dailyMinutes * 60 - stats.dailySeconds))} left toward today’s target.` : "Set your study targets."}</p>
-          <button disabled={!saveState.ready} onClick={() => setStudyOpen(true)}>Study & grades <ArrowRight size={14} /></button>
-        </div>
-        </div>
-
-        <div className="sidebar-bottom">
-          <Link href="/settings" className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={(event) => handleSidebarNavigation(event, "settings")} aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
-          <Link href="/settings" className="profile-card" onClick={(event) => handleSidebarNavigation(event, "settings")} aria-label={`${studentName} — profile settings`} title={`${studentName} — profile settings`}>
-            <span className="avatar">{studentName.slice(0, 1).toUpperCase()}</span>
-            <span><strong>{studentName}</strong><small>{profileMajor || "Student workspace"}</small></span>
-            <MoreHorizontal size={18} />
-          </Link>
-        </div>
-      </aside>
-
-      {experimentalMenuOpen && appShellElement && createPortal(<div
-        ref={experimentalMenuRef}
-        className="experimental-menu"
-        id="experimental-options"
-        tabIndex={-1}
-        style={{ position: "fixed", left: 0, top: 0, visibility: "hidden" }}
-      >
-        <p>Fake preview data</p>
-        {([
-          ["clear", "Clear", "0 classes · 0 tasks"],
-          ["light", "Light", "2 classes · 6 tasks"],
-          ["medium", "Medium", "4 classes · 14 tasks"],
-          ["packed", "Packed", "6 classes · 28 tasks"],
-        ] as const).map(([value, label, detail]) => <button key={value} type="button" aria-label={`Load ${label} experimental data`} className={experimentalMode === value ? "selected" : ""} disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring} onClick={() => applyExperimentalData(value)}><span><strong>{label}</strong><small>{detail}</small></span>{experimentalMode === value && <CheckCircle2 size={15} />}</button>)}
-        <button type="button" disabled={!saveState.ready || saveState.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying} onClick={() => {
-          const current = autosave.getSnapshot();
-          if (!current.ready || current.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying) return;
-          autosave.stop();
-          setExperimentalMenuOpen(false); setSidebarOpen(false); setOnboardingTest(true);
-        }}><strong>Onboard test</strong></button>
-        {experimentalMode && <button className="experimental-exit" type="button" disabled={experimentalRestoring} onClick={exitExperimentalMode}>{experimentalRestoring ? "Restoring…" : "Exit experimental mode"}</button>}
-        <small>Your saved workspace stays untouched.</small>
-      </div>, appShellElement)}
-      {sidebarOpen && <button className="sidebar-scrim" onClick={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} aria-label="Close navigation overlay" />}
+      <WorkspaceNavigation page={page} sidebarOpen={sidebarOpen} sidebarCollapsed={sidebarCollapsed} courseCount={courses.length} studentName={studentName} profileMajor={profileMajor} streak={stats.streak} dailyMinutes={study.dailyMinutes} dailySeconds={stats.dailySeconds} dailyPercent={dailyPercent} ready={saveState.ready} dirty={saveState.dirty} profilePending={profilePending} filesBusy={fileStore.busy} aiApplying={aiApplying} experimentalMode={experimentalMode} experimentalMenuOpen={experimentalMenuOpen} experimentalRestoring={experimentalRestoring} appShellElement={appShellElement} experimentalControlRef={experimentalControlRef} experimentalTriggerRef={experimentalTriggerRef} experimentalMenuRef={experimentalMenuRef} onToggleSidebar={toggleSidebar} onCloseNavigation={() => { setSidebarOpen(false); setExperimentalMenuOpen(false); }} onNavigate={handleSidebarNavigation} onExperimentalMenuChange={setExperimentalMenuOpen} onApplyExperimentalData={applyExperimentalData} onExitExperimentalMode={exitExperimentalMode} onOnboardingTest={() => {
+        const current = autosave.getSnapshot();
+        if (!current.ready || current.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying) return;
+        autosave.stop();
+        setExperimentalMenuOpen(false); setSidebarOpen(false); setOnboardingTest(true);
+      }} onNewReview={newReview} onOpenStudy={() => setStudyOpen(true)} />
 
       <header className="desktop-topbar">
         <TopbarSearch formRef={quickSearchRef} open={quickSearchOpen && Boolean(searchQuery.trim())} reducedMotion={profile.preferences.reducedMotion}
-          results={quickSearchOpen && searchQuery.trim() ? renderQuickSearch() : null}
+          results={quickSearchOpen && searchQuery.trim() ? <WorkspaceQuickSearchResults groups={searchResultGroups()} onSelect={(item) => { setQuickSearchOpen(false); item.action(); }} /> : null}
           onSubmit={(event) => { event.preventDefault(); navigate("search"); }}
           onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setQuickSearchOpen(false); }}>
           <Search size={20} aria-hidden="true" />
@@ -1430,11 +1180,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       </header>
 
       <main id="main-content" className="main-content">
-        <header className="mobile-header">
-          <button className="icon-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={22} /></button>
-          <span className="mobile-brand"><span className="brand-mark small"><BookOpen size={16} /></span> EduEssentials</span>
-          <button className="icon-button" aria-label="Notifications" onClick={() => flash(overdueAssignments.length ? `${overdueAssignments.length} overdue tasks — check Tasks for details` : "You’re all caught up")}><Bell size={20} /></button>
-        </header>
+        <WorkspaceMobileHeader onOpenNavigation={() => setSidebarOpen(true)} onNotifications={() => flash(overdueAssignments.length ? `${overdueAssignments.length} overdue tasks — check Tasks for details` : "You’re all caught up")} />
 
         {experimentalMode && <div className="experimental-banner" role="status">
           <FlaskConical size={17} />
@@ -1464,70 +1210,236 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         ) : (
           <section className="workspace-loading"><h1>Your workspace could not be loaded</h1><p>Your saved work will be available here when the connection is restored.</p></section>
         ))}
-        {page === "dashboard" && (saveState.ready || persistenceStatus === "loading") && <DashboardLoadTransition
-          key={`dashboard-load-${reloadAttempt}-${initialProfile.id}`}
-          ready={saveState.ready && profile.id === initialProfile.id}
-          imagesListed={Boolean(selectedClass) || dashboardView !== "cards" || courses.length === 0 || !fileStore.loading || Boolean(fileStore.error)}
-          imageKeys={!selectedClass && dashboardView === "cards" ? [...courseImages.values()].filter((file): file is PrivateFile => Boolean(file)).map(courseImageLoadKey) : []}
-          reducedMotion={profile.preferences.reducedMotion}
-        >{(onImageSettled, imagesPending) => renderDashboard(onImageSettled, imagesPending)}</DashboardLoadTransition>}
-        {saveState.ready && page === "tasks" && <div className="page">{renderPageHeader("Your coursework", "Tasks", "All your assignments, across every course.", <button className="primary-button" onClick={newAssignment}><Plus size={16} /> Add assignment</button>)}{renderAssignmentTable(assignments)}</div>}
+        {page === "dashboard" && (saveState.ready || persistenceStatus === "loading") && <WorkspaceDashboard
+  loadKey={`dashboard-load-${reloadAttempt}-${initialProfile.id}`}
+  ready={saveState.ready && profile.id === initialProfile.id}
+  imagesListed={Boolean(selectedClass) || dashboardView !== "cards" || courses.length === 0 || !fileStore.loading || Boolean(fileStore.error)}
+  imageKeys={!selectedClass && dashboardView === "cards" ? [...courseImages.values()].filter((file): file is PrivateFile => Boolean(file)).map(courseImageLoadKey) : []}
+  reducedMotion={profile.preferences.reducedMotion}
+  reflowKey={String(sidebarCollapsed)}
+  skipOpeningAnimation={skipOpeningAnimation}
+  profileId={initialProfile.id}
+  filesReady={!fileStore.loading && !fileStore.error}
+  cacheEnabled={page === "dashboard" && !experimentalMode && !onboardingTest}
+  courses={courses}
+  assignments={assignments}
+  courseDetails={extraData.courseDetails}
+  courseImages={courseImages}
+  store={fileStore}
+  focusAssignments={dashboardFocus(assignments)}
+  overdueCount={overdueAssignments.length}
+  dueTodayCount={todayAssignments.length}
+  completedThisWeek={weeklyCompleted}
+  dashboardView={dashboardView}
+  selectedCourseId={selectedClass?.id}
+  getCourse={(courseId) => courseFor(courses, courseId)}
+  chatMessages={dashboardChat.messages}
+  chatBusy={dashboardChat.busy}
+  onSelectAssignment={setSelectedAssignment}
+  onSelectCourse={setSelectedClass}
+  onAddAssignment={newAssignment}
+  onAddClass={() => setAddClassOpen(true)}
+  onOpenAssistant={(question, conversationId, proposalId) => {
+    if (nativeDocumentDialog) { navigate("assistant"); return; }
+    setAssistantPrompt(question?.trim() || conversationId || proposalId ? { id: uid("assistant-prompt"), profileId: initialProfile.id, question: question?.trim() ?? "", send: false, conversationId, proposalId } : null);
+    navigate("assistant");
+  }}
+  onAskAssistant={(question) => dashboardChat.send(question)}
+  onContinueAssistant={(question, conversationId) => {
+    if (nativeDocumentDialog) return false;
+    setAssistantPrompt({ id: uid("assistant-prompt"), profileId: initialProfile.id, question, send: true, conversationId });
+    navigate("assistant");
+  }}
+  onToggleView={() => setDashboardView((current) => current === "cards" ? "list" : "cards")}
+  onShowAllAssignments={() => setDashboardView("list")}
+/>}
+        {saveState.ready && page === "tasks" && <div className="page">{renderPageHeader("Your coursework", "Tasks", "All your assignments, across every course.", <button className="primary-button" onClick={newAssignment}><Plus size={16} /> Add assignment</button>)}<AssignmentTable items={assignments} courseFor={(courseId) => courseFor(courses, courseId)} onSelectAssignment={setSelectedAssignment} /></div>}
         {saveState.ready && page === "calendar" && renderCalendar()}
-        {saveState.ready && page === "search" && renderSearch()}
+        {saveState.ready && page === "search" && <WorkspaceSearchPage groups={searchResultGroups()} query={searchQuery} onQueryChange={setSearchQuery} header={renderPageHeader("Find anything", "Search your workspace", "Search saved text, file names, events, classes, grades, and study history. PDF/image contents are not indexed.")} />}
         {(saveState.ready || organizationState) && (page === "files" || organizationState) && <div hidden={page !== "files"}>{renderFiles()}</div>}
         {page === "assistant" && <AcademicAssistant key={initialProfile.id} profileId={initialProfile.id} prepare={prepareAssistant} apply={applyAssistant} experimental={!!experimentalMode} initialPrompt={assistantPrompt?.profileId === initialProfile.id ? assistantPrompt : null} onPromptConsumed={(id) => setAssistantPrompt((current) => current?.id === id ? null : current)} />}
         {saveState.ready && <div key={reloadAttempt} hidden={page !== "settings"}>{renderSettings()}</div>}
       </main>
 
-      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
-        {navItems.slice(0, 4).map((item) => {
-          const Icon = item.icon;
-          return <Link key={item.id} href={`/${item.id}`} className={page === item.id ? "active" : ""} aria-current={page === item.id ? "page" : undefined}><Icon size={19} /><span>{item.label}</span></Link>;
-        })}
-        <Link href="/settings" className={page === "settings" ? "active" : ""} aria-current={page === "settings" ? "page" : undefined}><Settings size={19} /><span>Settings</span></Link>
-      </nav>
+      <WorkspaceMobileNavigation page={page} />
 
       {children}
       {aiApplying && <div className="assistant-apply-overlay" role="status">Applying your reviewed changes…</div>}
       {studyOpen && <StudyPanel data={study} courses={courses} system={activeGpaSystem} term={activeTerm} studyGoal={profile.study_goal} timezone={profile.timezone} now={now.getTime()} onChange={commitStudy} onTimer={controlTimer} onClose={() => setStudyOpen(false)} />}
-      {widgetPickerOpen && renderWidgetPicker()}
+      {widgetPickerOpen && <WidgetPicker
+  activeWorkspace={activeWorkspace}
+  search={widgetSearch}
+  onSearchChange={setWidgetSearch}
+  onAdd={addWidget}
+  onCloseAndResetSearch={() => { setWidgetPickerOpen(false); setWidgetSearch(""); }}
+  onDone={() => setWidgetPickerOpen(false)}
+/>}
       {appearanceOpen && <WidgetCustomization value={extraData.widgetAppearance} widgets={activeWorkspace.widgets.map((widget) => ({ instanceId: widget.instanceId, title: widgetTemplates.find((template) => template.type === widget.type)!.title, size: widget.size, startsNewMiniBlock: widget.startsNewMiniBlock }))} onClose={closeAppearance} onApply={(next) => {
         if (aiApplying || !saveState.ready || !commitAcademic(courses, { widgetAppearance: next })) return false;
         setAppearanceOpen(false); flash(experimentalMode ? "Appearance preview updated — nothing saved to your account" : "Widget appearance applied"); return true;
       }} />}
-      {workspaceDialog && renderWorkspaceDialog()}
-      {selectedClass && <CourseEditTransitionContext.Provider value={Boolean(classSetup)}>{renderClassDetail(selectedClass)}</CourseEditTransitionContext.Provider>}
-      {selectedAssignment && renderAssignmentDetail(selectedAssignment)}
-      <ModalPresence key={`class-choice:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`} animateExit={!classSetup && !syllabusDraft && !profilePending && !experimentalRestoring}>{addClassOpen ? renderAddClassDialog() : null}</ModalPresence>
-      <ModalPresence key={`class-setup:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`} animateExit={!profilePending && !experimentalRestoring}>{renderClassSetup()}</ModalPresence>
-      {editor && <AcademicEditor key={(editor.course ?? editor.assignment ?? editor.event)!.id} initial={editor} courses={courses} today={today} onApply={applyEditor} onClose={() => setEditor(null)} onDelete={editor.course && courses.some((c) => c.id === editor.course!.id) ? () => removeClass(editor.course!) : editor.assignment && storedAssignments.some((a) => a.id === editor.assignment!.id) ? () => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== editor.assignment!.id) })) setEditor(null); } } : editor.event && manualEvents.some((e) => e.id === editor.event!.id) ? () => { if (window.confirm("Delete this event?")) { if (commitAcademic(courses, { manualEvents: manualEvents.filter((e) => e.id !== editor.event!.id) })) setEditor(null); } } : undefined} />}
-      <ModalPresence key={`syllabus-review:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`} animateExit={!profilePending && !experimentalRestoring}>{syllabusDraft ? <SyllabusReview key={syllabusDraft.id} draft={syllabusDraft} onUpload={() => setFileDialog({ defaults: { kind: "syllabus" }, reviewId: syllabusDraft.id })} onFile={() => { const file = fileStore.files.find((f) => f.id === syllabusDraft.sourceFileId); if (file) { setSyllabusPreviewFileId(file.id); setFilePreview(file); } else flash("Refresh Files to load this saved source."); }} onChange={setSyllabusDraft} onApprove={() => approveReview(syllabusDraft)} onClose={() => { if (window.confirm("Discard this unsaved syllabus review? Reviews are not saved for later.")) setSyllabusDraft(null); }} onDelete={() => { if (window.confirm("Discard this syllabus review and its source text?")) setSyllabusDraft(null); }} /> : null}</ModalPresence>
-      {syllabusAttachment && courses.filter((course) => course.id === syllabusAttachment.courseId).map((course) => syllabusAttachment.simple ? syllabusAttachment.session === fileActionSession && <CourseSyllabusUpload key={`${initialProfile.id}:${fileActionSession.generation}:${course.id}`} session={fileActionSession} course={course} store={fileStore} canWrite={!experimentalMode && saveState.ready && !profilePending && !undoBusy && !organizationState && !nativeDocumentDialog} onSave={(value) => { if (fileActionSessionRef.current !== syllabusAttachment.session) return Promise.reject(new Error("The account session changed. Reopen the syllabus import.")); return saveCourseSyllabus(course.id, value); }} onClose={() => setSyllabusAttachment(null)} /> : <SyllabusAttachment key={course.id} courseId={course.id} course={course} details={extraData.courseDetails[course.id] ?? emptyCourseDetails()} folderId={syllabusAttachment.folderId} store={fileStore} canWrite={canWriteFiles} onSave={(value) => saveCourseSyllabus(course.id, value)} onClose={() => setSyllabusAttachment(null)} />)}
-      {currentSyllabusDeletion && <DeleteSyllabusDialog key={`${initialProfile.id}:${fileActionSession.generation}:${currentSyllabusDeletion.courseId}`} profileId={initialProfile.id} file={currentSyllabusDeletion.file} fileId={currentSyllabusDeletion.fileId} canWrite={!experimentalMode && saveState.ready && !profilePending && !undoBusy && !organizationState && !nativeDocumentDialog} onDetach={() => saveCourseSyllabus(currentSyllabusDeletion.courseId, { syllabusText: "", syllabusName: "" }, true)} onRefresh={async (signal) => { await refreshFiles(signal, true); if (!signal.aborted) setFilesDataRevision((revision) => revision + 1); }} onDeleted={() => { setSyllabusDeletion(null); flash("Syllabus deleted"); }} onClose={() => setSyllabusDeletion(null)} />}
-      {syllabusTextCourseId && courses.filter((course) => course.id === syllabusTextCourseId).map((course) => <SyllabusTextPreview key={course.id} course={course} text={extraData.courseDetails[course.id]?.syllabusText ?? ""} name={extraData.courseDetails[course.id]?.syllabusName ?? course.code + " syllabus"} onClose={() => setSyllabusTextCourseId(null)} />)}
-      {nativeDocumentDialog && <NativeDocumentEditor key={nativeDocumentDialog.file?.id ?? nativeDocumentDialog.create!.id} profileId={initialProfile.id} file={nativeDocumentDialog.file} create={nativeDocumentDialog.create} canWrite={!nativeDocumentDialog.readOnly && !experimentalMode && saveState.ready && !profilePending} onSaved={handleNativeDocumentSaved} onClose={closeNativeDocument} onDraftChange={handleNativeDocumentDraft} />}
-      {fileDialog && <FileEditor key={fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file"} store={fileStore} courses={courses} assignments={assignments} initial={fileDialog.initial} defaults={fileDialog.defaults} canWrite={canWriteFiles} onClose={() => setFileDialog(null)} onSaved={(file) => { if (fileDialog.initial?.state === "ready") handleFileOpened(file); if (fileDialog.reviewId) setSyllabusDraft((current) => current && current.id === fileDialog.reviewId ? { ...current, sourceFileId: file.id, sourceName: file.name } : current); }} />}
-      {filePreview && <FilePreview key={`${initialProfile.id}-${fileActionSession.generation}-${filePreview.id}`} file={fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview} store={fileStore} onOpened={handleFileOpened} onClose={() => { setFilePreview(null); setFilePreviewReadOnly(false); setSyllabusPreviewFileId(null); }} canWrite={canWriteFiles && !filePreviewReadOnly} onEdit={() => { setFileDialog({ initial: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview }); setFilePreview(null); setSyllabusPreviewFileId(null); }} onReview={syllabusPreviewFileId === filePreview.id ? undefined : (file, text) => { createReview(file, text); setFilePreview(null); }} />}
-      {uploadDialog && <FileUploadDialog
-        key={`${uploadDialog.profileId}:${uploadDialog.generation}:${uploadDialog.mode ?? "files"}`}
-        queue={fileUploads}
-        currentProfileId={initialProfile.id}
-        currentSessionGeneration={fileActionSession.generation}
-        defaults={uploadDialog}
-        initialFiles={uploadDialog.initialFiles}
-        confirmUploads={pendingUploadConfirmationPreference?.profileId === initialProfile.id && pendingUploadConfirmationPreference.generation === fileActionSession.generation ? pendingUploadConfirmationPreference.confirmUploads || pendingUploadConfirmationPreference.previousConfirmUploads : extraData.filePreferences.confirmUploads !== false}
-        onConfirmUploadsChange={(confirmUploads) => {
+      {workspaceDialog && <WorkspaceDialog
+  mode={workspaceDialog}
+  nameDraft={workspaceNameDraft}
+  onNameDraftChange={setWorkspaceNameDraft}
+  onClose={() => setWorkspaceDialog(null)}
+  onSubmit={() => workspaceDialog === "new" ? createWorkspace() : renameWorkspace()}
+/>}
+      {selectedClass && <CourseEditTransitionContext.Provider value={Boolean(classSetup)}><CourseDetail
+  course={selectedClass}
+  assignments={assignments}
+  details={extraData.courseDetails[selectedClass.id] ?? emptyCourseDetails()}
+  image={courseImages.get(selectedClass.id)}
+  profileId={initialProfile.id}
+  sessionGeneration={fileActionSession.generation}
+  today={today}
+  store={fileStore}
+  filesReady={!fileStore.loading && !fileStore.error}
+  restored={skipOpeningAnimation}
+  cacheEnabled={page === "dashboard" && !experimentalMode && !onboardingTest}
+  skipOpeningAnimation={skipOpeningAnimation}
+  suspended={!!(classSetup || selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || currentSyllabusDeletion || studyOpen || editor || syllabusDraft)}
+  closeControlRef={closeExpandedClassRef}
+  canWriteFiles={canWriteFiles}
+  profilePending={profilePending}
+  getCourse={(courseId) => courseFor(courses, courseId)}
+  onCloseStart={clearSavedCourse}
+  onClose={() => setSelectedClass(null)}
+  onSelectAssignment={setSelectedAssignment}
+  onAddAssignment={(course) => {
+    setSelectedClass(null);
+    setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } });
+  }}
+  onEditCourse={(course, details) => setClassSetup({ course, details, editing: true, profileId: profile.id, generation: workspaceLoadGeneration.current })}
+  onViewSchedule={(courseId) => { setCalendarFilter(courseId); navigate("calendar"); }}
+  onImportSyllabus={(course) => setSyllabusAttachment({ courseId: course.id, folderId: null, simple: true, session: fileActionSession })}
+  onDeleteSyllabus={(course, details) => setSyllabusDeletion({ session: fileActionSession, courseId: course.id, fileId: details.syllabusFileId, file: fileStore.files.find((item) => item.id === details.syllabusFileId) })}
+/></CourseEditTransitionContext.Provider>}
+      {selectedAssignment && <AssignmentDetailDialog
+  assignment={selectedAssignment}
+  storedAssignments={storedAssignments}
+  today={today}
+  courseFor={(courseId) => courseFor(courses, courseId)}
+  store={fileStore}
+  canWriteFiles={canWriteFiles}
+  onClose={() => setSelectedAssignment(null)}
+  onAttachFile={(current) => setFileDialog({ defaults: { courseId: current.courseId, assignmentId: current.id, kind: "attachment" } })}
+  onOpenFile={setFilePreview}
+  onEditFile={(initial) => setFileDialog({ initial })}
+  onFileTrashed={handleLegacyTrashed}
+  onEditAssignment={(current) => { setEditor({ assignment: current }); setSelectedAssignment(null); }}
+  onToggleComplete={toggleAssignmentComplete}
+  onDeleteAssignment={(current) => {
+    if (commitAcademic(courses, { assignments: storedAssignments.filter((item) => item.id !== current.id) })) setSelectedAssignment(null);
+  }}
+/>}
+      <WorkspaceAcademicDialogs
+        classChoicePresence={{ key: `class-choice:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`, animateExit: !classSetup && !syllabusDraft && !profilePending && !experimentalRestoring }}
+        classChoice={addClassOpen ? { choiceRef: addClassChoiceRef, onClose: () => setAddClassOpen(false), onImportSyllabus: newReview, onManualEntry: () => transitionClassChoice((initialBounds) => { setClassSetup({ course: emptyCourse(uid("course")), profileId: profile.id, generation: workspaceLoadGeneration.current, initialBounds }); setAddClassOpen(false); }) } : undefined}
+        classSetupPresence={{ key: `class-setup:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`, animateExit: !profilePending && !experimentalRestoring }}
+        classSetup={classSetupDialog()}
+        academicEditor={editor ? { key: (editor.course ?? editor.assignment ?? editor.event)!.id, props: {
+          initial: editor,
+          courses: courses,
+          today: today,
+          onApply: applyEditor,
+          onClose: () => setEditor(null),
+          onDelete: editor.course && courses.some((c) => c.id === editor.course!.id) ? () => removeClass(editor.course!) : editor.assignment && storedAssignments.some((a) => a.id === editor.assignment!.id) ? () => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== editor.assignment!.id) })) setEditor(null); } } : editor.event && manualEvents.some((e) => e.id === editor.event!.id) ? () => { if (window.confirm("Delete this event?")) { if (commitAcademic(courses, { manualEvents: manualEvents.filter((e) => e.id !== editor.event!.id) })) setEditor(null); } } : undefined
+        } } : undefined}
+        syllabusReviewPresence={{ key: `syllabus-review:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`, animateExit: !profilePending && !experimentalRestoring }}
+        syllabusReview={syllabusDraft ? { key: syllabusDraft.id, props: {
+          draft: syllabusDraft,
+          onUpload: () => setFileDialog({ defaults: { kind: "syllabus" }, reviewId: syllabusDraft.id }),
+          onFile: () => { const file = fileStore.files.find((f) => f.id === syllabusDraft.sourceFileId); if (file) { setSyllabusPreviewFileId(file.id); setFilePreview(file); } else flash("Refresh Files to load this saved source."); },
+          onChange: setSyllabusDraft,
+          onApprove: () => approveReview(syllabusDraft),
+          onClose: () => { if (window.confirm("Discard this unsaved syllabus review? Reviews are not saved for later.")) setSyllabusDraft(null); },
+          onDelete: () => { if (window.confirm("Discard this syllabus review and its source text?")) setSyllabusDraft(null); }
+        } } : undefined}
+        courseSyllabusUpload={syllabusAttachment && syllabusAttachmentCourse && syllabusAttachment.simple && syllabusAttachment.session === fileActionSession ? { key: `${initialProfile.id}:${fileActionSession.generation}:${syllabusAttachmentCourse.id}`, props: {
+          session: fileActionSession,
+          course: syllabusAttachmentCourse,
+          store: fileStore,
+          canWrite: !experimentalMode && saveState.ready && !profilePending && !undoBusy && !organizationState && !nativeDocumentDialog,
+          onSave: (value) => { if (fileActionSessionRef.current !== syllabusAttachment.session) return Promise.reject(new Error("The account session changed. Reopen the syllabus import.")); return saveCourseSyllabus(syllabusAttachmentCourse.id, value); },
+          onClose: () => setSyllabusAttachment(null)
+        } } : undefined}
+        syllabusAttachment={syllabusAttachment && syllabusAttachmentCourse && !syllabusAttachment.simple ? { key: syllabusAttachmentCourse.id, props: {
+          courseId: syllabusAttachmentCourse.id,
+          course: syllabusAttachmentCourse,
+          details: extraData.courseDetails[syllabusAttachmentCourse.id] ?? emptyCourseDetails(),
+          folderId: syllabusAttachment.folderId,
+          store: fileStore,
+          canWrite: canWriteFiles,
+          onSave: (value) => saveCourseSyllabus(syllabusAttachmentCourse.id, value),
+          onClose: () => setSyllabusAttachment(null)
+        } } : undefined}
+        deleteSyllabus={currentSyllabusDeletion ? { key: `${initialProfile.id}:${fileActionSession.generation}:${currentSyllabusDeletion.courseId}`, props: {
+          profileId: initialProfile.id,
+          file: currentSyllabusDeletion.file,
+          fileId: currentSyllabusDeletion.fileId,
+          canWrite: !experimentalMode && saveState.ready && !profilePending && !undoBusy && !organizationState && !nativeDocumentDialog,
+          onDetach: () => saveCourseSyllabus(currentSyllabusDeletion.courseId, { syllabusText: "", syllabusName: "" }, true),
+          onRefresh: async (signal) => { await refreshFiles(signal, true); if (!signal.aborted) setFilesDataRevision((revision) => revision + 1); },
+          onDeleted: () => { setSyllabusDeletion(null); flash("Syllabus deleted"); },
+          onClose: () => setSyllabusDeletion(null)
+        } } : undefined}
+        syllabusTextPreview={syllabusTextCourse ? { key: syllabusTextCourse.id, props: {
+          course: syllabusTextCourse,
+          text: extraData.courseDetails[syllabusTextCourse.id]?.syllabusText ?? "",
+          name: extraData.courseDetails[syllabusTextCourse.id]?.syllabusName ?? syllabusTextCourse.code + " syllabus",
+          onClose: () => setSyllabusTextCourseId(null)
+        } } : undefined}
+      />
+      <WorkspaceFileDialogs
+        nativeDocument={nativeDocumentDialog ? { key: nativeDocumentDialog.file?.id ?? nativeDocumentDialog.create!.id, props: {
+          profileId: initialProfile.id,
+          file: nativeDocumentDialog.file,
+          create: nativeDocumentDialog.create,
+          canWrite: !nativeDocumentDialog.readOnly && !experimentalMode && saveState.ready && !profilePending,
+          onSaved: handleNativeDocumentSaved,
+          onClose: closeNativeDocument,
+          onDraftChange: handleNativeDocumentDraft
+        } } : undefined}
+        fileEditor={fileDialog ? { key: fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file", props: {
+          store: fileStore,
+          courses: courses,
+          assignments: assignments,
+          initial: fileDialog.initial,
+          defaults: fileDialog.defaults,
+          canWrite: canWriteFiles,
+          onClose: () => setFileDialog(null),
+          onSaved: (file) => { if (fileDialog.initial?.state === "ready") handleFileOpened(file); if (fileDialog.reviewId) setSyllabusDraft((current) => current && current.id === fileDialog.reviewId ? { ...current, sourceFileId: file.id, sourceName: file.name } : current); }
+        } } : undefined}
+        filePreview={filePreview ? { key: `${initialProfile.id}-${fileActionSession.generation}-${filePreview.id}`, props: {
+          file: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview,
+          store: fileStore,
+          onOpened: handleFileOpened,
+          onClose: () => { setFilePreview(null); setFilePreviewReadOnly(false); setSyllabusPreviewFileId(null); },
+          canWrite: canWriteFiles && !filePreviewReadOnly,
+          onEdit: () => { setFileDialog({ initial: fileStore.files.find((f) => f.id === filePreview.id) ?? filePreview }); setFilePreview(null); setSyllabusPreviewFileId(null); },
+          onReview: syllabusPreviewFileId === filePreview.id ? undefined : (file, text) => { createReview(file, text); setFilePreview(null); }
+        } } : undefined}
+        fileUpload={uploadDialog ? { key: `${uploadDialog.profileId}:${uploadDialog.generation}:${uploadDialog.mode ?? "files"}`, props: {
+          queue: fileUploads,
+          currentProfileId: initialProfile.id,
+          currentSessionGeneration: fileActionSession.generation,
+          defaults: uploadDialog,
+          initialFiles: uploadDialog.initialFiles,
+          confirmUploads: pendingUploadConfirmationPreference?.profileId === initialProfile.id && pendingUploadConfirmationPreference.generation === fileActionSession.generation ? pendingUploadConfirmationPreference.confirmUploads || pendingUploadConfirmationPreference.previousConfirmUploads : extraData.filePreferences.confirmUploads !== false,
+          onConfirmUploadsChange: (confirmUploads) => {
           if (uploadDialog.profileId !== initialProfile.id || uploadDialog.generation !== fileActionSession.generation || !canWriteFiles || profilePending || organizationState || nativeDocumentDialog) return;
           setPendingUploadConfirmationPreference({ profileId: initialProfile.id, generation: fileActionSession.generation, confirmUploads, previousConfirmUploads: extraData.filePreferences.confirmUploads !== false, phase: "queued" });
-        }}
-        mode={pendingFolderUpload ? "folder" : uploadDialog.mode}
-        courses={courses}
-        changeToken={fileStore.files}
-        folderUpload={pendingFolderUpload}
-        onFolderUploadChange={setPendingFolderUpload}
-        canWrite={uploadDialog.profileId === initialProfile.id && canWriteFiles && !profilePending && !organizationState && !nativeDocumentDialog}
-        onClose={() => setUploadDialog(null)}
-      />}
+        },
+          mode: pendingFolderUpload ? "folder" : uploadDialog.mode,
+          courses: courses,
+          changeToken: fileStore.files,
+          folderUpload: pendingFolderUpload,
+          onFolderUploadChange: setPendingFolderUpload,
+          canWrite: uploadDialog.profileId === initialProfile.id && canWriteFiles && !profilePending && !organizationState && !nativeDocumentDialog,
+          onClose: () => setUploadDialog(null)
+        } } : undefined}
+      />
       <div className="toast-stack">
         <SaveToast active={(fileUploads.rows.length > 0 || !!pendingFolderUpload) && !uploadDialog} title={pendingFolderUpload ? "Folder upload needs attention" : fileUploads.busy ? "Uploading files…" : fileUploads.dirty ? "Uploads need attention" : "Uploads complete"} message={pendingFolderUpload ? "Your selected folder and created folder IDs are retained for retry." : "Review individual results or retry retained selections."} loading={fileUploads.busy || pendingFolderUpload?.status === "creating"}>
           <button type="button" onClick={() => setUploadDialog({ profileId: pendingFolderUpload?.profileId ?? initialProfile.id, folderId: pendingFolderUpload?.folderId ?? null, courseId: pendingFolderUpload?.courseId ?? "", generation: pendingFolderUpload?.sessionGeneration ?? fileActionSession.generation, mode: pendingFolderUpload ? "folder" : "files" })}>Review uploads</button>
@@ -1579,436 +1491,167 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }
 
   function renderHome() {
-    const featuredAssignments = assignments.filter((a) => a.dateKey === today && a.status !== "done");
-    const nextClass = courses.flatMap((course) => (extraData.courseDetails[course.id]?.meetings ?? []).filter((meeting) => meetingOccursOn(meeting, today) && meeting.end > localTime).map((meeting) => ({ course, meeting }))).sort((a, b) => a.meeting.start.localeCompare(b.meeting.start))[0];
-    const timeLabel = (time: string) => /^\d{2}:\d{2}$/.test(time) ? `${Number(time.slice(0, 2)) % 12 || 12}:${time.slice(3)} ${Number(time.slice(0, 2)) >= 12 ? "PM" : "AM"}` : time;
-    const schedule = manualEvents.filter((event) => event.dateKey === today).sort((a, b) => a.time.localeCompare(b.time)).map((event) => {
-      const course = courseFor(courses, event.courseId);
-      return {
-        time: event.time || "All day",
-        title: event.title,
-        detail: course.code === "Personal" ? event.type : course.code,
-        color: course.color,
-        onOpen: () => setEditor({ event }),
-      };
-    });
-    for (const course of courses) for (const meeting of extraData.courseDetails[course.id]?.meetings ?? []) {
-      if (meetingOccursOn(meeting, today)) schedule.push({ time: meeting.start, title: course.name, detail: meeting.location || course.room, color: course.color, onOpen: () => setSelectedClass(course) });
-    }
-    schedule.sort((a, b) => a.time.localeCompare(b.time));
-    const futureAssignments = assignments.filter((assignment) => assignment.dateKey > today && assignment.status !== "done").slice(0, 3);
-
-    const renderTodaySection = (sectionId: TodaySectionId) => {
-      switch (sectionId) {
-        case "next-class":
-          return (
-            <section key={sectionId} className="today-panel-section today-next-class" aria-labelledby="next-class-title">
-              <div className="today-section-heading"><span className="today-heading-icon"><GraduationCap /></span><h2 id="next-class-title">Next Class</h2></div>
-              <div className="next-class-content">{nextClass ? <button onClick={() => setSelectedClass(nextClass.course)}><div className="next-class-title"><strong>{nextClass.course.name}</strong><small>{nextClass.meeting.start <= localTime ? "Now" : "Today"}</small></div><p>{timeLabel(nextClass.meeting.start)} | {nextClass.course.code} · {nextClass.meeting.location || nextClass.course.room}</p></button> : <><strong>No more classes today</strong><p>Enjoy a little breathing room.</p></>}</div>
-            </section>
-          );
-        case "due-today":
-          return (
-            <section key={sectionId} className="today-panel-section" aria-labelledby="today-tasks-title">
-              <div className="today-section-heading"><span className="today-heading-icon"><FileText /></span><h2 id="today-tasks-title">Due Today ({featuredAssignments.length})</h2></div>
-              <div className="today-task-list">
-                {featuredAssignments.length === 0 && <p className="today-empty">Nothing due today.</p>}
-                {featuredAssignments.slice(0, 2).map((assignment) => {
-                  const course = courseFor(courses, assignment.courseId);
-                  return (
-                    <button key={assignment.id} className="today-task-row" onClick={() => setSelectedAssignment(assignment)}>
-                      <span className="task-circle" aria-hidden="true" />
-                      <span className="today-task-copy"><strong>{assignment.title}</strong><small>{course.name}</small></span>
-                      <ChevronRight size={16} aria-hidden="true" />
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        case "schedule":
-          return (
-            <section key={sectionId} className="today-panel-section today-schedule" aria-labelledby="today-schedule-title">
-              <div className="today-section-heading"><span className="today-heading-icon"><CalendarDays /></span><h2 id="today-schedule-title">Today’s Schedule</h2></div>
-              <div className="today-schedule-list">
-                {schedule.length === 0 && <p className="today-empty">No events yet. Your schedule will appear here.</p>}
-                {schedule.slice(0, 3).map((item) => (
-                  <button key={`${item.time}-${item.title}`} className="today-schedule-row" onClick={item.onOpen}>
-                    <time>{timeLabel(item.time)}</time>
-                    <span className="today-schedule-copy"><span><i style={{ background: item.color }} aria-hidden="true" />{item.title}</span></span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          );
-        case "study-goal":
-          return (
-            <section key={sectionId} className="today-panel-section" aria-labelledby="today-study-goal-title">
-              <div className="today-section-heading"><span className="today-heading-icon"><Target /></span><h2 id="today-study-goal-title">Study Goal</h2></div>
-              <div className="today-metric-content">
-                {study.dailyMinutes > 0 ? <>
-                  <div className="today-goal-summary"><strong>{dailyPercent}%</strong><span>{durationLabel(stats.dailySeconds)} of {durationLabel(study.dailyMinutes * 60)}</span></div>
-                  <div className="today-goal-track" role="progressbar" aria-label="Daily study goal progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={dailyPercent}><span style={{ width: `${dailyPercent}%` }} /></div>
-                  <p>{dailyPercent >= 100 ? "Today’s study goal is complete." : `${durationLabel(Math.max(0, study.dailyMinutes * 60 - stats.dailySeconds))} left toward today’s target.`}</p>
-                  <button type="button" className="today-inline-action" onClick={() => setStudyOpen(true)}>Study details <ArrowRight size={14} /></button>
-                </> : <>
-                  <p className="today-empty">No daily study goal is set yet.</p>
-                  <button type="button" className="today-inline-action" onClick={() => setStudyOpen(true)}>Set a study goal <ArrowRight size={14} /></button>
-                </>}
-              </div>
-            </section>
-          );
-        case "upcoming-deadlines":
-          return (
-            <section key={sectionId} className="today-panel-section" aria-labelledby="today-upcoming-title">
-              <div className="today-section-heading"><span className="today-heading-icon"><FileSearch /></span><h2 id="today-upcoming-title">Upcoming Deadlines</h2></div>
-              {futureAssignments.length ? <div className="today-task-list">
-                {futureAssignments.map((assignment) => {
-                  const course = courseFor(courses, assignment.courseId);
-                  return (
-                    <button key={assignment.id} className="today-task-row" onClick={() => setSelectedAssignment(assignment)}>
-                      <span className="task-circle" aria-hidden="true" />
-                      <span className="today-task-copy"><strong>{assignment.title}</strong><small>{course.name} · {dateLabel(assignment.dateKey, { month: "short", day: "numeric" })}</small></span>
-                      <ChevronRight size={16} aria-hidden="true" />
-                    </button>
-                  );
-                })}
-              </div> : <div className="today-metric-content"><p className="today-empty">No future deadlines are scheduled.</p><button type="button" className="today-inline-action" onClick={() => navigate("tasks")}>View assignments <ArrowRight size={14} /></button></div>}
-            </section>
-          );
-        case "study-streak":
-          return (
-            <section key={sectionId} className="today-panel-section" aria-labelledby="today-streak-title">
-              <div className="today-section-heading"><span className="today-heading-icon"><Flame /></span><h2 id="today-streak-title">Study Streak</h2></div>
-              <div className="today-metric-content">
-                <div className="today-streak-summary"><strong>{stats.streak}</strong><span>{stats.streak === 1 ? "day" : "days"}</span></div>
-                <p>{stats.streak > 0 ? "Keep your momentum going with another focused session." : "Start a study session to begin your streak."}</p>
-                <button type="button" className="today-inline-action" onClick={() => setStudyOpen(true)}>{stats.streak > 0 ? "View study log" : "Start studying"} <ArrowRight size={14} /></button>
-              </div>
-            </section>
-          );
-      }
+    const widgetBody: WidgetBodyData = {
+      assignments,
+      manualEvents,
+      courses,
+      courseDetails: extraData.courseDetails,
+      study,
+      stats,
+      today,
+      now,
+      timezone,
+      monday,
+      activeGpaSystem,
+      activeTerm,
+      filesCreatedAt: fileStore.files.map((file) => file.created_at),
+      experimentalMode: Boolean(experimentalMode),
+      miniWeekOffset,
+      persistenceStatus,
     };
 
-    return (
-      <div className="page home-page">
-        <HomeGreeting {...homeGreeting} />
-        {activeWorkspace.todayHidden ? (
-          <div
-            key="today-removal-drawer"
-            ref={todayRemoveTargetRef}
-            className="today-remove-target-host today-remove-target-dock"
-            data-remove-target-active={todayRemoveDragState.active ? "true" : "false"}
-            data-remove-target-over={todayRemoveDragState.over ? "true" : "false"}
-            data-remove-target-near={todayRemoveDragState.near ? "true" : "false"}
-            aria-hidden={!customizing || undefined}
-            inert={!customizing || undefined}
-          >
-            <div ref={todayRemoveHitRef} className="today-remove-target-overlay" aria-hidden="true"><Trash2 size={24} strokeWidth={2.2} /><span>remove widget</span></div>
-          </div>
-        ) : (
-          <div
-            key="today-panel"
-            ref={todayRemoveTargetRef}
-            className="today-remove-target-host is-visible"
-            data-remove-target-active={todayRemoveDragState.active ? "true" : "false"}
-            data-remove-target-over={todayRemoveDragState.over ? "true" : "false"}
-          >
-            <div className="today-remove-target-content" inert={todayRemoveDragState.active || undefined}>
-              <TodaySection
-                key={activeWorkspace.id}
-                hidden={Boolean(activeWorkspace.todayHidden)}
-                sections={activeWorkspace.todaySections ?? defaultTodaySections}
-                optionsButtonRef={todayOptionsButtonRef}
-                menuStyle={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
-                onHiddenChange={(hidden) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todayHidden: hidden } : workspace))}
-                onSectionsChange={(sections) => commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, todaySections: sections } : workspace))}
-                onCalendar={() => navigate("calendar")}
-                onOptionsOpen={() => { closeWidgetMenu(); setWorkspaceMenuOpen(false); }}
-                onHideFocus={() => window.requestAnimationFrame(() => {
-                  if (customizing) workspaceOptionsButtonRef.current?.focus();
-                  else customizeButtonRef.current?.focus();
-                })}
-              >
-                <div className="today-panel-grid" data-section-count={activeWorkspace.todaySections?.length ?? defaultTodaySections.length}>
-                  {(activeWorkspace.todaySections ?? defaultTodaySections).map(renderTodaySection)}
-                </div>
-              </TodaySection>
-            </div>
-            {todayRemoveDragState.active && <div className="today-remove-target-overlay" aria-hidden="true"><Trash2 size={24} strokeWidth={2.2} /><span>remove widget</span></div>}
-          </div>
-        )}
-
-        <section className="workspace-section">
-          <div className="workspace-bar">
-            <div className="workspace-tabs" role="tablist" aria-label="Home workspaces">
-              {workspaces.map((workspace) => <button key={workspace.id} role="tab" aria-selected={activeWorkspaceId === workspace.id} className={activeWorkspaceId === workspace.id ? "active" : ""} onClick={() => setActiveWorkspaceId(workspace.id)}>{workspace.name}</button>)}
-              <button className="add-tab" disabled={workspaces.length >= MAX_WORKSPACES} title={`Up to ${MAX_WORKSPACES} workspaces`} onClick={() => { setWorkspaceNameDraft(""); setWorkspaceDialog("new"); }} aria-label="Add workspace">More <ChevronDown size={14} /></button>
-            </div>
-            <div className="workspace-actions">
-              {saveState.ready && !experimentalMode && <WorkspaceSaveStatus
-                status={persistenceStatus}
-                message={saveState.message}
-                popupMessage={workspaceError ? saveState.message || "Something went wrong while saving your workspace." : workspacePending ? (persistenceStatus === "saving" ? "Saving workspace…" : "Workspace changes are waiting to save.") : ""}
-                actions={renderWorkspaceRecoveryActions()}
-              />}
-              <button className="secondary-button widget-customization-trigger" aria-haspopup="dialog" onClick={() => setAppearanceOpen(true)}><SlidersHorizontal size={17} /> Widget customization</button>
-              <button ref={customizeButtonRef} className="secondary-button" aria-pressed={customizing} onClick={() => setCustomizing((value) => !value)}><LayoutGrid size={17} />{customizing ? "Done customizing" : "Customize"}</button>
-              <button className="secondary-button add-widget-control" onClick={() => setWidgetPickerOpen(true)}><Plus size={16} /> Add widget</button>
-              <div className="menu-wrap">
-                <button ref={workspaceOptionsButtonRef} className="icon-button" onClick={() => setWorkspaceMenuOpen((open) => !open)} aria-label="Workspace options"><MoreHorizontal size={19} /></button>
-                {workspaceMenuOpen && <div className="popover workspace-menu">
-                  {customizing && activeWorkspace.todayHidden && <button type="button" aria-label="Restore Today section" onClick={restoreToday}><Sun size={15} /> Restore Today</button>}
-                  <button onClick={() => { setWorkspaceNameDraft(activeWorkspace.name); setWorkspaceDialog("rename"); setWorkspaceMenuOpen(false); }}><Pencil size={15} /> Rename</button>
-                  <button disabled={workspaces.length >= MAX_WORKSPACES} onClick={duplicateWorkspace}><Copy size={15} /> Duplicate</button>
-                  <button disabled={workspaces[0].id === activeWorkspaceId} onClick={() => moveWorkspace(-1)}><ArrowLeft size={15} /> Move left</button>
-                  <button disabled={workspaces[workspaces.length - 1].id === activeWorkspaceId} onClick={() => moveWorkspace(1)}><ArrowRight size={15} /> Move right</button>
-                  <button className="danger" disabled={workspaces.length === 1} onClick={deleteWorkspace}><Trash2 size={15} /> Delete</button>
-                </div>}
-              </div>
-            </div>
-          </div>
-
-          {notes && <div className="workspace-save-bar"><span>Your earlier shared note is saved and available to restore.</span><button disabled={activeWorkspace.widgets.length >= MAX_WIDGETS_PER_WORKSPACE} onClick={recoverNotes}>Add saved note here</button><button onClick={() => downloadDraft("eduessentials-recovered-note.json", { note: notes })}>Download saved note</button></div>}
-          {activeWorkspace.widgets.length === 0 ? (
-            <div className="empty-workspace">
-              <div className="empty-icon"><LayoutGrid size={26} /></div>
-              <h2>Make this space yours</h2>
-              <p>Add study tools, deadlines, charts, notes, and timers—then arrange them exactly how you like.</p>
-              <button className="primary-button" onClick={() => setWidgetPickerOpen(true)}><Plus size={17} /> Browse widgets</button>
-            </div>
-          ) : (
-            <ReorderableWidgetGrid
-              items={activeWorkspace.widgets}
-              workspaceId={activeWorkspace.id}
-              label={`${activeWorkspace.name} widgets`}
-              style={widgetAppearanceStyle(resolveWidgetAppearance(extraData.widgetAppearance)) as CSSProperties}
-              layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(extraData.widgetAppearance)}`}
-              reflowKey={String(sidebarCollapsed)}
-              enabled={widgetEditingEnabled}
-              removeTargetRef={activeWorkspace.todayHidden && !customizing ? undefined : todayRemoveTargetRef}
-              removeTargetHitRef={activeWorkspace.todayHidden ? todayRemoveHitRef : undefined}
-              removeTargetNearEnabled={Boolean(activeWorkspace.todayHidden && customizing)}
-              onRemove={removeWidget}
-              onRemoveDragStateChange={(active, over, near) => setTodayRemoveDragState((current) => current.active === active && current.over === over && current.near === near ? current : { active, over, near })}
-              onResize={resizeWidget}
-              resizePriorities={activeWorkspace.resizePriorities}
-              onReorderStart={closeWidgetMenu}
-              onFinishCustomize={widgetEditingEnabled ? () => {
-                closeWidgetMenu();
-                setCustomizing(false);
-              } : undefined}
-              onCustomize={!customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass && !syllabusDraft && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog ? () => {
-                closeWidgetMenu();
-                setCustomizing(true);
-              } : undefined}
-              onReorder={(orderedIds, miniBlockChange) => {
-                const currentWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
-                if (!currentWorkspace || currentWorkspace.id !== activeWorkspace.id || orderedIds.length !== currentWorkspace.widgets.length) return false;
-                const widgetsById = new Map(currentWorkspace.widgets.map((widget) => [widget.instanceId, widget]));
-                if (new Set(orderedIds).size !== currentWorkspace.widgets.length || orderedIds.some((id) => !widgetsById.has(id))) return false;
-                if (miniBlockChange && widgetsById.get(miniBlockChange.widgetId)?.size !== "mini") return false;
-                return updateWorkspaceWidgets(() => orderedIds.map((id) => {
-                  const widget = widgetsById.get(id)!;
-                  if (id !== miniBlockChange?.widgetId) return widget;
-                  const next = { ...widget };
-                  delete next.startsNewMiniBlock;
-                  if (miniBlockChange.startsNewMiniBlock) next.startsNewMiniBlock = true;
-                  return next;
-                }), true);
-              }}
-              renderWidget={(widget, index, isDragged, isResizing) => renderWidget(widget, index, isDragged, isResizing)}
-              addTile={<button className="add-widget-tile" onClick={() => setWidgetPickerOpen(true)}><Plus size={22} /><span>Add widget</span></button>}
-            />
-          )}
-        </section>
-      </div>
-    );
-  }
-
-  function renderWidget(widget: WidgetInstance, index: number, isDragged = false, isResizing = false) {
-    const template = widgetTemplates.find((item) => item.type === widget.type)!;
-    const appearance = resolveWidgetAppearance(extraData.widgetAppearance, widget.instanceId);
-    const resizeIndicatorSize = appearance.radius + 10;
-    const resizeIndicatorEdge = resizeIndicatorSize - 1.5;
-    const resizeIndicatorRadius = Math.max(0, appearance.radius - 0.5);
-    const resizeIndicatorCurve = `V ${resizeIndicatorEdge - resizeIndicatorRadius} A ${resizeIndicatorRadius} ${resizeIndicatorRadius} 0 0 1 ${resizeIndicatorEdge - resizeIndicatorRadius} ${resizeIndicatorEdge}`;
-    const resizeIndicatorPath = `M ${resizeIndicatorEdge} 1.5 ${resizeIndicatorCurve} H 1.5`;
-    const resizeIndicatorHoverPath = `M ${resizeIndicatorEdge} -2.5 ${resizeIndicatorCurve} H -2.5`;
-    const TemplateIcon = widget.type === "today" ? BarChart3 : widget.type === "red-alerts" ? Bell : widget.type === "notes" ? FileText : template.icon;
-    return (
-      <article
-        key={widget.instanceId}
-        className={`widget-card widget-${widget.type} ${isDragged ? "widget-reorder-placeholder" : ""}${isResizing ? " widget-resizing" : ""}`}
-        data-size={widget.size}
-        data-mini-start={widget.size === "mini" && widget.startsNewMiniBlock ? "true" : undefined}
-        data-widget-id={widget.instanceId}
-        aria-hidden={isDragged ? true : undefined}
-        inert={isDragged}
-        style={widgetAppearanceStyle(appearance) as CSSProperties}
-        {...appearanceAttributes(appearance)}
-      >
-        <div className="widget-frame">
-        <div className="widget-header">
-          <span className={`widget-icon tone-${template.color}`}><TemplateIcon size={16} /></span>
-          <h2 data-widget-reorder-handle>{({ "daily-goal": "Daily Study Goal", today: "At a Glance", "red-alerts": "Alerts", pomodoro: "Pomodoro", "mini-calendar": "Mini Calendar", "task-completion": "Task Completion", notes: "Quick Notes" } as Record<string, string>)[widget.type] ?? template.title}</h2>
-          <div className="menu-wrap">
-            <button className="icon-button mini" onClick={() => {
-              if (openWidgetMenu === widget.instanceId && !closingWidgetMenu) dismissWidgetMenu();
-              else { setClosingWidgetMenu(false); setOpenWidgetMenu(widget.instanceId); }
-            }} aria-label={`${template.title} options`}><MoreHorizontal size={17} /></button>
-          </div>
-        </div>
-        <div className="widget-body">{renderWidgetBody(widget)}</div>
-        </div>
-        {widgetEditingEnabled && !isDragged && <button
-          type="button"
-          className="widget-resize-handle"
-          style={{ "--widget-resize-border-width": appearance.borderStyle === "none" ? "0px" : "var(--wa-border-width, 1px)" } as CSSProperties}
-          data-widget-resize-handle
-          aria-label={`Resize ${template.title}`}
-          aria-describedby={`widget-resize-size-${widget.instanceId}`}
-          aria-haspopup="true"
-          title="Drag to resize. Arrow keys change width or height; Enter opens size choices."
-          draggable={false}
-          onClick={() => { setClosingWidgetMenu(false); setOpenWidgetMenu(widget.instanceId); }}
-          onKeyDown={(event) => {
-            if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
-            event.preventDefault();
-            const nextSize = getWidgetKeyboardResizeSize(widget.size, event.key);
-            if (nextSize !== widget.size) resizeWidget(widget.instanceId, nextSize);
-          }}
-        ><svg aria-hidden="true" viewBox={`0 0 ${resizeIndicatorSize} ${resizeIndicatorSize}`} fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" style={{
-          "--widget-resize-rest-path": `path("${resizeIndicatorPath}")`,
-          "--widget-resize-hover-path": `path("${resizeIndicatorHoverPath}")`,
-        } as CSSProperties}>
-          <path d={resizeIndicatorPath} />
-        </svg></button>}
-        {widgetEditingEnabled && !isDragged && <span id={`widget-resize-size-${widget.instanceId}`} className="widget-resize-status" role="status" aria-live="polite">
-          {`${template.title} size: ${widgetSizeOptions.find((option) => option.value === widget.size)?.label}`}
-        </span>}
-            {openWidgetMenu === widget.instanceId && (
-              <div className={`popover widget-menu${closingWidgetMenu ? " is-closing" : ""}`} ref={widgetMenuRef} inert={closingWidgetMenu} aria-hidden={closingWidgetMenu || undefined} onAnimationEnd={(event) => {
-                if (closingWidgetMenu && event.target === event.currentTarget && event.animationName === "widget-menu-dismiss") closeWidgetMenu();
-              }}>
-                <p>Widget size</p>
-                <div className="size-options">
-                  {widgetSizeOptions.map(({ value, label, footprint }) => <button key={value} aria-label={`${label} widget`} aria-pressed={widget.size === value} className={widget.size === value ? "active" : ""} onClick={() => resizeWidget(widget.instanceId, value)}><span>{label}</span><small>{footprint.width} × {footprint.height === 0.5 ? "½" : footprint.height}</small></button>)}
-                </div>
-                <button onClick={() => moveWidget(index, index - 1)} disabled={index === 0}><ArrowLeft size={15} /> Move earlier</button>
-                <button onClick={() => moveWidget(index, index + 1)} disabled={index === activeWorkspace.widgets.length - 1}><ArrowRight size={15} /> Move later</button>
-                <button disabled={activeWorkspace.widgets.length >= MAX_WIDGETS_PER_WORKSPACE} onClick={() => {
-                  const copy = { ...widget, instanceId: uid("widget") };
-                  const appearance = extraData.widgetAppearance && { ...extraData.widgetAppearance, overrides: { ...extraData.widgetAppearance.overrides } };
-                  if (appearance?.overrides[widget.instanceId]) appearance.overrides[copy.instanceId] = { ...appearance.overrides[widget.instanceId] };
-                  commitWorkspaces(workspaces.map((workspace) => workspace.id === activeWorkspaceId ? { ...workspace, widgets: [...workspace.widgets, copy] } : workspace), activeWorkspaceId, notes, appearance);
-                  closeWidgetMenu();
-                }}><Copy size={15} /> Duplicate</button>
-                <button className="danger" onClick={() => removeWidget(widget.instanceId)}><Trash2 size={15} /> Remove</button>
-              </div>
-            )}
-      </article>
-    );
-  }
-
-  function renderWidgetBody(widget: WidgetInstance) {
-    const { type } = widget;
-    if (type === "today") {
-      const time = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
-      const classesLeft = courses.filter((c) => (extraData.courseDetails[c.id]?.meetings ?? []).some((meeting) => meetingOccursOn(meeting, today) && meeting.end > time)).length;
-      const endOfWeek = addDays(weekStart(today, monday), 6);
-      const weekTasks = assignments.filter((a) => a.status !== "done" && a.dateKey >= today && a.dateKey <= endOfWeek).length;
-      const newFiles = experimentalMode ? 0 : fileStore.files.filter((f) => f.created_at.slice(0, 10) >= weekStart(today, monday)).length;
-      return <div className="glance-rows"><button onClick={() => navigate("dashboard")}><span className="glance-icon green"><GraduationCap size={23} /></span><strong>{classesLeft}</strong><span>classes left</span><ChevronRight size={15} /></button><button onClick={() => navigate("tasks")}><span className="glance-icon purple"><FileText size={21} /></span><strong>{weekTasks}</strong><span>tasks this week</span><ChevronRight size={15} /></button><button onClick={() => navigate("files")}><span className="glance-icon pink"><FolderOpen size={22} /></span><strong>{newFiles}</strong><span>new {newFiles === 1 ? "file" : "files"}</span><ChevronRight size={15} /></button></div>;
-    }
-    if (studyWidgetTypes.includes(type)) return <StudyWidget type={type} data={study} stats={stats} courses={courses} assignments={assignments} events={manualEvents} details={extraData.courseDetails} today={today} now={now.getTime()} system={activeGpaSystem} term={activeTerm} onOpen={() => setStudyOpen(true)} onAssignment={setSelectedAssignment} onEvent={(event) => setEditor({ event })} onCourse={setSelectedClass} onTimer={controlTimer} />;
-    if (type === "upcoming") return <div className="compact-list">{assignments.filter((item) => item.status !== "done").slice(0, 4).map((assignment) => { const course = courseFor(courses, assignment.courseId); return <button key={assignment.id} className="compact-assignment" onClick={() => setSelectedAssignment(assignment)}><StatusBadge status={assignment.status} compact /><span><strong>{assignment.title}</strong><small>{course.code} · {assignment.due}</small></span><ChevronRight size={15} /></button>; })}</div>;
-    if (type === "stoplight") return <div className="stoplight-summary"><button onClick={() => navigate("dashboard")}><span className="stoplight-count red"><AlertOctagon size={17} />{overdueAssignments.length}</span><span><strong>Overdue</strong><small>Needs attention</small></span></button><button onClick={() => navigate("dashboard")}><span className="stoplight-count amber"><Clock3 size={17} />{todayAssignments.length}</span><span><strong>Due today</strong><small>Before midnight</small></span></button><button onClick={() => navigate("dashboard")}><span className="stoplight-count green"><Circle size={17} />{assignments.filter((item) => item.status === "later").length}</span><span><strong>Upcoming</strong><small>After today</small></span></button></div>;
-    if (type === "red-alerts") {
-      const next = assignments.find((a) => a.status !== "done" && a.dateKey >= today);
-      return <div className="reference-alerts">{next ? <button className="alert-upcoming" onClick={() => setSelectedAssignment(next)}><AlertOctagon size={22} /><span><strong>{next.title}</strong><small>{courseFor(courses, next.courseId).code} · {next.dateKey === today ? "Today" : next.dateKey === addDays(today, 1) ? "Tomorrow" : next.due}</small></span><ChevronRight size={15} /></button> : <div className="alert-upcoming"><Bell size={22} /><span><strong>No upcoming deadlines</strong><small>You’re all caught up</small></span></div>}<button className="alert-status" onClick={() => navigate("tasks")}><CheckCircle2 size={23} /><span>{overdueAssignments.length ? `${overdueAssignments.length} overdue ${overdueAssignments.length === 1 ? "task" : "tasks"}` : "No overdue work"}</span>{overdueAssignments.length > 0 && <ChevronRight size={15} />}</button></div>;
-    }
-    if (type === "mini-calendar") return <div className="mini-cal"><div className="mini-cal-month"><strong>{dateLabel(addDays(today, miniWeekOffset), { month: "long", year: "numeric" })}</strong><div><button aria-label="Previous week" onClick={() => setMiniWeekOffset((offset) => offset - 7)}><ChevronLeft size={16} /></button><button aria-label="Next week" onClick={() => setMiniWeekOffset((offset) => offset + 7)}><ChevronRight size={16} /></button><button className="mini-today" onClick={() => setMiniWeekOffset(0)}>Today</button></div></div><div className="mini-days">{Array.from({ length: 7 }, (_, i) => addDays(weekStart(today, profile.week_starts_on === "Monday"), i + miniWeekOffset)).map((date) => <button key={date} aria-label={dateLabel(date, { weekday: "long", month: "long", day: "numeric" })} className={date === today ? "today" : ""} onClick={() => navigate("calendar")}><small>{dateLabel(date, { weekday: "short" })}</small><strong>{Number(date.slice(-2))}</strong>{(assignments.some((a) => a.dateKey === date) || manualEvents.some((e) => e.dateKey === date)) && <i />}</button>)}</div></div>;
-    if (type === "class-links") return <div className="class-link-grid">{courses.slice(0, 4).map((course) => <button key={course.id} onClick={() => { navigate("dashboard"); openDashboardCourse(course); }}><CourseStamp course={course} small /><span><strong>{course.code}</strong><small>{course.name}</small></span><ChevronRight size={14} /></button>)}</div>;
-    if (type === "notes") return <div className="notes-widget"><textarea id={`note-${widget.instanceId}`} aria-label="Quick notes" placeholder="Write a quick reminder…" value={widget.note ?? ""} maxLength={MAX_NOTES_LENGTH} onChange={(event) => updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: event.target.value } : item))} /><div className="reference-note-footer"><span className="note-label"><FileText size={13} /> Quick note</span><button className="clear-note" disabled={!widget.note} onClick={() => { if (window.confirm("Clear this note's text?")) updateWorkspaceWidgets((widgets) => widgets.map((item) => item.instanceId === widget.instanceId ? { ...item, note: "" } : item)); }} aria-label="Clear notes"><Trash2 size={13} /></button><button className="primary-button save-note" disabled={persistenceStatus === "saving"} onClick={() => experimentalMode ? flash("Preview note updated — nothing saved to your account") : void autosave.flush()}><Save size={14} />{persistenceStatus === "saving" ? "Saving…" : "Save note"}</button></div></div>;
-    if (type === "quote") return <div className="quote-widget"><QuoteIcon size={24} /><blockquote>Small, focused steps turn heavy weeks into manageable days.</blockquote><span>— Your Edu AI reminder</span></div>;
-    return <div className="spacer-widget"><span>Spacer</span><p>This tile creates breathing room. Resize it to shape your layout.</p></div>;
-  }
-
-  function renderDashboard(onImageSettled: (key: string) => void, imagesPending: boolean) {
-    const focusAssignments = dashboardFocus(assignments);
-    return (
-      <AnimatedDashboard reflowKey={String(sidebarCollapsed)} reducedMotion={profile.preferences.reducedMotion} restoredCourse={skipOpeningAnimation} imagesPending={imagesPending}>
-        <DashboardStudyBrief
-          reflowKey={String(sidebarCollapsed)}
-          key={initialProfile.id}
-          chatMessages={dashboardChat.messages}
-          chatBusy={dashboardChat.busy}
-          focusAssignments={focusAssignments}
-          overdueCount={overdueAssignments.length}
-          dueTodayCount={todayAssignments.length}
-          completedThisWeek={weeklyCompleted}
-          courseCount={courses.length}
-          courseCodeFor={(courseId) => courseFor(courses, courseId).code}
-          renderStatusBadge={(status) => <StatusBadge status={status} compact />}
-          onSelectAssignment={setSelectedAssignment}
-          onAddAssignment={newAssignment}
-          onAddClass={() => setAddClassOpen(true)}
-          onOpenAssistant={(question, conversationId, proposalId) => {
-            if (nativeDocumentDialog) { navigate("assistant"); return; }
-            setAssistantPrompt(question?.trim() || conversationId || proposalId ? { id: uid("assistant-prompt"), profileId: initialProfile.id, question: question?.trim() ?? "", send: false, conversationId, proposalId } : null);
-            navigate("assistant");
-          }}
-          onAskAssistant={(question) => {
-            return dashboardChat.send(question);
-          }}
-          onContinueAssistant={(question, conversationId) => {
-            if (nativeDocumentDialog) return false;
-            setAssistantPrompt({ id: uid("assistant-prompt"), profileId: initialProfile.id, question, send: true, conversationId });
-            navigate("assistant");
-          }}
-          reducedMotion={profile.preferences.reducedMotion}
-        />
-        <section className="dashboard-classes" aria-labelledby="dashboard-classes-title">
-          <div className="section-title-row dashboard-classes-heading">
-            <h2 id="dashboard-classes-title">Your classes</h2>
-            <div className="dashboard-classes-actions">
-              <button className="secondary-button" onClick={() => setAddClassOpen(true)}><Plus size={16} />Add Class</button>
-              <button type="button" className="view-toggle" role="switch" aria-label="Dashboard view" aria-checked={dashboardView === "list"} onClick={() => setDashboardView((current) => current === "cards" ? "list" : "cards")}><span className={dashboardView === "cards" ? "active" : ""}><LayoutGrid size={16} /> Cards</span><span className={dashboardView === "list" ? "active" : ""}><List size={16} /> List</span></button>
-            </div>
-          </div>
-        {dashboardView === "cards" ? (
-          <div>
-            <div className="class-grid">
-              {courses.map((course) => {
-                const courseAssignments = assignments.filter((assignment) => assignment.courseId === course.id && assignment.status !== "done");
-                return <button key={course.id} className="class-card" data-course-card-id={course.id} aria-haspopup="dialog" aria-expanded={selectedClass?.id === course.id} onClick={() => setSelectedClass(course)}>
-                  {renderClassVisual(course, undefined, onImageSettled)}
-                  <ClassCardBody course={course} overdue={courseAssignments.filter((item) => item.status === "overdue").length} today={courseAssignments.filter((item) => item.status === "today").length} later={courseAssignments.filter((item) => item.status === "later").length} />
-                </button>;
-              })}
-            </div>
-          </div>
-        ) : renderAssignmentTable(assignments)}
-        </section>
-        {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2></div><button className="text-button" onClick={() => setDashboardView("list")}>See all <ArrowRight size={14} /></button></div>{renderAssignmentTable(focusAssignments.slice(0, 5), true)}</section>}
-      </AnimatedDashboard>
-    );
-  }
-
-  function renderAssignmentTable(items: Assignment[], compact = false) {
-    return <div className={`assignment-table ${compact ? "compact" : ""}`}>
-      {!compact && <div className="assignment-table-head"><span>Status</span><span>Assignment</span><span>Class</span><span>Due</span><span>Progress</span><span /></div>}
-      {!items.length && <div className="assignment-row assignment-empty"><span>No assignments yet...</span></div>}
-      {items.map((assignment) => { const course = courseFor(courses, assignment.courseId); return <button className={`assignment-row ${assignment.status === "done" ? "completed" : ""}`} key={assignment.id} onClick={() => setSelectedAssignment(assignment)}>
-        <span><StatusBadge status={assignment.status} /></span>
-        <span className="assignment-title"><strong>{assignment.title}</strong>{compact && <small>{course.code}</small>}</span>
-        {!compact && <span className="assignment-course"><CourseStamp course={course} small /><span><strong>{course.code}</strong><small>{course.name}</small></span></span>}
-        <span className="assignment-due"><strong>{assignment.due.split(",")[0]}</strong><small>{assignment.due.includes(",") ? assignment.due.split(",").slice(1).join(",") : ""}</small></span>
-        <span className="row-progress"><i><b style={{ width: `${assignment.progress}%` }} /></i><small>{assignment.progress}%</small></span>
-        <ChevronRight size={16} />
-      </button>; })}
-    </div>;
+    const widgetActions: WidgetActions = {
+      onNavigate: (destination) => navigate(destination),
+      onOpenStudy: () => setStudyOpen(true),
+      onAssignment: setSelectedAssignment,
+      onEvent: (event) => setEditor({ event }),
+      onCourse: setSelectedClass,
+      onTimer: controlTimer,
+      onOpenDashboardCourse: openDashboardCourse,
+      onMiniWeekOffsetChange: (update) => setMiniWeekOffset(update),
+      onToggleMenu: (widgetId) => {
+        if (openWidgetMenu === widgetId && !closingWidgetMenu) dismissWidgetMenu();
+        else {
+          setClosingWidgetMenu(false);
+          setOpenWidgetMenu(widgetId);
+        }
+      },
+      onOpenResizeMenu: (widgetId) => {
+        setClosingWidgetMenu(false);
+        setOpenWidgetMenu(widgetId);
+      },
+      onCloseMenu: closeWidgetMenu,
+      onResize: resizeWidget,
+      onMove: moveWidget,
+      onDuplicate: (widget) => {
+        const copy = { ...widget, instanceId: uid("widget") };
+        const appearance = extraData.widgetAppearance && {
+          ...extraData.widgetAppearance,
+          overrides: { ...extraData.widgetAppearance.overrides },
+        };
+        if (appearance?.overrides[widget.instanceId]) {
+          appearance.overrides[copy.instanceId] = { ...appearance.overrides[widget.instanceId] };
+        }
+        commitWorkspaces(
+          workspaces.map((workspace) => workspace.id === activeWorkspaceId
+            ? { ...workspace, widgets: [...workspace.widgets, copy] }
+            : workspace),
+          activeWorkspaceId,
+          notes,
+          appearance,
+        );
+        closeWidgetMenu();
+      },
+      onRemove: removeWidget,
+      onNoteChange: (widgetId, value) => updateWorkspaceWidgets((widgets) => widgets.map((widget) =>
+        widget.instanceId === widgetId ? { ...widget, note: value } : widget)),
+      onSaveNote: () => { void autosave.flush(); },
+      onFlash: flash,
+    };
+    return <WorkspaceHome
+      data={{
+        greeting: homeGreeting,
+        activeWorkspace,
+        activeWorkspaceId,
+        workspaces,
+        notes,
+        customizing,
+        widgetEditingEnabled,
+        widgetGridCanCustomize: !customizing && !appearanceOpen && !widgetPickerOpen && !workspaceDialog
+          && !aiApplying && !studyOpen && !editor && !selectedAssignment && !selectedClass
+          && !syllabusDraft && !syllabusAttachment && !syllabusTextCourseId && !nativeDocumentDialog,
+        workspaceMenuOpen,
+        workspaceSaveStatus: persistenceStatus,
+        workspaceSaveMessage: saveState.message,
+        workspaceError,
+        workspacePending,
+        saveReady: saveState.ready,
+        sidebarCollapsed,
+        experimentalMode: Boolean(experimentalMode),
+        widgetAppearance: extraData.widgetAppearance,
+        todayRemoveDragState,
+        dailyPercent,
+        localTime,
+        widgetBody,
+        widgetFrame: { openWidgetMenu, closingWidgetMenu },
+      }}
+      customizeButtonRef={customizeButtonRef}
+      workspaceOptionsButtonRef={workspaceOptionsButtonRef}
+      todayOptionsButtonRef={todayOptionsButtonRef}
+      todayRemoveTargetRef={todayRemoveTargetRef}
+      todayRemoveHitRef={todayRemoveHitRef}
+      widgetMenuRef={widgetMenuRef}
+      actions={{
+        onActiveWorkspaceChange: setActiveWorkspaceId,
+        onNewWorkspace: () => { setWorkspaceNameDraft(""); setWorkspaceDialog("new"); },
+        onAppearanceOpen: () => setAppearanceOpen(true),
+        onCustomizingToggle: () => setCustomizing((value) => !value),
+        onWidgetPickerOpen: () => setWidgetPickerOpen(true),
+        onWorkspaceMenuToggle: () => setWorkspaceMenuOpen((open) => !open),
+        onRenameWorkspace: () => {
+          setWorkspaceNameDraft(activeWorkspace.name);
+          setWorkspaceDialog("rename");
+          setWorkspaceMenuOpen(false);
+        },
+        onDuplicateWorkspace: duplicateWorkspace,
+        onMoveWorkspace: moveWorkspace,
+        onDeleteWorkspace: deleteWorkspace,
+        onRestoreToday: restoreToday,
+        onRecoverNotes: recoverNotes,
+        onDownloadRecoveredNotes: () => downloadDraft("eduessentials-recovered-note.json", { note: notes }),
+        onResizeWidget: resizeWidget,
+        onRemoveWidget: removeWidget,
+        onRemoveDragStateChange: (active, over, near) => setTodayRemoveDragState((current) =>
+          current.active === active && current.over === over && current.near === near
+            ? current
+            : { active, over, near }),
+        onReorderStart: closeWidgetMenu,
+        onFinishCustomize: () => { closeWidgetMenu(); setCustomizing(false); },
+        onGridCustomize: () => { closeWidgetMenu(); setCustomizing(true); },
+        onReorder: (orderedIds, miniBlockChange) => {
+          const currentWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+          if (!currentWorkspace || currentWorkspace.id !== activeWorkspace.id
+            || orderedIds.length !== currentWorkspace.widgets.length) return false;
+          const widgetsById = new Map(currentWorkspace.widgets.map((widget) => [widget.instanceId, widget]));
+          if (new Set(orderedIds).size !== currentWorkspace.widgets.length
+            || orderedIds.some((id) => !widgetsById.has(id))) return false;
+          if (miniBlockChange && widgetsById.get(miniBlockChange.widgetId)?.size !== "mini") return false;
+          return updateWorkspaceWidgets(() => orderedIds.map((id) => {
+            const widget = widgetsById.get(id)!;
+            if (id !== miniBlockChange?.widgetId) return widget;
+            const next = { ...widget };
+            delete next.startsNewMiniBlock;
+            if (miniBlockChange.startsNewMiniBlock) next.startsNewMiniBlock = true;
+            return next;
+          }), true);
+        },
+        onTodayHiddenChange: (hidden) => commitWorkspaces(workspaces.map((workspace) =>
+          workspace.id === activeWorkspaceId ? { ...workspace, todayHidden: hidden } : workspace)),
+        onTodaySectionsChange: (sections) => commitWorkspaces(workspaces.map((workspace) =>
+          workspace.id === activeWorkspaceId ? { ...workspace, todaySections: sections } : workspace)),
+        onTodayOptionsOpen: () => { closeWidgetMenu(); setWorkspaceMenuOpen(false); },
+        onSelectClass: setSelectedClass,
+        onSelectAssignment: setSelectedAssignment,
+        onEditEvent: (event) => setEditor({ event }),
+        onCalendar: () => navigate("calendar"),
+        onStudyOpen: () => setStudyOpen(true),
+        onNavigateTasks: () => navigate("tasks"),
+      }}
+      widgetActions={widgetActions}
+      renderStatusBadge={(status, compact) => <StatusBadge status={status} compact={compact} />}
+      renderCourseStamp={(course, small) => <CourseStamp course={course} small={small} />}
+      recoveryActions={renderWorkspaceRecoveryActions()}
+    />;
   }
 
   function renderCalendar() {
@@ -2016,55 +1659,37 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }
 
   function searchResultGroups() {
-    const query = searchQuery.toLowerCase().trim();
-    return [
-      { title: "Assignments", icon: CheckCircle2, items: assignments.filter((assignment) => !query || `${assignment.title} ${assignment.description} ${assignment.notes ?? ""} ${statusMeta[assignment.status].label} ${courseFor(courses, assignment.courseId).code}`.toLowerCase().includes(query)).map((assignment) => ({ id: assignment.id, title: assignment.title, subtitle: `${courseFor(courses, assignment.courseId).code} · ${assignment.due}`, badge: statusMeta[assignment.status].short, action: () => setSelectedAssignment(assignment) })) },
-      { title: "Classes", icon: BookOpen, items: courses.filter((course) => !query || `${course.name} ${course.code} ${course.instructor} ${course.room} ${extraData.courseDetails[course.id]?.officeHours ?? ""} ${extraData.courseDetails[course.id]?.meetingNotes ?? ""}`.toLowerCase().includes(query)).map((course) => ({ id: course.id, title: course.name, subtitle: `${course.code} · ${course.instructor}`, badge: `${course.credits} credits`, action: () => setSelectedClass(course) })) },
-      { title: "Files", icon: FileText, items: fileStore.files.filter((f) => !query || (f.name + " " + f.kind + " " + f.mime_type + " " + courseFor(courses, f.course_id ?? "").code).toLowerCase().includes(query)).map((f) => ({ id: f.id, title: f.name, subtitle: fileSize(Number(f.size_bytes)) + " · " + f.state, badge: f.kind, action: () => setFilePreview(f) })) },
-      { title: "Events", icon: CalendarDays, items: manualEvents.filter((e) => !query || (e.title + " " + e.description + " " + e.type + " " + courseFor(courses, e.courseId).code).toLowerCase().includes(query)).map((e) => ({ id: e.id, title: e.title, subtitle: dateLabel(e.dateKey) + " · " + e.time, badge: e.type, action: () => setEditor({ event: e }) })) },
-      { title: "Syllabus text", icon: FileText, items: courses.filter((c) => extraData.courseDetails[c.id]?.syllabusText && (!query || (extraData.courseDetails[c.id].syllabusText + " " + c.code).toLowerCase().includes(query))).map((c) => ({ id: c.id, title: c.code + " syllabus", subtitle: extraData.courseDetails[c.id].syllabusName ?? "Saved text", badge: "Syllabus", action: () => setSelectedClass(c) })) },
-      { title: "Grades", icon: GraduationCap, items: study.grades.filter((g) => !query || (courseFor(courses, g.courseId).code + " " + g.term + " " + g.value + " " + g.system).toLowerCase().includes(query)).map((g) => ({ id: g.id, title: courseFor(courses, g.courseId).code + " grade", subtitle: g.value + " / " + g.max + " · " + g.term, badge: g.system, action: () => setStudyOpen(true) })) },
-      { title: "Study history", icon: Clock3, items: study.sessions.filter((session) => !query || (session.kind + " " + courseFor(courses, session.courseId).code + " " + session.segments.at(-1)!.end).toLowerCase().includes(query)).map((session) => ({ id: session.id, title: courseFor(courses, session.courseId).code + " study session", subtitle: durationLabel(segmentSeconds(session.segments)) + " · " + session.segments.at(-1)!.end.slice(0, 10), badge: session.kind, action: () => setStudyOpen(true) })) },
-      { title: "Notes", icon: StickyNote, items: workspaces.flatMap((workspace) => workspace.widgets.filter((widget) => widget.type === "notes").map((widget, index) => ({ id: widget.instanceId, title: `Quick notes ${index + 1} · ${workspace.name}`, subtitle: (widget.note ?? "").replace(/\n/g, " · "), badge: "Note", action: () => { navigate("home"); setActiveWorkspaceId(workspace.id); noteFocusRef.current = widget.instanceId; } }))).filter((item) => !query || `${item.title} ${item.subtitle}`.toLowerCase().includes(query)) },
-    ];
-  }
-
-  function renderQuickSearch() {
-    const results = searchResultGroups().flatMap((group) => group.items.map((item) => ({ ...item, group: group.title, icon: group.icon })));
-    return <section id="workspace-search-suggestions" className="quick-search" aria-label="Quick search results">
-      <div className="quick-search-heading"><strong>Quick results</strong><span role="status">{results.length} {results.length === 1 ? "match" : "matches"}</span></div>
-      {results.length ? <div className="quick-search-results">{results.slice(0, 6).map((item) => {
-        const Icon = item.icon;
-        return <button key={`${item.group}-${item.id}`} type="button" className="quick-search-result" onClick={() => { setQuickSearchOpen(false); item.action(); }}>
-          <Icon size={18} aria-hidden="true" /><span><strong>{item.title}</strong><small>{item.subtitle}</small></span><em>{item.group}</em>
-        </button>;
-      })}</div> : <p className="quick-search-empty">No matches yet. Try a different word or phrase.</p>}
-      <button type="submit" className="quick-search-all"><span>View all results</span><span>Enter <ArrowRight size={14} aria-hidden="true" /></span></button>
-    </section>;
-  }
-
-  function renderSearch() {
-    const query = searchQuery.toLowerCase().trim();
-    const resultGroups = searchResultGroups();
-    const resultCount = resultGroups.reduce((total, group) => total + group.items.length, 0);
-    return <div className="page search-page">
-      {renderPageHeader("Find anything", "Search your workspace", "Search saved text, file names, events, classes, grades, and study history. PDF/image contents are not indexed.")}
-      <div className="global-search"><Search size={22} /><input aria-label="Search everything" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Try “reflection,” “office hours,” or “MATH 101”…" />{searchQuery && <button onClick={() => setSearchQuery("")} aria-label="Clear search"><X size={18} /></button>}<kbd>⌘ K</kbd></div>
-      {!query && <div className="search-suggestions"><span>Try searching</span>{["Due today", "Lab report", "Office hours", "Grading policy"].map((suggestion) => <button key={suggestion} onClick={() => setSearchQuery(suggestion)}>{suggestion}</button>)}</div>}
-      <div className="search-meta"><strong>{resultCount} {query ? `results for “${searchQuery}”` : "items ready to search"}</strong><span>Results update as you type</span></div>
-      {resultCount === 0 ? <div className="empty-search"><FileSearch size={30} /><h2>No results found</h2><p>Check the spelling or try a broader phrase.</p></div> : <div className="search-results">{resultGroups.filter((group) => group.items.length).map((group) => { const GroupIcon = group.icon; return <section key={group.title}><div className="result-group-title"><span><GroupIcon size={17} /></span><h2>{group.title}</h2><small>{group.items.length}</small></div><div>{group.items.map((item) => <button key={item.id} onClick={item.action}><span className="result-type-icon"><GroupIcon size={18} /></span><span><strong>{item.title}</strong><small>{item.subtitle}</small></span><em>{item.badge}</em><ChevronRight size={16} /></button>)}</div></section>; })}</div>}
-    </div>;
+    return createWorkspaceSearchResultGroups({
+  query: searchQuery,
+  assignments,
+  courses,
+  courseDetails: extraData.courseDetails,
+  files: fileStore.files,
+  events: manualEvents,
+  study,
+  workspaces,
+  onAssignment: setSelectedAssignment,
+  onCourse: setSelectedClass,
+  onFile: setFilePreview,
+  onEvent: (event) => setEditor({ event }),
+  onStudyOpen: () => setStudyOpen(true),
+  onNote: (workspaceId, widgetInstanceId) => {
+    navigate("home");
+    setActiveWorkspaceId(workspaceId);
+    noteFocusRef.current = widgetInstanceId;
+  },
+});
   }
 
   function renderFiles() {
     const storedPreferences = extraData.filePreferences;
     const layoutMigrationPending = filesBrowserEnabled && storedPreferences.appearanceVersion !== FILES_BROWSER_APPEARANCE_VERSION;
     const prefs = filesBrowserEnabled ? migrateFilesBrowserPreferences(storedPreferences) : storedPreferences;
-    if (filesBrowserEnabled) return <FilesBrowser
+    return <WorkspaceFilesPage
       onPrimaryNavigate={() => setSidebarOpen(false)}
       profileId={initialProfile.id} courses={courses} assignments={storedAssignments} courseDetails={extraData.courseDetails}
-      store={fileStore} layout={prefs.view}
-      preferences={prefs} layoutMigrationPending={layoutMigrationPending} currentTerm={profile.current_term ?? ""} onFileOpened={handleFileOpened}
+      store={fileStore}
+      filesBrowserEnabled={filesBrowserEnabled} preferences={prefs} layoutMigrationPending={layoutMigrationPending} currentTerm={profile.current_term ?? ""} onFileOpened={handleFileOpened}
       onPreferencesChange={(filePreferences) => commitAcademic(courses, { filePreferences })}
       onLayoutChange={(view) => commitAcademic(courses, { filePreferences: { ...prefs, view } })}
       onOrganizationSaved={handleOrganizationSaved} onOrganizationStateChange={handleOrganizationState}
@@ -2080,127 +1705,35 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       onAttachSyllabus={(courseId, folderId) => { if (canWriteFiles && !profilePending && !organizationState) setSyllabusAttachment({ courseId, folderId }); }}
       onSyllabusText={setSyllabusTextCourseId}
       onOpenSyllabus={(file) => { setSyllabusPreviewFileId(file.id); setFilePreview(file); }}
+      header={renderPageHeader("Resources", "Your private files", "Original files are stored privately with your account.", <button className="primary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({})}>Upload file</button>)}
+      fileQuery={fileQuery} onFileQueryChange={setFileQuery} legacyCanWrite={canWriteFiles}
+      onRefreshFiles={() => void fileStore.refresh()} onLegacyOpen={setFilePreview} onLegacyEdit={(initial) => setFileDialog({ initial })} onLegacyTrashed={handleLegacyTrashed}
     />;
-    const visible = fileStore.files.filter((f) => (prefs.filter === "all" || (prefs.filter === "personal" ? !f.course_id : f.course_id === prefs.filter)) && (!fileQuery || (f.name + " " + f.kind + " " + courseFor(courses, f.course_id ?? "").code).toLowerCase().includes(fileQuery.toLowerCase())));
-    return <div className={"page files-page file-view-" + prefs.view}>{renderPageHeader("Resources", "Your private files", "Original files are stored privately with your account.", <button className="primary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({})}>Upload file</button>)}
-      <div className="files-toolbar"><label>Search files<input aria-label="Search files" value={fileQuery} onChange={(e) => setFileQuery(e.target.value)} /></label><label>File class filter<select value={prefs.filter} onChange={(e) => commitAcademic(courses, { filePreferences: { ...prefs, filter: e.target.value } })}><option value="all">All classes and personal</option><option value="personal">Personal</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select></label><label>File view<select value={prefs.view} onChange={(e) => commitAcademic(courses, { filePreferences: { ...prefs, view: e.target.value as "list" | "grid" } })}><option value="list">List</option><option value="grid">Grid</option></select></label><button className="secondary-button" disabled={fileStore.busy} onClick={() => void fileStore.refresh()}>Refresh files</button></div>
-      <p>{fileSize(fileStore.files.filter((f) => f.state === "ready").reduce((sum, f) => sum + Number(f.size_bytes), 0))} in ready files · {fileStore.files.length} / 1,000 files · 25 MiB maximum per file</p>
-      {fileStore.loading && <p>Loading files…</p>}<FileList files={visible} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} onTrashed={handleLegacyTrashed} canWrite={canWriteFiles} />
-    </div>;
   }
 
   function renderSettings() {
     const accountActionBlocked = profilePending || saveState.dirty || fileStore.busy || fileUploads.dirty || fileUploads.busy || !!pendingFolderUpload || !!nativeDocumentDraft?.dirty || !!organizationState?.dirty || !!organizationState?.busy || undoBusy;
-    return <div className="page settings-page">
-      {renderPageHeader("Make it yours", "Settings", "Your profile and preferences follow your Google account.")}
-      <ProfileEditor initialProfile={profile} onSaved={setProfile} onDraftChange={handleProfileDraft} />
-      <section className="settings-card"><h2>Account & data</h2><div className="data-actions">
-        <a className="secondary-button" aria-disabled={accountActionBlocked} onClick={(e) => { if (accountActionBlocked) e.preventDefault(); }} href={"/api/export?account=" + encodeURIComponent(initialProfile.id)} target="_blank" rel="noopener noreferrer">Export saved account (.zip)</a>
-        <button className="secondary-button" onClick={downloadUnsavedWork}>Download current drafts (.json)</button>
-        <form action="/auth/signout" method="post"><button className="secondary-button" disabled={accountActionBlocked}>Sign out</button></form>
-      </div>{accountActionBlocked && <p className="form-hint">Save or discard pending edits before signing out. Download a draft first if you want to keep a copy.</p>}</section>
-    </div>;
+    return <WorkspaceSettingsPage profile={profile} accountId={initialProfile.id} header={renderPageHeader("Make it yours", "Settings", "Your profile and preferences follow your Google account.")} accountActionBlocked={accountActionBlocked} onProfileSaved={setProfile} onProfileDraftChange={handleProfileDraft} onDownloadDrafts={downloadUnsavedWork} onExportClick={(event) => { if (accountActionBlocked) event.preventDefault(); }} />;
   }
 
-  function renderWidgetPicker() {
-    const filtered = widgetTemplates.filter((template) => `${template.title} ${template.description}`.toLowerCase().includes(widgetSearch.toLowerCase()));
-    return <div className="modal-backdrop"><div className="widget-picker-modal" role="dialog" aria-modal="true" aria-labelledby="widget-picker-title"><div className="modal-header"><div><p className="eyebrow">Customize {activeWorkspace.name}</p><h2 id="widget-picker-title">Add a widget</h2><p>Choose a study tile, then move and resize it on your grid.</p></div><button className="icon-button" onClick={() => { setWidgetPickerOpen(false); setWidgetSearch(""); }} aria-label="Close widget picker"><X size={20} /></button></div><div className="picker-search"><Search size={17} /><input aria-label="Search widgets" placeholder="Search 18 widgets…" value={widgetSearch} onChange={(event) => setWidgetSearch(event.target.value)} /></div><div className="widget-picker-grid">{filtered.map((template) => { const Icon = template.icon; return <button key={template.type} disabled={activeWorkspace.widgets.length >= MAX_WIDGETS_PER_WORKSPACE} onClick={() => addWidget(template.type)}><span className={`picker-icon tone-${template.color}`}><Icon size={20} /></span><span><strong>{template.title}</strong><small>{template.description}</small></span><Plus size={18} /></button>; })}</div><div className="picker-footer"><span>{activeWorkspace.widgets.length} / {MAX_WIDGETS_PER_WORKSPACE} widgets · Drag or use Move earlier/later</span><button className="primary-button" onClick={() => setWidgetPickerOpen(false)}>Done</button></div></div></div>;
-  }
-
-  function renderWorkspaceDialog() {
-    return <div className="modal-backdrop"><form className="small-modal" onSubmit={(event) => { event.preventDefault(); if (workspaceDialog === "new") createWorkspace(); else renameWorkspace(); }}><div className="modal-header"><div><p className="eyebrow">Home workspace</p><h2>{workspaceDialog === "new" ? "Create a new workspace" : "Rename workspace"}</h2></div><button type="button" className="icon-button" onClick={() => setWorkspaceDialog(null)}><X size={19} /></button></div><label>Workspace name<input required maxLength={80} value={workspaceNameDraft} onChange={(event) => setWorkspaceNameDraft(event.target.value)} placeholder="e.g. Finals Prep" /></label><p className="form-hint">New workspaces start empty so you can build them exactly how you want.</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setWorkspaceDialog(null)}>Cancel</button><button className="primary-button">{workspaceDialog === "new" ? "Create workspace" : "Save name"}</button></div></form></div>;
-  }
-
-  function renderClassVisual(course: Course, close?: () => void, onImageSettled?: (key: string) => void) {
-    const image = courseImages.get(course.id);
-    return <div className={`class-card-visual${close ? " expanded-class-header" : ""}`}>
-      <CourseEditTransition revision={JSON.stringify([course.soft, course.color, image?.id, image?.content_revision, extraData.courseDetails[course.id]?.imageFraming])}><div className="class-card-media" data-course-morph="visual" aria-hidden="true" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
-        <CourseImageFrame framing={extraData.courseDetails[course.id]?.imageFraming} fileId={image?.id} courseId={course.id} expanded={Boolean(close)}>{close ? <ExpandedCourseImage profileId={initialProfile.id} courseId={course.id} file={image} store={fileStore} filesReady={!fileStore.loading && !fileStore.error} restored={skipOpeningAnimation} cacheEnabled={page === "dashboard" && !experimentalMode && !onboardingTest} /> : image ? <PrivateImage key={image.id} file={image} store={fileStore} onSettled={onImageSettled ? () => onImageSettled(courseImageLoadKey(image)) : undefined} /> : null}</CourseImageFrame>
-      </div></CourseEditTransition>
-      <CourseEditTransition revision={course.initials}><span className="course-watermark" data-course-morph="watermark" aria-hidden="true">{course.initials}</span></CourseEditTransition><CourseEditTransition revision={JSON.stringify([course.code, course.color])}><span className="course-pill" data-course-morph="code" style={{ color: course.color }}>{course.code}</span></CourseEditTransition><CourseEditTransition revision={JSON.stringify([extraData.courseDetails[course.id]?.icon, course.color])}><CourseIcon icon={extraData.courseDetails[course.id]?.icon} data-course-morph="icon" size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" /></CourseEditTransition>
-      {close && <button className="secondary-button" onClick={close}>Close class <X size={15} /></button>}
-    </div>;
-  }
-
-  function renderClassDetail(course: Course) {
-    const meetingTime = (time: string) => calendarTime(time).replace(" ", "").toLowerCase();
-    const meetingDays = (days: number[]) => {
-      const names = days.map((day) => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day]);
-      const label = names.join(", ");
-      return (label.length > 30 ? names.map((name) => name.slice(0, 3)).join(", ") : label) || "No days entered";
-    };
-    const items = assignments.filter((a) => a.courseId === course.id), details = extraData.courseDetails[course.id] ?? emptyCourseDetails();
-    const syllabusFile = fileStore.files.find((file) => file.id === details.syllabusFileId && file.kind === "syllabus" && file.state === "ready" && !file.trashed_at);
-    const hasSyllabusPreview = Boolean(syllabusFile || details.syllabusText);
-    return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} skipOpeningAnimation={skipOpeningAnimation} closeControlRef={closeExpandedClassRef} onCloseStart={clearSavedCourse} onClose={() => setSelectedClass(null)} suspended={!!(classSetup || selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || currentSyllabusDeletion || studyOpen || editor || syllabusDraft)}>{(close) => <>
-      {renderClassVisual(course, close)}
-      <div className="expanded-class-body">
-        <div className="expanded-class-heading"><div className="expanded-class-title"><h2><CourseEditTransition revision={course.code}><span className="expanded-class-code">{course.code} · </span></CourseEditTransition><CourseEditTransition revision={course.name}><span data-course-morph="name">{course.name}</span></CourseEditTransition><span className="expanded-class-metadata">· <CourseEditTransition revision={course.instructor}><span data-course-morph="instructor">{course.instructor || "No instructor entered"}</span></CourseEditTransition> · <CourseEditTransition revision={String(course.credits)}><span data-course-morph="credits">{course.credits} credits</span></CourseEditTransition></span></h2></div>
-        <div className="expanded-class-actions"><button className="primary-button" onClick={() => { setSelectedClass(null); setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } }); }}><Plus size={15} />Add assignment</button><button className="secondary-button" onClick={() => { setClassSetup({ course, details, editing: true, profileId: profile.id, generation: workspaceLoadGeneration.current }); }}>Edit class</button></div>
-        </div>
-        <div className="expanded-class-grid">
-          <section className="expanded-class-section expanded-class-details" aria-label="Course meeting notes"><h3>Meeting Notes</h3><CourseEditTransition revision={details.meetingNotes?.trim() || ""}><p>{details.meetingNotes?.trim() || "No meeting notes entered"}</p></CourseEditTransition></section>
-          <section className="expanded-class-section expanded-class-schedule" aria-label="Course schedule">
-            <div className={`expanded-class-meetings${details.meetings.length % 2 === 1 ? " expanded-class-meetings-odd" : ""}`}><CourseEditTransitionList>{details.meetings.length ? details.meetings.map((meeting, index) => <div className="expanded-class-meeting" key={meeting.id}><CourseEditTransition revision={meeting.name || `Meeting ${index + 1}`}><h3>{meeting.name || `Meeting ${index + 1}`}</h3></CourseEditTransition><p><CourseEditTransition revision={meetingDays(meeting.days)}><span>{meetingDays(meeting.days)}</span></CourseEditTransition><br /><CourseEditTransition revision={`${meetingTime(meeting.start)}–${meetingTime(meeting.end)}`}><span>{meetingTime(meeting.start)}–{meetingTime(meeting.end)}</span></CourseEditTransition><br /><CourseEditTransition revision={formatExpandedMeetingLocation(meeting.location || course.room)}><span>{formatExpandedMeetingLocation(meeting.location || course.room) || "No location entered"}</span></CourseEditTransition></p><CourseEditTransition revision={meeting.location || course.room}><MeetingLocationPreview location={meeting.location || course.room} /></CourseEditTransition></div>) : [<p key="empty">No recurring meetings entered.</p>]}</CourseEditTransitionList></div>
-            <div className="expanded-class-actions"><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); navigate("calendar"); }}><CalendarDays size={15} />View schedule</button></div>
-            <ClassMeetingWeek meetings={details.meetings} today={today} />
-          </section>
-        <section className="expanded-class-section expanded-class-syllabus" aria-label="Course syllabus">
-          <div className="expanded-class-syllabus-header">
-            <h3>Syllabus</h3>
-            <div className="expanded-class-actions">
-              <button className="secondary-button" disabled={!canWriteFiles || profilePending || fileStore.busy} onClick={() => setSyllabusAttachment({ courseId: course.id, folderId: null, simple: true, session: fileActionSession })}><Upload size={15} />Import syllabus</button>
-              {(details.syllabusFileId || details.syllabusText) && <button className="secondary-button" disabled={!canWriteFiles || profilePending || fileStore.busy} onClick={() => setSyllabusDeletion({ session: fileActionSession, courseId: course.id, fileId: details.syllabusFileId, file: fileStore.files.find((item) => item.id === details.syllabusFileId) })}><Trash2 size={15} aria-hidden="true" />Delete Syllabus</button>}
-            </div>
-          </div>
-          {!hasSyllabusPreview && details.syllabusFileId && <p>The attached syllabus file is unavailable. Import a replacement to preview it.</p>}
-          <CourseEditTransition revision={JSON.stringify([syllabusFile?.id, syllabusFile?.content_revision, syllabusFile ? null : details.syllabusText])}><div className="expanded-class-syllabus-preview" role="region" aria-label="Syllabus preview">{!hasSyllabusPreview ? <div className="expanded-class-syllabus-empty"><X size={36} aria-hidden="true" /><span>No Uploaded Syllabus</span></div> : syllabusFile ? <InlineFilePreview key={`${initialProfile.id}:${fileActionSession.generation}:${syllabusFile.id}`} file={syllabusFile} store={fileStore} loadingFallback={<div className="expanded-class-syllabus-loading" role="status"><FileText size={28} aria-hidden="true" /><span>Loading Syllabus</span></div>} /> : <pre className="syllabus-source">{details.syllabusText}</pre>}</div></CourseEditTransition>
-          <CourseEditTransition revision={JSON.stringify([Boolean(syllabusFile), details.syllabusText])}>{syllabusFile && details.syllabusText ? <details className="expanded-class-syllabus-text"><summary>Saved syllabus text</summary><pre className="syllabus-source">{details.syllabusText}</pre></details> : null}</CourseEditTransition>
-        </section>
-        </div>
-        <section className="expanded-class-section"><h3>Assignments</h3>{renderAssignmentTable(items, true)}</section>
-      </div>
-    </>}</ClassCardExpansion>;
-  }
-
-  function renderAssignmentDetail(assignment: Assignment) {
-    const current = storedAssignments.find((a) => a.id === assignment.id) ?? assignment;
-    const course = courseFor(courses, current.courseId);
-    return <div className="modal-backdrop"><section className="assignment-modal academic-editor" role="dialog" aria-modal="true" aria-label="Assignment details"><div className="modal-header"><div><p>{course.code} · {current.type ?? "Assignment"}</p><h2>{current.title}</h2></div><button className="secondary-button" onClick={() => setSelectedAssignment(null)}>Close assignment</button></div><p>Due {dateLabel(current.dateKey)} {current.dueTime ?? ""}</p><StatusBadge status={assignmentStatus(current, today)} /><p>{current.description || "No description entered."}</p><p>Weight: {current.weight || "Not entered"} · Progress: {current.progress}%</p><h3>Attachments</h3><button className="secondary-button" disabled={!canWriteFiles} onClick={() => setFileDialog({ defaults: { courseId: current.courseId, assignmentId: current.id, kind: "attachment" } })}>Attach file</button><FileList files={fileStore.files.filter((f) => f.assignment_id === current.id)} store={fileStore} onOpen={setFilePreview} onEdit={(initial) => setFileDialog({ initial })} onTrashed={handleLegacyTrashed} canWrite={canWriteFiles} /><h3>Notes</h3><p className="syllabus-source">{current.notes || "No notes yet."}</p><ul>{["Review instructions and rubric", "Complete first draft", "Proofread and submit"].map((label, i) => <li key={label}>{current.checklist?.[i] ? "✓" : "○"} {label}</li>)}</ul><div className="modal-actions"><button className="primary-button" onClick={() => { setEditor({ assignment: current }); setSelectedAssignment(null); }}>Edit assignment</button><button className="secondary-button" onClick={() => toggleAssignmentComplete(current.id)}>{current.status === "done" ? "Mark incomplete" : "Mark complete"}</button><button className="secondary-button" onClick={() => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== current.id) })) setSelectedAssignment(null); } }}>Delete assignment</button></div></section></div>;
-  }
-
-  function renderClassSetup() {
-    if (!classSetup || classSetup.profileId !== initialProfile.id) return null;
+  function classSetupDialog() {
+    if (!classSetup || classSetup.profileId !== initialProfile.id) return undefined;
     const image = classSetup.editing ? courseImages.get(classSetup.course.id) : undefined;
     const syllabus = fileStore.files.find((file) => file.id === classSetup.details?.syllabusFileId && file.kind === "syllabus" && file.state === "ready" && !file.trashed_at);
-    return <ClassSetup key={`${classSetup.profileId}:${classSetup.generation}:${classSetup.course.id}`} initial={classSetup.course} initialDetails={classSetup.details} editing={classSetup.editing} savedImageId={image?.id} savedImageUrl={image ? fileStore.url(image) : undefined} savedSyllabusPreview={syllabus ? <InlineFilePreview file={syllabus} store={fileStore} /> : undefined} initialBounds={classSetup.initialBounds} today={today} canUpload={canWriteFiles} onSave={saveClassSetup} onClose={() => setClassSetup(null)} onDelete={classSetup.editing ? () => removeClass(classSetup.course) : undefined} />;
-  }
-
-  function renderAddClassDialog() {
-    return <div className="modal-backdrop">
-      <section ref={addClassChoiceRef} className="small-modal add-class-choice-modal" role="dialog" aria-modal="true" aria-label="Add a class">
-        <div className="modal-header">
-          <div>
-            <h2>Add a class</h2>
-          </div>
-          <button className="secondary-button" onClick={() => setAddClassOpen(false)}>Close</button>
-        </div>
-        <div className="add-class-choices">
-          <button className="add-class-choice add-class-choice-import" aria-label="Import syllabus" aria-describedby="add-class-import-description" onClick={newReview}>
-            <span className="add-class-choice-icon"><Upload size={24} aria-hidden="true" /></span>
-            <span className="add-class-choice-title">Import syllabus</span>
-            <span className="add-class-choice-description" id="add-class-import-description">Upload or paste your syllabus, then review your class details and assignments.</span>
-            <ArrowRight className="add-class-choice-arrow" size={18} aria-hidden="true" />
-          </button>
-          <button className="add-class-choice add-class-choice-manual" aria-label="Manual entry" aria-describedby="add-class-manual-description" onClick={() => transitionClassChoice((initialBounds) => { setClassSetup({ course: emptyCourse(uid("course")), profileId: profile.id, generation: workspaceLoadGeneration.current, initialBounds }); setAddClassOpen(false); })}>
-            <span className="add-class-choice-icon"><Pencil size={24} aria-hidden="true" /></span>
-            <span className="add-class-choice-title">Manual entry</span>
-            <span className="add-class-choice-description" id="add-class-manual-description">Start with your class details and add assignments as you go.</span>
-            <ArrowRight className="add-class-choice-arrow" size={18} aria-hidden="true" />
-          </button>
-        </div>
-      </section>
-    </div>;
+    return { key: `${classSetup.profileId}:${classSetup.generation}:${classSetup.course.id}`, props: {
+          initial: classSetup.course,
+          initialDetails: classSetup.details,
+          editing: classSetup.editing,
+          savedImageId: image?.id,
+          savedImageUrl: image ? fileStore.url(image) : undefined,
+          savedSyllabusPreview: syllabus ? <InlineFilePreview file={syllabus} store={fileStore} /> : undefined,
+          initialBounds: classSetup.initialBounds,
+          today: today,
+          canUpload: canWriteFiles,
+          onSave: saveClassSetup,
+          onClose: () => setClassSetup(null),
+          onDelete: classSetup.editing ? () => removeClass(classSetup.course) : undefined
+        } };
   }
 
 }

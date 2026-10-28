@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { inlineWorkspaceStyles, readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDir = resolve(repoRoot, ".vinext/verify-widget-layout");
@@ -12,11 +13,8 @@ const screenshotDir = resolve(repoRoot, ".vinext/verify-widget-layout");
 // Set DENSITY_ONLY=1 to run desktop scaling, phone geometry, and sidebar/menu
 // checks independently of the legacy content-overflow scenarios.
 // PowerShell example: $env:PLAYWRIGHT_MODULE = 'C:/path/to/playwright/index.mjs'; node scripts/verify-widget-layout.mjs
-const [globalCss, referenceCss, widgetAppearanceCss, widgetBlockLayoutCss, mountainAsset, playwright] = await Promise.all([
-  readFile(resolve(repoRoot, "app/globals.css"), "utf8"),
-  readFile(resolve(repoRoot, "app/reference-ui.css"), "utf8"),
-  readFile(resolve(repoRoot, "app/widget-appearance.css"), "utf8"),
-  readFile(resolve(repoRoot, "app/widget-block-layout.css"), "utf8"),
+const [workspaceStyles, mountainAsset, playwright] = await Promise.all([
+  readWorkspaceStylesheets(),
   readFile(resolve(repoRoot, "public/mountain-header.png")),
   (async () => {
     try {
@@ -28,6 +26,8 @@ const [globalCss, referenceCss, widgetAppearanceCss, widgetBlockLayoutCss, mount
     }
   })(),
 ]);
+const referenceCss = workspaceStyles.sources.find(({ path }) => path === "app/reference-ui.css")?.source;
+assert.ok(referenceCss, "the workspace stylesheet import list includes the reference UI overrides");
 
 assert.equal(mountainAsset.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "mountain banner fixture asset is a PNG");
 const mountainSourceDimensions = {
@@ -38,6 +38,9 @@ assert.deepEqual(mountainSourceDimensions, { width: 2172, height: 724 }, "mounta
 const mountainImageUrl = "url('/mountain-header.png')";
 assert.equal(referenceCss.split(mountainImageUrl).length - 1, 1, "production CSS references the mountain banner exactly once");
 const fixtureReferenceCss = referenceCss.replace(mountainImageUrl, `url("data:image/png;base64,${mountainAsset.toString("base64")}")`);
+const fixtureCss = inlineWorkspaceStyles(workspaceStyles.sources.map((stylesheet) => stylesheet.path === "app/reference-ui.css"
+  ? { ...stylesheet, source: fixtureReferenceCss }
+  : stylesheet));
 
 const longText = "An intentionally long fictional dashboard entry exercises content overflow without account data. ".repeat(70);
 async function renderActualWidgetMarkup() {
@@ -153,13 +156,9 @@ const gridStyleAttribute = actualMarkup.gridStyle
   ? ` style="${actualMarkup.gridStyle.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"`
   : "";
 
-// This opt-in browser fixture combines actual Workspace markup with production CSS.
 const documentHtml = `<!doctype html><html data-theme="dark" data-motion="reduced" style='--font-geist-sans:"Segoe UI";--font-geist-mono:Consolas,monospace'><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
 .sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
-${globalCss.replace(/^@import[^;]+;\s*/m, "")}
-${fixtureReferenceCss}
-${widgetAppearanceCss}
-${widgetBlockLayoutCss}
+${fixtureCss}
 </style></head><body><div class="app-shell reference-ui" id="app">
   ${actualMarkup.sidebar}
   <div class="mountain-backdrop"></div>${actualMarkup.desktopTopbar}
@@ -1488,10 +1487,7 @@ try {
   // classic scrollbar and writes the square unit only when its inputs change.
   const thresholdPage = await browser.newPage({ viewport: { width: 1000, height: 750 }, deviceScaleFactor: 1 });
   const thresholdHtml = `<!doctype html><html data-theme="dark" data-motion="reduced"><head><meta charset="utf-8"><style>
-${globalCss.replace(/^@import[^;]+;\s*/m, "")}
-${referenceCss}
-${widgetAppearanceCss}
-${widgetBlockLayoutCss}
+${fixtureCss}
 </style></head><body style="margin:0"><div class="reference-ui" style="--content-offset:0px;--page-gutter:0px"><main class="main-content" style="margin:0;padding:0 0 20px;min-height:0;width:100%"><div style="height:100px"></div><div class="widget-grid"${gridStyleAttribute}>${cardsMarkup}</div></main></div></body></html>`;
   let thresholdResult;
   try {
@@ -1584,7 +1580,7 @@ ${widgetBlockLayoutCss}
 
   console.log(JSON.stringify({
     result: "PASS",
-    fixture: "actual app/globals.css, app/reference-ui.css, app/widget-appearance.css, app/widget-block-layout.css, and all 18 production widget types",
+    fixture: "the ordered workspace stylesheet imports and all 18 production widget types",
     screenshots: [
       ".vinext/verify-widget-layout/desktop-small-4x2-expanded.png",
       ".vinext/verify-widget-layout/desktop-small-4x2-collapsed.png",

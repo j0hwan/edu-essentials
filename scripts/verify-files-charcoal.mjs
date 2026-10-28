@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDir = resolve(repoRoot, ".vinext/verify-files-charcoal");
@@ -13,15 +14,7 @@ const esbuild = process.env.ESBUILD_MODULE
   ? await import(pathToFileURL(resolve(process.env.ESBUILD_MODULE)).href)
   : await import("esbuild");
 
-const cssFiles = [
-  "app/globals.css", "app/reference-ui.css", "app/auth.css", "app/home-skeleton.css",
-  "app/widget-appearance.css", "app/widget-block-layout.css", "app/widget-reorder.css",
-  "app/files-browser.css", "app/files-browser-tools.css", "app/files-card-preview.css",
-  "app/file-organization-dialogs.css", "app/files-trash-dialog.css", "app/file-archive-dialog.css",
-  "app/file-upload-dialog.css", "app/local-file-preview.css", "app/native-document-editor.css", "app/course-syllabus.css",
-];
-const css = (await Promise.all(cssFiles.map((name) => readFile(resolve(repoRoot, name), "utf8"))))
-  .map((source) => source.replace(/^@import[^;]+;\s*/gm, "")).join("\n");
+const { css } = await readWorkspaceStylesheets();
 const bundle = await esbuild.build({
   entryPoints: [resolve(repoRoot, "tests/fixtures/files-reference-browser.tsx")],
   bundle: true, write: false, platform: "browser", format: "iife", target: "chrome120", jsx: "automatic",

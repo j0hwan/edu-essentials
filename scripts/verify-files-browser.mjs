@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDir = resolve(repoRoot, ".vinext/verify-files-browser");
@@ -11,15 +12,7 @@ const playwright = process.env.PLAYWRIGHT_MODULE
 const esbuild = process.env.ESBUILD_MODULE
   ? await import(pathToFileURL(resolve(process.env.ESBUILD_MODULE)).href)
   : await import("esbuild");
-const [globalCss, referenceCss, browserCss, syllabusCss, authCss] = await Promise.all([
-  "app/globals.css",
-  "app/reference-ui.css",
-  "app/files-browser.css",
-  "app/files-browser-tools.css",
-  "app/file-archive-dialog.css",
-  "app/course-syllabus.css",
-  "app/auth.css",
-].map((file) => readFile(resolve(repoRoot, file), "utf8")));
+const { css } = await readWorkspaceStylesheets();
 const bundle = await esbuild.build({
   entryPoints: [resolve(repoRoot, "tests/fixtures/files-browser-browser.tsx")],
   bundle: true,
@@ -37,9 +30,6 @@ const bundle = await esbuild.build({
   logLevel: "warning",
 });
 const js = bundle.outputFiles[0].text;
-const css = [globalCss, referenceCss, browserCss, syllabusCss, authCss]
-  .map((source) => source.replace(/^@import[^;]+;\s*/gm, ""))
-  .join("\n");
 const html = `<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root { --font-geist-sans: Arial, sans-serif; }${css}</style></head><body><div class="app-shell reference-ui"><aside class="sidebar" aria-hidden="true"></aside><header class="desktop-topbar" aria-hidden="true"></header><main id="main-content" class="main-content"><div id="root"></div></main></div><script src="/fixture.js"></script></body></html>`;
 const baseUrl = "http://files-browser.test";
 await mkdir(screenshotDir, { recursive: true });

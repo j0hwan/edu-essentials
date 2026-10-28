@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { JSDOM } from "jsdom";
+import { readWorkspaceStylesheets } from "./helpers/workspace-presentation.mjs";
 
-const dashboardCss = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
-const skeletonCss = await readFile(new URL("../app/courses-skeleton.css", import.meta.url), "utf8");
-const referenceCss = await readFile(new URL("../app/reference-ui.css", import.meta.url), "utf8");
+const workspaceStyles = await readWorkspaceStylesheets();
+const stylesheet = (path) => {
+  const match = workspaceStyles.sources.find((entry) => entry.path === path);
+  assert.ok(match, `${path} is imported by the workspace presentation`);
+  return match.source;
+};
+const dashboardCss = workspaceStyles.css;
+const skeletonCss = stylesheet("app/courses-skeleton.css");
+const referenceCss = stylesheet("app/reference-ui.css");
 
 function gridRules(css, selector) {
   const dom = new JSDOM(`<style>${css}</style>`);

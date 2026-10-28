@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { clientModule } from "../tests/helpers/client-modules.mjs";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const playwright = process.env.PLAYWRIGHT_MODULE
@@ -12,13 +13,10 @@ const playwright = process.env.PLAYWRIGHT_MODULE
 const referenceCssPath = process.env.SIDEBAR_REFERENCE_CSS
   ? resolve(process.env.SIDEBAR_REFERENCE_CSS)
   : resolve(repoRoot, "app/reference-ui.css");
-const [{ SIDEBAR_COLLAPSED_BOOTSTRAP, SIDEBAR_COLLAPSED_STORAGE_KEY }, globalCss, referenceCss, widgetCss] = await Promise.all([
+const [{ SIDEBAR_COLLAPSED_BOOTSTRAP, SIDEBAR_COLLAPSED_STORAGE_KEY }, { css }] = await Promise.all([
   import(await clientModule("lib/sidebar-preference.ts")),
-  readFile(resolve(repoRoot, "app/globals.css"), "utf8"),
-  readFile(referenceCssPath, "utf8"),
-  readFile(resolve(repoRoot, "app/widget-block-layout.css"), "utf8"),
+  readWorkspaceStylesheets({ stylesheetOverrides: { "app/reference-ui.css": referenceCssPath } }),
 ]);
-const css = [globalCss, referenceCss, widgetCss].map((source) => source.replace(/^@import[^;]+;\s*/gm, "")).join("\n");
 const html = `<!doctype html>
 <html lang="en" data-theme="dark">
   <head>

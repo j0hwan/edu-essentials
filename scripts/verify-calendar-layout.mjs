@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDir = resolve(repoRoot, ".vinext/verify-calendar-layout");
-const [globalCss, referenceCss, calendarCss, playwright] = await Promise.all([
-  readFile(resolve(repoRoot, "app/globals.css"), "utf8"),
-  readFile(resolve(repoRoot, "app/reference-ui.css"), "utf8"),
-  readFile(resolve(repoRoot, "app/calendar.css"), "utf8"),
+const [workspaceStyles, playwright] = await Promise.all([
+  readWorkspaceStylesheets(),
   (async () => {
     try {
       return process.env.PLAYWRIGHT_MODULE
@@ -117,7 +116,7 @@ for (const view of ["week", "month", "day"]) {
 }
 assert.match(markup.filterOpenWeek, /planner-filter-popover/, "filter popover fixture comes from the actual open Calendar state");
 
-const css = `${globalCss.replace(/^@import[^;]+;\s*/m, "")}\n${referenceCss}\n${calendarCss}`;
+const css = workspaceStyles.css;
 function shellDocument(calendarMarkup) {
   return `<!doctype html><html data-theme="dark" data-motion="reduced"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root { --font-geist-sans: Arial; }${css}</style></head><body>
     <div id="app" class="app-shell reference-ui">

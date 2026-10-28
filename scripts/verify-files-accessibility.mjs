@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDir = resolve(repoRoot, ".vinext/verify-files-accessibility");
@@ -18,21 +19,8 @@ const fixtures = {
   trash: "tests/fixtures/files-trash-browser.tsx",
   native: "tests/fixtures/native-document-browser.tsx",
 };
-const cssFiles = [
-  "app/globals.css",
-  "app/reference-ui.css",
-  "app/files-browser.css",
-  "app/files-browser-tools.css",
-  "app/file-upload-dialog.css",
-  "app/file-archive-dialog.css",
-  "app/file-organization-dialogs.css",
-  "app/files-trash-dialog.css",
-  "app/course-syllabus.css",
-  "app/native-document-editor.css",
-  "app/auth.css",
-];
-const [cssSources, bundles] = await Promise.all([
-  Promise.all(cssFiles.map((file) => readFile(resolve(repoRoot, file), "utf8"))),
+const [{ css }, bundles] = await Promise.all([
+  readWorkspaceStylesheets(),
   Promise.all(Object.entries(fixtures).map(async ([name, path]) => {
     const bundle = await esbuild.build({
       entryPoints: [resolve(repoRoot, path)],
@@ -54,7 +42,6 @@ const [cssSources, bundles] = await Promise.all([
   })),
 ]);
 const javascriptByFixture = Object.fromEntries(bundles);
-const css = cssSources.map((source) => source.replace(/^@import[^;]+;\s*/gm, "")).join("\n");
 const html = `<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root { --font-geist-sans: Arial, sans-serif; }${css}</style></head><body><div class="app-shell reference-ui"><aside class="sidebar" aria-hidden="true"></aside><header class="desktop-topbar" aria-hidden="true"></header><main id="main-content" class="main-content"><div id="root"></div></main></div><script src="/fixture.js"></script></body></html>`;
 const baseUrl = "https://files-accessibility.test";
 const viewports = [

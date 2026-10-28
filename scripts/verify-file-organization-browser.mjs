@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDir = resolve(repoRoot, ".vinext/verify-file-organization");
@@ -12,17 +13,7 @@ const playwright = process.env.PLAYWRIGHT_MODULE
 const esbuild = process.env.ESBUILD_MODULE
   ? await import(pathToFileURL(resolve(process.env.ESBUILD_MODULE)).href)
   : await import("esbuild");
-const cssFiles = [
-  "app/globals.css",
-  "app/reference-ui.css",
-  "app/files-browser.css",
-  "app/files-browser-tools.css",
-  "app/file-archive-dialog.css",
-  "app/file-organization-dialogs.css",
-  "app/course-syllabus.css",
-  "app/auth.css",
-];
-const cssSources = await Promise.all(cssFiles.map((file) => readFile(resolve(repoRoot, file), "utf8")));
+const { css } = await readWorkspaceStylesheets();
 const googleMenuIcons = new Map(await Promise.all(["google-slides.svg", "google-docs.svg", "google-drive.svg"].map(async (name) => [
   `/${name}`,
   await readFile(resolve(repoRoot, "public", name)),
@@ -44,7 +35,6 @@ const bundle = await esbuild.build({
   logLevel: "warning",
 });
 const js = bundle.outputFiles[0].text;
-const css = cssSources.map((source) => source.replace(/^@import[^;]+;\s*/gm, "")).join("\n");
 const html = `<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root { --font-geist-sans: Arial, sans-serif; }${css}</style></head><body><div class="app-shell reference-ui"><aside class="sidebar" aria-hidden="true"></aside><header class="desktop-topbar" aria-hidden="true"></header><main id="main-content" class="main-content"><div id="root"></div></main></div><script src="/fixture.js"></script></body></html>`;
 const baseUrl = "https://file-organization.test";
 await mkdir(screenshotDir, { recursive: true });

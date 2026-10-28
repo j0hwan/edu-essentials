@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const playwright = process.env.PLAYWRIGHT_MODULE
@@ -10,13 +10,13 @@ const playwright = process.env.PLAYWRIGHT_MODULE
 const esbuild = process.env.ESBUILD_MODULE
   ? await import(pathToFileURL(resolve(process.env.ESBUILD_MODULE)).href)
   : await import("esbuild");
-const [globalCss, setupCss] = await Promise.all(["app/globals.css", "app/class-setup.css"].map((file) => readFile(resolve(repoRoot, file), "utf8")));
+const { css } = await readWorkspaceStylesheets();
 const bundle = await esbuild.build({
   entryPoints: [resolve(repoRoot, "tests/fixtures/class-modal-exit-browser.tsx")], bundle: true, write: false,
   platform: "browser", format: "iife", target: "chrome120", jsx: "automatic", loader: { ".css": "empty" },
   define: { "process.env.NODE_ENV": '"production"' }, logLevel: "warning",
 });
-const html = `<!doctype html><html data-theme="light" data-motion="full"><head><meta charset="utf-8"><base href="https://edu.example/"><style>:root{--font-geist-sans:Arial,sans-serif}${globalCss.replace(/^@import[^;]+;\s*/gm, "")}\n${setupCss}</style></head><body><div id="root"></div></body></html>`;
+const html = `<!doctype html><html data-theme="light" data-motion="full"><head><meta charset="utf-8"><base href="https://edu.example/"><style>:root{--font-geist-sans:Arial,sans-serif}${css}</style></head><body><div id="root"></div></body></html>`;
 const launch = { headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] };
 if (process.env.CHROME_EXECUTABLE) launch.executablePath = process.env.CHROME_EXECUTABLE;
 else launch.channel = "chrome";

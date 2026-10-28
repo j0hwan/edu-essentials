@@ -1,22 +1,15 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const playwright = process.env.PLAYWRIGHT_MODULE
   ? await import(pathToFileURL(resolve(process.env.PLAYWRIGHT_MODULE)).href)
   : await import("playwright");
-const cssFiles = [
-  "app/globals.css",
-  "app/reference-ui.css",
-  "app/widget-appearance.css",
-  "app/widget-block-layout.css",
-  "app/widget-reorder.css",
-];
-const [bundle, ...styles] = await Promise.all([
+const [bundle, { css }] = await Promise.all([
   build({
     entryPoints: [resolve(repoRoot, "tests/fixtures/widget-reorder-browser.tsx")],
     bundle: true,
@@ -33,10 +26,9 @@ const [bundle, ...styles] = await Promise.all([
     define: { "process.env.NODE_ENV": '"production"' },
     logLevel: "warning",
   }),
-  ...cssFiles.map((file) => readFile(resolve(repoRoot, file), "utf8")),
+  readWorkspaceStylesheets(),
 ]);
 const js = bundle.outputFiles[0].text;
-const css = styles.map((source) => source.replace(/^@import[^;]+;\s*/gm, "")).join("\n");
 const html = `<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root { --font-geist-sans: Arial, sans-serif; }${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`;
 const server = createServer((request, response) => {
   if (request.url?.startsWith("/fixture.js")) {

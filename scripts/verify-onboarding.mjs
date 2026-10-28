@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import { clientModule } from "../tests/helpers/client-modules.mjs";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 // Uses the actual component and CSS with a disposable account fixture.
 // PLAYWRIGHT_MODULE and CHROME_EXECUTABLE can point to an external browser runtime.
@@ -35,7 +36,7 @@ const profile = {
 const root = createRoot(document.getElementById("root"));
 const output = resolve(".vinext/verify-onboarding");
 await mkdir(output, { recursive: true });
-const css = (await Promise.all(["app/globals.css", "app/onboarding-flow.css"].map((file) => readFile(file, "utf8")))).join("\n");
+const { css } = await readWorkspaceStylesheets();
 const browser = await playwright.chromium.launch({
   headless: true,
   ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : { channel: "chrome" }),

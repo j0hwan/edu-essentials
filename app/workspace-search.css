@@ -1,0 +1,132 @@
+/* workspace search styles extracted from globals.css. */
+
+.topbar-search-slot {
+  --topbar-search-height: 40px;
+  position: relative;
+  min-width: 0;
+  height: var(--topbar-search-height);
+}
+
+.topbar-search {
+  position: absolute;
+  inset: 0 0 auto;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--subtle);
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+.topbar-search-row {
+  display: flex;
+  min-width: 0;
+  height: calc(var(--topbar-search-height) - 2px);
+  align-items: center;
+  gap: 9px;
+  padding: 0 8px 0 13px;
+}
+
+.topbar-search:focus-within {
+  border-color: color-mix(in srgb, var(--brand) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.topbar-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
+.topbar-search input::placeholder {
+  color: var(--subtle);
+}
+
+.quick-search {
+  color: var(--ink);
+}
+
+.quick-search-heading, .quick-search-all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  font-size: 12px;
+}
+
+.quick-search-heading > span, .quick-search-result small, .quick-search-result em, .quick-search-empty {
+  color: var(--subtle);
+}
+
+.quick-search-results {
+  max-height: min(360px, 55dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 6px;
+}
+
+.quick-search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border-radius: 7px;
+  padding: 10px 8px;
+  text-align: left;
+}
+
+.quick-search-result > svg { flex-shrink: 0; color: var(--subtle); }
+.quick-search-result > span { flex: 1; min-width: 0; }
+.quick-search-result strong, .quick-search-result small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-search-result strong { font-size: 13px; font-weight: 600; }
+.quick-search-result small { margin-top: 3px; font-size: 11px; }
+.quick-search-result em { flex-shrink: 0; font-size: 10px; font-style: normal; }
+.quick-search-result:hover, .quick-search-result:focus-visible, .quick-search-all:hover { background: var(--surface-2); }
+.quick-search-empty { margin: 0; padding: 10px 14px 20px; font-size: 13px; }
+.quick-search-all { width: 100%; border-top: 1px solid var(--border); color: var(--brand); text-align: left; }
+.quick-search-all > span:last-child { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+
+/* Search */
+.search-page { max-width: 1180px; }
+.global-search { display: flex; min-height: 64px; align-items: center; gap: 12px; border: 1px solid var(--border-strong); border-radius: 15px; background: var(--surface); padding: 8px 12px 8px 18px; box-shadow: var(--shadow); }
+.global-search > svg { color: var(--brand); }
+.global-search input { min-width: 0; flex: 1; border: 0; background: transparent; font-size: 15px; }
+.global-search input::placeholder { color: var(--subtle); }
+.global-search > button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: transparent; color: var(--muted); }
+.search-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; }
+.search-suggestions > span { margin-right: 3px; color: var(--muted); font-size: 9px; }
+.search-suggestions button { border: 1px solid var(--border); border-radius: 99px; background: var(--surface); color: var(--muted); padding: 5px 9px; font-size: 9px; }
+.search-meta { display: flex; align-items: center; justify-content: space-between; margin: 28px 0 10px; }
+.search-meta strong { font-size: 12px; }
+.search-meta span { color: var(--muted); font-size: 9px; }
+.search-results { display: flex; flex-direction: column; gap: 22px; }
+.result-group-title { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.result-group-title > span { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 8px; background: var(--brand-soft); color: var(--brand); }
+.result-group-title h2 { margin: 0; font-size: 14px; }
+.result-group-title small { display: grid; min-width: 20px; height: 20px; place-items: center; border-radius: 50%; background: var(--surface-2); color: var(--muted); font-size: 8px; }
+.search-results section > div:last-child { overflow: hidden; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); }
+.search-results section > div:last-child > button { display: grid; width: 100%; min-height: 64px; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; border-top: 1px solid var(--border); background: transparent; padding: 10px 14px; text-align: left; }
+.search-results section > div:last-child > button:first-child { border-top: 0; }
+.search-results section > div:last-child > button:hover { background: var(--surface-2); }
+.result-type-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: var(--surface-2); color: var(--muted); }
+.search-results button > span:nth-child(2) { min-width: 0; }
+.search-results button strong, .search-results button small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-results button strong { font-size: 11px; }
+.search-results button small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.search-results button em { border-radius: 99px; background: var(--surface-2); color: var(--muted); padding: 4px 7px; font-size: 8px; font-style: normal; }
+.search-results button > svg { color: var(--subtle); }
+.empty-search { display: grid; min-height: 300px; place-content: center; place-items: center; color: var(--muted); text-align: center; }
+.empty-search h2 { margin: 11px 0 3px; color: var(--ink); font-size: 18px; }
+.empty-search p { margin: 0; font-size: 11px; }
+
+@media (max-width: 620px) {
+  .global-search { min-height: 56px; }
+  .global-search kbd { display: none; }
+  .search-meta { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .search-results section > div:last-child > button { grid-template-columns: auto minmax(0,1fr) auto; }
+  .search-results button em { display: none; }
+}

@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const playwright = process.env.PLAYWRIGHT_MODULE ? await import(pathToFileURL(resolve(process.env.PLAYWRIGHT_MODULE)).href) : await import("playwright");
 const esbuild = process.env.ESBUILD_MODULE ? await import(pathToFileURL(resolve(process.env.ESBUILD_MODULE)).href) : await import("esbuild");
-const css = await Promise.all(["app/globals.css", "app/auth.css", "app/class-setup.css"].map((file) => readFile(resolve(repoRoot, file), "utf8")));
+const { css } = await readWorkspaceStylesheets();
 const sourceOverride = process.env.CLASS_SETUP_SOURCE;
 const bundle = await esbuild.build({
   entryPoints: [resolve(repoRoot, "tests/fixtures/class-credits-focus-browser.tsx")], bundle: true, write: false,
@@ -16,7 +17,7 @@ const bundle = await esbuild.build({
     build.onLoad({ filter: /class-setup\.tsx$/ }, async () => ({ contents: await readFile(resolve(sourceOverride), "utf8"), loader: "tsx", resolveDir: resolve(repoRoot, "app") }));
   } }] : [],
 });
-const styles = css.map((source) => source.replace(/^@import[^;]+;\s*/gm, "")).join("\n");
+const styles = css;
 const html = `<!doctype html><html data-theme="light" data-motion="reduced"><head><meta charset="utf-8"><base href="https://edu.example/"><style>:root{--font-geist-sans:Arial,sans-serif}${styles}</style></head><body><div id="root"></div></body></html>`;
 const launch = { headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] };
 if (process.env.CHROME_EXECUTABLE) launch.executablePath = process.env.CHROME_EXECUTABLE;

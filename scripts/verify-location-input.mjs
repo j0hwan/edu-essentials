@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readWorkspaceStylesheets } from "../tests/helpers/workspace-presentation.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const playwright = process.env.PLAYWRIGHT_MODULE
@@ -10,9 +10,7 @@ const playwright = process.env.PLAYWRIGHT_MODULE
 const esbuild = process.env.ESBUILD_MODULE
   ? await import(pathToFileURL(resolve(process.env.ESBUILD_MODULE)).href)
   : await import("esbuild");
-const [globalCss, authCss, locationCss] = await Promise.all([
-  "app/globals.css", "app/auth.css", "app/location-input.css",
-].map((file) => readFile(resolve(repoRoot, file), "utf8")));
+const { css } = await readWorkspaceStylesheets();
 const bundle = await esbuild.build({
   entryPoints: [resolve(repoRoot, "tests/fixtures/location-input-browser.tsx")],
   bundle: true,
@@ -26,9 +24,6 @@ const bundle = await esbuild.build({
   logLevel: "warning",
 });
 const js = bundle.outputFiles[0].text;
-const css = [globalCss, authCss, locationCss]
-  .map((source) => source.replace(/^@import[^;]+;\s*/gm, ""))
-  .join("\n");
 const html = `<!doctype html><html data-theme="light"><head><meta charset="utf-8"><base href="https://edu.example/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root { --font-geist-sans: Arial, sans-serif; }${css}.location-browser-fixture { width: min(850px, 94vw); margin: 24px auto; background: var(--surface); }</style></head><body><div id="root"></div></body></html>`;
 const suggestions = [
   { id: "san-francisco", address: "San Francisco, CA" },

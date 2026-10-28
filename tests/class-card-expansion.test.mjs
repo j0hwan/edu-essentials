@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
+import { readWorkspacePresentationSource, readWorkspaceStylesheets } from "./helpers/workspace-presentation.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://edu.example/", pretendToBeVisual: true });
 globalThis.window = dom.window;
@@ -458,9 +459,7 @@ test("course-code badges fit the full text without ellipsis during opening and c
   const restoreRects = installMorphRectMocks();
   const styles = document.createElement("style");
   try {
-    const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-    const dashboardStyles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
-    styles.textContent = `${globalStyles.match(/^\.course-pill \{[^}]+\}/m)[0]}\n${dashboardStyles.match(/^\.expanded-class-header \.course-pill \{[^}]+\}/m)[0]}`;
+    styles.textContent = (await readWorkspaceStylesheets()).css;
     document.head.appendChild(styles);
     await render({ children: (close) => h("div", { className: "expanded-class-header" },
       h("span", { className: "course-pill", "data-course-morph": "code" }, "ECON-101"),
@@ -1791,7 +1790,7 @@ test("an interrupted close and unmount cancel animations and restore source and 
 });
 
 test("expanded course uses a narrower syllabus column and a two-column meeting grid without horizontal scrolling", async () => {
-  const styles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
+  const { css: styles } = await readWorkspaceStylesheets();
   const layout = new JSDOM(`<style>${styles}</style><div class="expanded-class-grid"><section class="expanded-class-section expanded-class-details"></section><section class="expanded-class-section expanded-class-schedule"><div class="expanded-class-meetings"></div></section><section class="expanded-class-section expanded-class-syllabus"></section></div>`);
   try {
     const computed = (selector) => layout.window.getComputedStyle(layout.window.document.querySelector(selector));
@@ -1812,7 +1811,7 @@ test("expanded course uses a narrower syllabus column and a two-column meeting g
 });
 
 for (const count of [1, 3, 5]) test(`odd meeting counts align previews beside their text in consistent rows (${count})`, async () => {
-  const styles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
+  const { css: styles } = await readWorkspaceStylesheets();
   const meeting = '<div class="expanded-class-meeting"><h3>Lecture</h3><p>Monday<br>9:00–10:00<br>Room 1</p><a class="meeting-location-preview"></a></div>';
   const layout = new JSDOM(`<style>${styles}</style><div class="expanded-class-meetings expanded-class-meetings-odd">${meeting.repeat(count)}</div><div class="expanded-class-meetings">${meeting.repeat(2)}</div>`);
   try {
@@ -1837,7 +1836,7 @@ for (const count of [1, 3, 5]) test(`odd meeting counts align previews beside th
 });
 
 test("syllabus preview grows to fill its section while retaining its minimum document size", async () => {
-  const styles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
+  const { css: styles } = await readWorkspaceStylesheets();
   const layout = new JSDOM(`<style>${styles}</style><section class="expanded-class-syllabus"><div class="expanded-class-syllabus-header">Syllabus</div><div class="expanded-class-syllabus-preview"></div></section>`);
   try {
     const section = layout.window.getComputedStyle(layout.window.document.querySelector("section"));
@@ -1854,7 +1853,7 @@ test("syllabus preview grows to fill its section while retaining its minimum doc
 });
 
 test("expanded course hides an available syllabus filename while preserving missing-syllabus guidance and actions", async () => {
-  const source = await readFile(new URL("../app/workspace-client.tsx", import.meta.url), "utf8");
+  const source = await readWorkspacePresentationSource("courseDetail");
   const syllabusSection = source.match(/<section className="expanded-class-section expanded-class-syllabus"[\s\S]*?<\/section>/)?.[0];
 
   assert.ok(syllabusSection, "the accessible course syllabus section remains present");
