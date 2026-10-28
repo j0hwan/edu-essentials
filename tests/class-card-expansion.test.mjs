@@ -1836,6 +1836,23 @@ for (const count of [1, 3, 5]) test(`odd meeting counts align previews beside th
   } finally { layout.window.close(); }
 });
 
+test("syllabus preview grows to fill its section while retaining its minimum document size", async () => {
+  const styles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
+  const layout = new JSDOM(`<style>${styles}</style><section class="expanded-class-syllabus"><div class="expanded-class-syllabus-header">Syllabus</div><div class="expanded-class-syllabus-preview"></div></section>`);
+  try {
+    const section = layout.window.getComputedStyle(layout.window.document.querySelector("section"));
+    const preview = layout.window.getComputedStyle(layout.window.document.querySelector(".expanded-class-syllabus-preview"));
+    assert.equal(section.display, "flex");
+    assert.equal(section.flexDirection, "column");
+    assert.equal(preview.flexGrow, "1");
+    assert.equal(preview.flexShrink, "0");
+    assert.equal(preview.flexBasis, "auto");
+    assert.equal(preview.minHeight, "288px");
+    assert.equal(preview.aspectRatio, "11 / 12");
+    assert.equal(preview.overflow, "hidden");
+  } finally { layout.window.close(); }
+});
+
 test("expanded course hides an available syllabus filename while preserving missing-syllabus guidance and actions", async () => {
   const source = await readFile(new URL("../app/workspace-client.tsx", import.meta.url), "utf8");
   const syllabusSection = source.match(/<section className="expanded-class-section expanded-class-syllabus"[\s\S]*?<\/section>/)?.[0];

@@ -233,7 +233,7 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .expanded-class-details > h3, .expanded-class-syllabus-header > h3 { font-size: 15px; }
 .expanded-class-syllabus-header > h3 { margin: 0; }
 .expanded-class-syllabus-header > .expanded-class-actions { justify-content: flex-end; max-width: 100%; margin: 0 0 0 auto; }
-.expanded-class-syllabus-preview { position: relative; flex: 0 0 auto; min-height: 288px; height: auto; aspect-ratio: 11 / 12; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.expanded-class-syllabus-preview { position: relative; flex: 1 0 auto; min-height: 288px; height: auto; aspect-ratio: 11 / 12; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .expanded-class-syllabus-loading, .expanded-class-syllabus-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; color: var(--muted); font-size: 14px; text-align: center; }
 .expanded-class-syllabus-preview .inline-file-preview { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: auto; }
 .expanded-class-syllabus-preview .private-pdf-preview { display: block; width: 100%; height: 100%; min-height: 256px; flex: 1; border: 0; }
