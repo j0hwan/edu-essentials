@@ -12,6 +12,17 @@ test("address suggestions format public map results, deduplicate, and reject inv
   assert.deepEqual(parsePhotonLocations({ features: [feature({ street: "Main St", town: "Springfield" })] }).map((item) => item.address), ["Main St, Springfield"]);
 });
 
+test("address suggestions keep valid Photon coordinates and omit missing or invalid geometry", () => {
+  const withCoordinates = { ...feature({ name: "Science Hall" }), geometry: { coordinates: [-121.7405, 38.5449] } };
+  const missingCoordinates = feature({ name: "Library" });
+  const invalidCoordinates = { ...feature({ name: "Invalid" }), geometry: { coordinates: [181, 91] } };
+  assert.deepEqual(parsePhotonLocations({ features: [withCoordinates, missingCoordinates, invalidCoordinates] }), [
+    { id: "location-0", address: "Science Hall", latitude: 38.5449, longitude: -121.7405 },
+    { id: "location-1", address: "Library" },
+    { id: "location-2", address: "Invalid" },
+  ]);
+});
+
 test("address search uses a fixed provider, encoded query, bounded results, and timeout", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {

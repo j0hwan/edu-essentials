@@ -493,7 +493,7 @@ test("course-code badges fit the full text without ellipsis during opening and c
     assert.equal(openingBadge.style.boxSizing, "border-box", "animated padding stays inside the background");
     const badgeStyles = calls.find((call) => call.element === openingBadge);
     assert.equal(badgeStyles.frames[0].fontSize, "9px");
-    assert.equal(badgeStyles.frames.at(-1).fontSize, "12px");
+    assert.equal(badgeStyles.frames.at(-1).fontSize, "14px");
     assert.equal(badgeStyles.frames.at(-1).paddingLeft, "12px");
 
     await act(async () => callsFor(".class-card-expansion-dialog")[0].animation.finish());

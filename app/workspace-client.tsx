@@ -3,6 +3,7 @@
 import Link from "next/link";
 import CourseIcon from "./course-icon";
 import ClassCardBody from "./class-card-body";
+import MeetingLocationPreview from "./meeting-location-preview";
 import CourseImageFrame from "./course-image-frame";
 import { usePathname, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -2082,8 +2083,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         <div className="expanded-class-grid">
           <section className="expanded-class-section expanded-class-details" aria-label="Course meeting notes"><h3>Meeting Notes</h3><p>{details.meetingNotes?.trim() || "No meeting notes entered"}</p></section>
           <section className="expanded-class-section expanded-class-schedule" aria-label="Course schedule">
-            <div className="expanded-class-meetings">{details.meetings.length ? details.meetings.map((meeting, index) => <div className="expanded-class-meeting" key={meeting.id}><h3>{meeting.name || `Meeting ${index + 1}`}</h3><p>{meeting.days.map((day) => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day]).join(", ") || "No days entered"}<br />{meetingTime(meeting.start)}–{meetingTime(meeting.end)}<br />{meeting.location || course.room || "No location entered"}</p></div>) : <p>No recurring meetings entered.</p>}</div>
+            <div className="expanded-class-meetings">{details.meetings.length ? details.meetings.map((meeting, index) => <div className="expanded-class-meeting" key={meeting.id}><h3>{meeting.name || `Meeting ${index + 1}`}</h3><p>{meeting.days.map((day) => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day]).join(", ") || "No days entered"}<br />{meetingTime(meeting.start)}–{meetingTime(meeting.end)}<br />{meeting.location || course.room || "No location entered"}</p><MeetingLocationPreview location={meeting.location || course.room} /></div>) : <p>No recurring meetings entered.</p>}</div>
             <div className="expanded-class-actions"><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); navigate("calendar"); }}><CalendarDays size={15} />View schedule</button></div>
+            <ul className="expanded-class-weekdays" aria-label="Days of the week">{["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day) => <li key={day} aria-label={day}>{day.slice(0, 3)}</li>)}</ul>
           </section>
         <section className="expanded-class-section expanded-class-syllabus" aria-label="Course syllabus">
           <div className="expanded-class-syllabus-header">
