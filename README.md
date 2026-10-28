@@ -292,6 +292,9 @@ cross-device save check requires the provider and migration setup above.
 
 ## Deployment
 
+For uploaded-PDF preview architecture, security controls, reuse, and regression
+checks, see [the secure PDF viewer guide](docs/secure-pdf-viewer.md).
+
 Preserve .openai/hosting.json and configure the same Supabase URL, publishable key,
 and secret key in the hosted Worker environment. Never include .env in a deployment
 archive or place secrets in client components. Deploy only after the migrations
