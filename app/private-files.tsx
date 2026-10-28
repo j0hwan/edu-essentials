@@ -6,6 +6,7 @@ import type { Course } from "../lib/academics";
 import type { SavedAssignment } from "../lib/workspace-codec";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import type { FileStore } from "./use-private-files";
+import { PdfPreview } from "./pdf-preview";
 
 export function FileEditor({ store, courses, assignments, initial, defaults, onClose, onSaved, canWrite }: { store: FileStore; courses: Course[]; assignments: SavedAssignment[]; initial?: PrivateFile; defaults?: Partial<FileMetadata>; onClose: () => void; onSaved?: (file: PrivateFile) => void; canWrite: boolean }) {
   const base = { name: initial?.name ?? "", courseId: initial?.course_id ?? "", assignmentId: initial?.assignment_id ?? "", kind: initial?.kind ?? "resource", ...defaults } as FileMetadata;
@@ -225,8 +226,49 @@ export function PrivateImage({ file, store, fadeIn = false, onDecoded, onSettled
   const className = `private-class-image${fadeIn ? ` private-class-image-fade${currentImage.ready ? " is-ready" : ""}` : ""}`;
   return <img ref={imageRef} className={className} src={currentImage.url} alt={file.name} />;
 }
+
+type InlinePreviewSource = { id: string; updatedAt: string; metadataRevision: number; contentRevision: number; state: string; trashedAt: string | null; deletedAt: string | null; mimeType: string; sizeBytes: number; blob: FileStore["blob"] };
+type InlinePreviewResult = { source: InlinePreviewSource; attempt: number; url: string; text: string; data: Blob };
+
+export function InlineFilePreview({ file, store }: { file: PrivateFile; store: FileStore }) {
+  const [result, setResult] = useState<InlinePreviewResult | null>(null);
+  const [failure, setFailure] = useState<{ source: InlinePreviewSource; attempt: number; message: string } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const blob = store.blob;
+  const source = useMemo<InlinePreviewSource>(() => ({ id: file.id, updatedAt: file.updated_at, metadataRevision: file.metadata_revision, contentRevision: file.content_revision, state: file.state, trashedAt: file.trashed_at, deletedAt: file.deleted_at ?? null, mimeType: file.mime_type, sizeBytes: Number(file.size_bytes), blob }), [file.id, file.updated_at, file.metadata_revision, file.content_revision, file.state, file.trashed_at, file.deleted_at, file.mime_type, file.size_bytes, blob]);
+  const sourceRef = useRef(source);
+  const fileRef = useRef(file);
+  useLayoutEffect(() => { fileRef.current = file; }, [file]);
+  useLayoutEffect(() => { sourceRef.current = source; }, [source]);
+  const available = source.state === "ready" && !source.trashedAt && !source.deletedAt;
+  const supported = source.mimeType.startsWith("image/") || source.mimeType === "application/pdf" || (source.mimeType === "text/plain" && source.sizeBytes <= 1_000_000);
+  useEffect(() => {
+    if (!available || !supported) return;
+    const requested = source;
+    const controller = new AbortController();
+    let owned = "";
+    void blob(fileRef.current, controller.signal).then(async (data) => {
+      if (controller.signal.aborted || sourceRef.current !== requested) return;
+      if (requested.mimeType === "text/plain" && data.size > 1_000_000) throw new Error("This text file is too large to preview. Download it to read it.");
+      const text = requested.mimeType === "text/plain" ? await data.text() : "";
+      if (controller.signal.aborted || sourceRef.current !== requested) return;
+      try {
+        owned = URL.createObjectURL(requested.mimeType === "application/pdf" ? data.slice(0, data.size, "application/pdf") : data);
+        setResult({ source: requested, attempt, url: owned, text, data });
+      } catch (cause) { if (!controller.signal.aborted) setFailure({ source: requested, attempt, message: cause instanceof Error ? cause.message : "Could not create a private preview." }); }
+    }).catch((cause) => { if (!controller.signal.aborted && sourceRef.current === requested) setFailure({ source: requested, attempt, message: cause instanceof Error ? cause.message : "Could not load this private file." }); });
+    return () => { controller.abort(); if (owned) URL.revokeObjectURL(owned); };
+  }, [source, blob, attempt, available, supported]);
+  const current = result?.source === source && result.attempt === attempt ? result : null;
+  const error = failure?.source === source && failure.attempt === attempt ? failure.message : "";
+  return <div className="inline-file-preview">
+    {!available ? <p>Preview unavailable. This file is not ready or is in Trash.</p> : !supported ? <p>Preview is not supported. <a href={store.url(file)} download>Download this file</a> to open it.</p> : error ? <p role="alert">{error} <button type="button" onClick={() => setAttempt((attemptNumber) => attemptNumber + 1)}>Retry preview</button> <a href={store.url(file)} download>Download this file</a></p> : !current ? <p>Loading private preview…</p> : source.mimeType.startsWith("image/") ? <img className="private-preview-image" src={current.url} alt={file.name} /> : source.mimeType === "application/pdf" ? <PdfPreview key={current.url} data={current.data} name={file.name} downloadUrl={current.url} /> : <pre className="syllabus-source">{current.text}</pre>}
+  </div>;
+}
+
 export function FilePreview({ file, store, onClose, onEdit, onReview, onOpened, canWrite }: { file: PrivateFile; store: FileStore; onClose: () => void; onEdit: () => void; onReview?: (file: PrivateFile, text: string) => void; onOpened?: (file: PrivateFile) => void; canWrite: boolean }) {
   const [url, setUrl] = useState(""), [text, setText] = useState(""), [error, setError] = useState(""), [attempt, setAttempt] = useState(0);
+  const [previewData, setPreviewData] = useState<Blob | null>(null);
   const blob = store.blob;
   const openedRef = useRef(onOpened), fileRef = useRef(file);
   useLayoutEffect(() => { openedRef.current = onOpened; fileRef.current = file; }, [file, onOpened]);
@@ -235,11 +277,11 @@ export function FilePreview({ file, store, onClose, onEdit, onReview, onOpened, 
     const captured = fileRef.current;
     if (captured.state !== "ready" || captured.trashed_at || captured.deleted_at) return;
     setUrl(""); setText(""); setError("");
-    void blob(captured, controller.signal).then(async (data) => { const content = captured.mime_type === "text/plain" && data.size <= 1000000 ? await data.text() : ""; if (!controller.signal.aborted) { owned = URL.createObjectURL(data); setUrl(owned); setText(content); setError(""); openedRef.current?.(captured); } }).catch((error) => { if (!controller.signal.aborted) setError(error.message); });
+    void blob(captured, controller.signal).then(async (data) => { const content = captured.mime_type === "text/plain" && data.size <= 1000000 ? await data.text() : ""; if (!controller.signal.aborted) { owned = URL.createObjectURL(captured.mime_type === "application/pdf" ? data.slice(0, data.size, "application/pdf") : data); setUrl(owned); setPreviewData(data); setText(content); setError(""); openedRef.current?.(captured); } }).catch((error) => { if (!controller.signal.aborted) setError(error.message); });
     return () => { controller.abort(); if (owned) URL.revokeObjectURL(owned); };
   }, [file.id, file.updated_at, file.metadata_revision, file.content_revision, file.state, file.trashed_at, file.deleted_at, blob, attempt]);
   return <div className="modal-backdrop"><section className="add-class-modal academic-editor" role="dialog" aria-modal="true" aria-label="Private file preview"><div className="modal-header"><h2>{file.name}</h2><button className="secondary-button" onClick={onClose}>Close file preview</button></div><p>{fileSize(Number(file.size_bytes))} · {file.kind} · {file.state}</p>
-    {file.state !== "ready" ? <p>Upload or deletion is pending. Retry it from Files.</p> : error ? <p role="alert">{error}<button onClick={() => setAttempt((n) => n + 1)}>Retry preview</button></p> : !url ? <p>Loading private preview…</p> : file.mime_type.startsWith("image/") ? <img className="private-preview-image" src={url} alt={file.name} /> : file.mime_type === "application/pdf" ? <iframe title={file.name} className="private-pdf-preview" sandbox="" src={url} /> : file.mime_type === "text/plain" && file.size_bytes <= 1000000 ? <pre className="syllabus-source">{text}</pre> : <p>Download this file to open it in a compatible application.</p>}
+    {file.state !== "ready" ? <p>Upload or deletion is pending. Retry it from Files.</p> : error ? <p role="alert">{error}<button onClick={() => setAttempt((n) => n + 1)}>Retry preview</button></p> : !url ? <p>Loading private preview…</p> : file.mime_type.startsWith("image/") ? <img className="private-preview-image" src={url} alt={file.name} /> : file.mime_type === "application/pdf" ? previewData && <PdfPreview key={url} data={previewData} name={file.name} downloadUrl={url} /> : file.mime_type === "text/plain" && file.size_bytes <= 1000000 ? <pre className="syllabus-source">{text}</pre> : <p>Download this file to open it in a compatible application.</p>}
     <div className="modal-actions">{file.state === "ready" && <a className="secondary-button" href={store.url(file)} download>Download original file</a>}{url && ["application/pdf", "image/png", "image/jpeg", "image/webp", "image/gif", "text/plain"].includes(file.mime_type) && <a className="secondary-button" href={url} target="_blank" rel="noopener noreferrer">Open preview in new tab</a>}<button className="secondary-button" disabled={!canWrite || store.busy} onClick={onEdit}>Edit / retry file</button>{file.kind === "syllabus" && file.state === "ready" && onReview && <button className="primary-button" disabled={!canWrite} onClick={() => onReview(file, text.slice(0, 60000))}>Review syllabus</button>}</div>
   </section></div>;
 }

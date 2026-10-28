@@ -995,11 +995,11 @@ test("syllabus PDF preview replaces and removes local object URLs without upload
     await mount(); await appearance();
     assert.ok(host.querySelector(".class-setup-document-empty"));
     await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
-    assert.equal(host.querySelector("iframe").title, "Syllabus preview: syllabus.pdf");
-    assert.match(host.querySelector("iframe").src, /^blob:/);
+    assert.equal(host.querySelector("canvas").getAttribute("aria-label"), "syllabus.pdf, page 1");
+    assert.equal(host.querySelector("iframe, embed, object"), null);
     assert.equal(calls, 0);
     await file("syllabus", new window.File(["replacement"], "revised.pdf", { type: "application/pdf" }));
-    assert.equal(host.querySelector("iframe").title, "Syllabus preview: revised.pdf");
+    assert.equal(host.querySelector("canvas").getAttribute("aria-label"), "revised.pdf, page 1");
     assert.equal(revoked.length, 1);
     await click("Remove syllabus");
     assert.equal(host.querySelector("iframe"), null);
@@ -1020,15 +1020,13 @@ test("text syllabuses render safely and other documents have an honest fallback"
   assert.equal(host.querySelector("a[download]").getAttribute("download"), "syllabus.docx");
 });
 
-test("Escape in the syllabus frame uses the setup discard guard and stays locked during save", async () => {
+test("Escape in the syllabus preview uses the setup discard guard and stays locked during save", async () => {
   const originalConfirm = window.confirm;
   window.confirm = () => true;
   try {
     await mount(); await appearance();
     await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
-    const frame = host.querySelector("iframe");
-    frame.focus();
-    await act(async () => frame.contentDocument.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    await act(async () => host.querySelector("canvas").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     assert.equal(closed, 1);
     await act(async () => root.unmount()); root = undefined;
     let finishSave;
@@ -1036,7 +1034,7 @@ test("Escape in the syllabus frame uses the setup discard guard and stays locked
     await mount({ onSave: () => saving }); await appearance();
     await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
     await act(async () => host.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
-    await act(async () => host.querySelector("iframe").contentDocument.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => host.querySelector("canvas").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     assert.equal(closed, 0);
     await act(async () => finishSave());
   } finally { window.confirm = originalConfirm; }

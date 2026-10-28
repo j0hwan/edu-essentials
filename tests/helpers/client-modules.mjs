@@ -17,7 +17,9 @@ export async function clientModule(relative) {
   const specifiers = [...code.matchAll(/^import\s+.*?from\s+["']([^"']+)["'];?$/gm)].map((match) => match[1]);
   for (const specifier of new Set(specifiers)) {
     let url;
-    if (specifier.startsWith(".")) {
+    if (specifier.endsWith("?worker")) {
+      url = new URL("./browser-worker.mjs", import.meta.url).href;
+    } else if (specifier.startsWith(".")) {
       const base = resolve(dirname(path), specifier);
       let file;
       for (const suffix of ["", ".ts", ".tsx"]) { try { await access(base + suffix); file = base + suffix; break; } catch { /* Try the next TypeScript extension. */ } }
