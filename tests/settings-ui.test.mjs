@@ -1765,6 +1765,25 @@ test("expanded class weekday tiles show only scheduled meeting abbreviations", a
   } finally { if (root) await unmount(); }
 });
 
+test("expanded class abbreviates meeting day lines only when they exceed 30 characters", async () => {
+  reset();
+  const cases = [
+    { days: [1, 3, 5], label: "Monday, Wednesday, Friday" },
+    { days: [3, 4, 6], label: "Wednesday, Thursday, Saturday" },
+    { days: [0, 1, 2, 5], label: "Sun, Mon, Tue, Fri" },
+    { days: [0, 1, 2, 3, 4, 5, 6], label: "Sun, Mon, Tue, Wed, Thu, Fri, Sat" },
+  ];
+  const meetings = cases.map(({ days }, index) => ({ id: `meeting-${index}`, name: `Meeting ${index + 1}`, days, start: `${10 + index}:00`, end: `${11 + index}:00`, from: "2026-01-01", until: "2027-12-31", location: "Room 1" }));
+  installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: { officeHours: "", meetings } } } }, [sampleCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    const paragraphs = [...rootNode.querySelectorAll('[aria-label="Course schedule"] .expanded-class-meeting > p')];
+    assert.deepEqual(paragraphs.map((paragraph) => paragraph.firstChild.textContent), cases.map(({ label }) => label));
+  } finally { if (root) await unmount(); }
+});
+
 for (const count of [0, 1, 2, 3, 4, 5, 6]) test(`expanded class uses side-by-side location previews for odd meeting counts (${count})`, async () => {
   reset();
   const meetings = Array.from({ length: count }, (_, index) => ({ id: `meeting-${index}`, name: `Meeting ${index + 1}`, days: [1], start: "09:00", end: "10:00", from: "2026-01-01", until: "2027-12-31", location: "https://example.com/meeting" }));
