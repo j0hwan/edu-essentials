@@ -1563,16 +1563,20 @@ test("class cards enlarge in place with all class tools and retain nested assign
     trashed_at: null, trash_operation_id: null, original_folder_id: null,
   };
   const profile = { ...baseProfile, id: "12121212-1212-4121-8121-121212121212" };
-  const details = { officeHours: "Tuesday, 2–3 PM", meetings: [
+  const details = { officeHours: "Tuesday, 2–3 PM", meetingNotes: "Bring your field journal", meetings: [
     { id: "lecture", name: "Lecture", days: [1, 3, 5], start: "09:00", end: "10:00", from: "2026-10-01", until: "2027-01-25", location: "Lecture Hall" },
     { id: "discussion", days: [2], start: "11:00", end: "12:00", from: "2026-10-01", until: "2027-01-25", location: "Discussion Room" },
+    { id: "lab", name: "Lab", days: [4], start: "13:00", end: "14:00", from: "2026-10-01", until: "2027-01-25", location: "Lab Room" },
+    { id: "seminar", name: "Seminar", days: [5], start: "15:00", end: "16:00", from: "2026-10-01", until: "2027-01-25", location: "Seminar Room" },
   ], syllabusText: "Keep this saved syllabus source.", syllabusName: "Saved History guide", syllabusFileId: sourceId };
   const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, assignments: [assignment], courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse], profile);
+  let syllabusActivityWrites = 0;
   filesFetcher = async (url, init = {}) => {
     if (url === "/api/files") return Response.json({ files: [sourceFile], activities: { files: [], folders: [] } });
     if (url === "/api/files/actions" && init.method === "POST") {
       const body = JSON.parse(init.body);
       assert.equal(body.action, "open");
+      syllabusActivityWrites += 1;
       return Response.json({ activities: { files: [{ file_id: sourceId, profile_id: profile.id, starred_at: null, last_opened_at: "2026-09-04T00:00:00.000Z" }], folders: [] } });
     }
     if (url === `/api/files?id=${sourceId}`) return new Response(sourceText, { headers: { "content-type": "text/plain" } });
@@ -1584,7 +1588,7 @@ test("class cards enlarge in place with all class tools and retain nested assign
     const card = rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`);
     await act(async () => { card.focus(); card.click(); });
     let expanded = rootNode.querySelector('[role="dialog"][aria-label="Class details"]');
-    await waitUntil(() => [...expanded.querySelectorAll("button")].some((button) => button.textContent.trim() === "Preview syllabus" && !button.disabled), "the course syllabus preview");
+    await waitUntil(() => expanded.querySelector('[aria-label="Syllabus preview"] .syllabus-source')?.textContent === sourceText, "the inline course syllabus preview");
     assert.ok(expanded.querySelector(".expanded-class-body"));
     const banner = expanded.querySelector(".expanded-class-header.class-card-visual");
     const cardVisual = card.querySelector(".class-card-visual");
@@ -1606,11 +1610,12 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.ok(classActions[1].classList.contains("secondary-button"));
     assert.equal(classActions[1].querySelector("svg"), null);
     const courseDetails = expanded.querySelector('[aria-label="Course details"]');
-    assert.deepEqual([...courseDetails.querySelectorAll(":scope > div > h3")].map((heading) => heading.textContent).slice(0, 2), ["Instructor", "Office hours"]);
+    assert.deepEqual([...courseDetails.querySelectorAll(":scope > div > h3")].map((heading) => heading.textContent), ["Instructor", "Office hours", "Meeting Notes"]);
+    assert.ok(courseDetails.textContent.includes(details.meetingNotes));
     assert.equal(courseDetails.nextElementSibling.getAttribute("aria-label"), "Course schedule");
     const meetingColumns = [...expanded.querySelectorAll('[aria-label="Course schedule"] .expanded-class-meeting')];
-    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("h3").textContent), ["Lecture", "Meeting 2"]);
-    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("p").innerHTML.split(/<br\s*\/?\s*>/)), [["Monday, Wednesday, Friday", "9:00am–10:00am", "Lecture Hall"], ["Tuesday", "11:00am–12:00pm", "Discussion Room"]]);
+    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("h3").textContent), ["Lecture", "Meeting 2", "Lab", "Seminar"]);
+    assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("p").innerHTML.split(/<br\s*\/?\s*>/)), [["Monday, Wednesday, Friday", "9:00am–10:00am", "Lecture Hall"], ["Tuesday", "11:00am–12:00pm", "Discussion Room"], ["Thursday", "1:00pm–2:00pm", "Lab Room"], ["Friday", "3:00pm–4:00pm", "Seminar Room"]]);
     for (const meeting of meetingColumns) {
       assert.equal(meeting.querySelectorAll("p").length, 1);
       assert.doesNotMatch(meeting.textContent, /Oct 1, 2026|Jan 25, 2027/);
@@ -1624,23 +1629,20 @@ test("class cards enlarge in place with all class tools and retain nested assign
 
     const syllabusSection = expanded.querySelector('[aria-label="Course syllabus"]');
     assert.ok(syllabusSection);
+    assert.equal(syllabusSection.parentElement, courseDetails.parentElement);
+    assert.ok(syllabusSection.parentElement.classList.contains("expanded-class-grid"));
+    assert.equal(syllabusSection.previousElementSibling.getAttribute("aria-label"), "Course schedule");
     assert.ok([...syllabusSection.querySelectorAll("button")].some((button) => button.textContent.trim() === "Import syllabus"));
-    assert.ok([...syllabusSection.querySelectorAll("button")].some((button) => button.textContent.trim() === "Preview syllabus"));
-    await clickIn(syllabusSection, "Preview syllabus");
-    await waitUntil(() => rootNode.querySelector('[aria-label="Private file preview"] .syllabus-source')?.textContent === sourceText, "the uploaded syllabus file preview");
-    assert.equal(rootNode.querySelector('[aria-label="Private file preview"] h2').textContent, sourceFile.name);
-    await click("Close file preview");
-    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"]'), "expanded course after file preview");
-    expanded = rootNode.querySelector('[aria-label="Class details"]');
+    assert.ok(![...syllabusSection.querySelectorAll("button")].some((button) => button.textContent.trim().startsWith("Preview syllabus")));
+    assert.equal(syllabusSection.querySelector('[aria-label="Syllabus preview"] .syllabus-source').textContent, sourceText);
+    const savedText = syllabusSection.querySelector(".expanded-class-syllabus-text");
+    assert.equal(savedText.querySelector("summary").textContent, "Saved syllabus text");
+    assert.equal(savedText.querySelector("pre").textContent, details.syllabusText, "saved text remains available without detaching the uploaded source");
+    assert.equal(rootNode.querySelector('[aria-label="Private file preview"]'), null);
+    assert.equal(rootNode.querySelector(".syllabus-text-preview"), null);
+    assert.equal(expanded.hasAttribute("inert"), false);
+    assert.equal(syllabusActivityWrites, 0, "automatic syllabus previews do not record a deliberate file open");
     assert.match(expanded.querySelector(".expanded-class-heading h2").textContent, /HIST 205.*History/);
-
-    await clickIn(expanded.querySelector('[aria-label="Course syllabus"]'), "Preview syllabus text");
-    await waitUntil(() => rootNode.querySelector(".syllabus-text-preview-content"), "the saved syllabus text preview");
-    assert.equal(rootNode.querySelector(".syllabus-text-preview-content").textContent, details.syllabusText);
-    assert.match(rootNode.querySelector(".syllabus-text-preview h2").textContent, /Saved History guide/);
-    await click("Close preview");
-    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"]'), "expanded course after text preview");
-    expanded = rootNode.querySelector('[aria-label="Class details"]');
 
     const writesBeforeImport = server.writes;
     await clickIn(expanded.querySelector('[aria-label="Course syllabus"]'), "Import syllabus");
@@ -1661,6 +1663,10 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.equal(expanded.querySelector(".expanded-class-header .course-pill").textContent, sampleCourse.code);
     assert.match(expanded.querySelector(".expanded-class-heading h2").textContent, /HIST 205.*History/);
     assert.equal(card.getAttribute("aria-expanded"), "true");
+
+    await clickIn(expanded.querySelector('[aria-label="Course syllabus"]'), "Detach syllabus file");
+    await waitUntil(() => expanded.querySelector('[aria-label="Syllabus preview"] .syllabus-source')?.textContent === replacementText, "saved syllabus text appears inline after detaching the file");
+    assert.equal(expanded.querySelector('[aria-label="Syllabus preview"] .inline-file-preview'), null);
 
     await act(async () => { expanded.querySelector(".assignment-row").focus(); expanded.querySelector(".assignment-row").click(); });
     const assignmentDialog = rootNode.querySelector('[aria-label="Assignment details"]');
@@ -1688,10 +1694,7 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.ok(reloadedCard, "the existing course remains available after reload");
     await act(async () => reloadedCard.click());
     await waitUntil(() => rootNode.querySelector('[aria-label="Class details"] .expanded-class-syllabus')?.textContent.includes("Updated History guide"), "saved course syllabus after reload");
-    await clickIn(rootNode.querySelector('[aria-label="Class details"] .expanded-class-syllabus'), "Preview syllabus text");
-    await waitUntil(() => rootNode.querySelector(".syllabus-text-preview-content")?.textContent === replacementText, "updated syllabus text after reload");
-    await click("Close preview");
-    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"]'), "reloaded expanded course after text preview");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"] [aria-label="Syllabus preview"] .syllabus-source')?.textContent === replacementText, "updated syllabus text appears inline after reload");
   } finally { filesFetcher = undefined; await unmount(); }
 });
 
@@ -1988,9 +1991,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await act(async () => card.click());
     const expanded = rootNode.querySelector('[aria-label="Class details"]');
     assert.match(expanded.textContent, /Reviewed essay.*Midterm exam/s);
-    await clickIn(expanded.querySelector('[aria-label="Course syllabus"]'), "Preview syllabus");
-    await waitUntil(() => rootNode.querySelector(".syllabus-text-preview-content")?.textContent === sourceText, "approved syllabus source after reload");
-    await click("Close preview");
+    await waitUntil(() => expanded.querySelector('[aria-label="Syllabus preview"] .syllabus-source')?.textContent === sourceText, "approved syllabus source appears inline after reload");
   });
 
   await t.test("opening an active review's source file does not restart or clear the review", async () => {

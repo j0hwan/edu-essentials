@@ -82,7 +82,7 @@ import {
 import { restoreTrashItems, type TrashUndoReceipt } from "../lib/files-trash-operations";
 import { NativeDocumentEditor } from "./native-document-editor";
 import type { NativeDocumentCreate } from "../lib/native-documents";
-import { FileEditor, FileList, FilePreview, PrivateImage } from "./private-files";
+import { FileEditor, FileList, FilePreview, InlineFilePreview, PrivateImage } from "./private-files";
 import ExpandedCourseImage from "./expanded-course-image";
 import { fileSize, type PrivateFile, type FileMetadata } from "../lib/files";
 import StudyWidget, { studyWidgetTypes } from "./study-widgets";
@@ -2085,17 +2085,17 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             <div className="expanded-class-meetings">{details.meetings.length ? details.meetings.map((meeting, index) => <div className="expanded-class-meeting" key={meeting.id}><h3>{meeting.name || `Meeting ${index + 1}`}</h3><p>{meeting.days.map((day) => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day]).join(", ") || "No days entered"}<br />{meetingTime(meeting.start)}–{meetingTime(meeting.end)}<br />{meeting.location || course.room || "No location entered"}</p></div>) : <p>No recurring meetings entered.</p>}</div>
             <div className="expanded-class-actions"><button className="secondary-button" onClick={() => { setCalendarFilter(course.id); navigate("calendar"); }}><CalendarDays size={15} />View schedule</button></div>
           </section>
-        </div>
         <section className="expanded-class-section expanded-class-syllabus" aria-label="Course syllabus">
           <h3>Syllabus</h3>
           <p>{details.syllabusName || (hasSyllabusPreview ? "Saved course syllabus" : details.syllabusFileId ? "The attached syllabus file is unavailable. Import a replacement to preview it." : "No syllabus imported. Import a file or paste syllabus text for this course.")}</p>
           <div className="expanded-class-actions">
             <button className="secondary-button" disabled={!canWriteFiles || profilePending} onClick={() => setSyllabusAttachment({ courseId: course.id, folderId: null })}><Upload size={15} />Import syllabus</button>
-            <button className="secondary-button" disabled={!hasSyllabusPreview} onClick={() => { if (syllabusFile) { setSyllabusPreviewFileId(syllabusFile.id); setFilePreview(syllabusFile); } else if (details.syllabusText) setSyllabusTextCourseId(course.id); }}><FileText size={15} />Preview syllabus</button>
-            {syllabusFile && details.syllabusText && <button className="text-button" onClick={() => setSyllabusTextCourseId(course.id)}>Preview syllabus text</button>}
             {details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}
           </div>
+          {hasSyllabusPreview && <div className="expanded-class-syllabus-preview" role="region" aria-label="Syllabus preview">{syllabusFile ? <InlineFilePreview key={`${initialProfile.id}:${fileActionSession.generation}:${syllabusFile.id}`} file={syllabusFile} store={fileStore} /> : <pre className="syllabus-source">{details.syllabusText}</pre>}</div>}
+          {syllabusFile && details.syllabusText && <details className="expanded-class-syllabus-text"><summary>Saved syllabus text</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}
         </section>
+        </div>
         <section className="expanded-class-section"><h3>Assignments</h3>{renderAssignmentTable(items, true)}</section>
       </div>
     </>}</ClassCardExpansion>;

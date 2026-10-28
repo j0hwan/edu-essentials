@@ -1788,6 +1788,27 @@ test("an interrupted close and unmount cancel animations and restore source and 
   }
 });
 
+test("expanded course uses balanced columns and a two-column meeting grid without horizontal scrolling", async () => {
+  const styles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
+  const layout = new JSDOM(`<style>${styles}</style><div class="expanded-class-grid"><section class="expanded-class-section expanded-class-details"></section><section class="expanded-class-section expanded-class-schedule"><div class="expanded-class-meetings"></div></section><section class="expanded-class-section expanded-class-syllabus"></section></div>`);
+  try {
+    const computed = (selector) => layout.window.getComputedStyle(layout.window.document.querySelector(selector));
+    assert.equal(computed(".expanded-class-grid").gridTemplateColumns, "repeat(2, minmax(0, 1fr))");
+    assert.equal(computed(".expanded-class-details").gridColumn, "1");
+    assert.equal(computed(".expanded-class-schedule").gridColumn, "1");
+    assert.equal(computed(".expanded-class-syllabus").gridColumn, "2");
+    assert.equal(computed(".expanded-class-syllabus").gridRow, "1 / span 2");
+    assert.equal(computed(".expanded-class-syllabus").marginBottom, "0px");
+    assert.equal(computed(".expanded-class-meetings").gridTemplateColumns, "repeat(2, minmax(0, 1fr))");
+    assert.notEqual(computed(".expanded-class-meetings").gridAutoFlow, "column");
+    assert.notEqual(computed(".expanded-class-meetings").overflowX, "auto");
+    const responsive = [...layout.window.document.styleSheets[0].cssRules].find((rule) => rule.conditionText === "(max-width: 1000px)");
+    assert.ok(responsive);
+    assert.ok([...responsive.cssRules].some((rule) => rule.selectorText === ".expanded-class-grid" && rule.style.getPropertyValue("grid-template-columns") === "minmax(0, 1fr)"));
+    assert.ok([...responsive.cssRules].some((rule) => rule.selectorText === ".expanded-class-grid > .expanded-class-syllabus" && rule.style.getPropertyValue("grid-row") === "auto"));
+  } finally { layout.window.close(); }
+});
+
 test("unmount does not return focus over a newly opened dialog", async () => {
   const { source, render, cleanup } = setup();
   try {
