@@ -242,6 +242,16 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .expanded-class-syllabus-preview .inline-file-preview > p { padding: 12px; }
 .expanded-class-syllabus-text { margin-top: 12px; font-size: 14px; }
 .expanded-class-syllabus-text summary { cursor: pointer; color: var(--muted); }
+.course-preview-surface { position: relative; isolation: isolate; overflow: hidden; }
+.course-syllabus-preview { position: absolute; inset: 0; }
+.course-preview-surface > .course-preview-placeholder { position: absolute; z-index: 0; inset: -12%; display: block; width: 124%; height: 124%; max-width: none; object-fit: cover; object-position: center; filter: blur(16.5px); pointer-events: none; user-select: none; }
+/* Use a preblurred bitmap to avoid seams from live filter tiles. */
+.course-syllabus-preview > .course-preview-placeholder { object-position: top; background: white; filter: none; }
+.course-preview-surface > .course-preview-content { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; background: var(--surface); }
+.meeting-location-preview > .course-preview-content { display: flex; align-items: center; justify-content: center; }
+.meeting-location-preview > .course-preview-content > img, .meeting-location-preview > .course-preview-content > iframe { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border: 0; object-fit: cover; object-position: top; pointer-events: none; }
+.course-preview-surface:not(.is-revealed) > .course-preview-content { pointer-events: none; }
+.course-preview-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .expanded-class-body .assignment-title strong { font-size: 14px; }
 .expanded-class-body .assignment-table.compact .assignment-row { grid-template-columns: 80px minmax(0, 1fr) 80px 70px 16px; padding: 12px; }
 @media (max-width: 1100px) {

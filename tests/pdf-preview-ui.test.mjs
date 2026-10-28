@@ -33,17 +33,20 @@ compiled = compiled.replaceAll('"../lib/pdf-preview-client"', JSON.stringify(moc
 const { PdfPreview } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const host = document.getElementById("root");
 let root;
-async function mount(data = new Blob(["pdf"])) {
+async function mount(data = new Blob(["pdf"]), onSettled) {
   root ??= createRoot(host);
-  await act(async () => root.render(createElement(PdfPreview, { data, name: "Private.pdf", downloadUrl: "blob:private-pdf" })));
+  await act(async () => root.render(createElement(PdfPreview, { data, name: "Private.pdf", downloadUrl: "blob:private-pdf", onSettled })));
 }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = undefined; calls.length = 0; });
 
 test("stacks lazy PDF pages in order without pagination or embedded documents", async () => {
-  await mount();
+  const settlements = [];
+  await mount(new Blob(["pdf"]), () => settlements.push("settled"));
   assert.match(host.textContent, /Rendering PDF/);
+  assert.deepEqual(settlements, []);
   assert.equal(host.querySelector("iframe, object, embed"), null);
   await act(async () => calls[0].resolve(3));
+  assert.deepEqual(settlements, ["settled"]);
   assert.equal(host.querySelector("canvas").hidden, false);
   assert.equal(host.querySelector("canvas").getAttribute("aria-label"), "Private.pdf, page 1");
   assert.deepEqual([...host.querySelectorAll(".pdf-preview-page")].map((page) => page.dataset.page), ["1", "2", "3"]);
@@ -56,17 +59,35 @@ test("stacks lazy PDF pages in order without pagination or embedded documents", 
   assert.notEqual(calls[0].canvas, calls[1].canvas);
   await act(async () => calls[1].resolve(3));
   assert.equal(host.querySelectorAll("canvas:not([hidden])").length, 2);
+  assert.deepEqual(settlements, ["settled"]);
 });
 
 test("a changed source aborts old work and ignores its eventual completion", async () => {
-  await mount();
+  const oldSettlements = [], freshSettlements = [];
+  await mount(new Blob(["old PDF"]), () => oldSettlements.push("old"));
   const old = calls[0];
-  await mount(new Blob(["new PDF"]));
+  await mount(new Blob(["new PDF"]), () => freshSettlements.push("fresh"));
   assert.equal(old.signal.aborted, true);
   await act(async () => old.resolve(100));
   assert.match(host.textContent, /Rendering PDF/);
+  assert.deepEqual(oldSettlements, []);
+  assert.deepEqual(freshSettlements, []);
   await act(async () => calls[1].resolve(2));
   assert.equal(host.querySelectorAll(".pdf-preview-page").length, 2);
+  assert.deepEqual(oldSettlements, []);
+  assert.deepEqual(freshSettlements, ["fresh"]);
+});
+
+test("callback identity changes use the latest callback without restarting the first-page render", async () => {
+  const data = new Blob(["same PDF"]);
+  let oldCalls = 0, latestCalls = 0;
+  await mount(data, () => oldCalls++);
+  assert.equal(calls.length, 1);
+  await mount(data, () => latestCalls++);
+  assert.equal(calls.length, 1);
+  await act(async () => calls[0].resolve(1));
+  assert.equal(oldCalls, 0);
+  assert.equal(latestCalls, 1);
 });
 
 test("a page-specific error leaves other pages available and can be retried", async () => {
@@ -133,17 +154,20 @@ test("reentering the viewport creates a fresh canvas and ignores a late stale re
 });
 
 test("context loss during an active render aborts it and rerenders on a fresh canvas", async () => {
-  await mount();
+  const settlements = [];
+  await mount(new Blob(["pdf"]), () => settlements.push("settled"));
   const stale = calls[0];
 
   await act(async () => stale.canvas.dispatchEvent(new Event("contextlost")));
 
   assert.equal(stale.signal.aborted, true);
   assert.equal(calls.length, 2);
+  assert.deepEqual(settlements, []);
   const fresh = calls[1];
   assert.notEqual(fresh.canvas, stale.canvas);
   await act(async () => fresh.resolve(1));
   await act(async () => stale.resolve(99));
+  assert.deepEqual(settlements, ["settled"]);
   assert.equal(host.querySelector('[data-page="1"] canvas'), fresh.canvas);
   assert.equal(fresh.canvas.hidden, false);
 });
@@ -171,17 +195,21 @@ test("context loss on a ready page leaves another page render usable", async () 
 });
 
 test("repeated context loss offers fallback and manual retry resets recovery allowance", async () => {
-  await mount();
+  const settlements = [];
+  await mount(new Blob(["pdf"]), () => settlements.push("settled"));
   await act(async () => calls[0].canvas.dispatchEvent(new Event("contextlost")));
+  assert.deepEqual(settlements, []);
   await act(async () => calls[1].canvas.dispatchEvent(new Event("contextlost")));
 
   assert.match(host.querySelector('[role="alert"]').textContent, /context was lost/);
+  assert.deepEqual(settlements, ["settled"]);
   assert.equal(host.querySelector("a[download]").getAttribute("href"), "blob:private-pdf");
   await act(async () => host.querySelector("button").click());
   assert.equal(calls.length, 3);
   await act(async () => calls[2].canvas.dispatchEvent(new Event("contextlost")));
   assert.equal(calls.length, 4);
   assert.equal(host.querySelector('[role="alert"]'), null);
+  assert.deepEqual(settlements, ["settled"]);
 });
 
 test("context loss after unmount is ignored and its listener is removed", async () => {
@@ -213,8 +241,10 @@ test("StrictMode effect cleanup replay still lets the surviving render become vi
 });
 
 test("failure offers retry and a private download, and unmount aborts work", async () => {
-  await mount();
+  const settlements = [];
+  await mount(new Blob(["pdf"]), () => settlements.push("settled"));
   await act(async () => calls[0].reject(new Error("Invalid PDF")));
+  assert.deepEqual(settlements, ["settled"]);
   assert.match(host.querySelector('[role="alert"]').textContent, /could not be previewed/);
   assert.match(host.querySelector('[role="alert"]').textContent, /Invalid PDF/);
   assert.equal(host.querySelector("a[download]").getAttribute("href"), "blob:private-pdf");
@@ -223,4 +253,6 @@ test("failure offers retry and a private download, and unmount aborts work", asy
   await act(async () => root.unmount());
   root = undefined;
   assert.equal(calls[1].signal.aborted, true);
+  await act(async () => calls[1].resolve(1));
+  assert.deepEqual(settlements, ["settled"]);
 });

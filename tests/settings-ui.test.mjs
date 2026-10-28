@@ -1795,7 +1795,7 @@ for (const missingFile of [false, true]) test(`expanded syllabus keeps its previ
   } finally { if (root) await unmount(); }
 });
 
-test("expanded syllabus preview shows a centered file icon and Loading Syllabus while content loads", async () => {
+test("expanded syllabus preview holds a blurred document placeholder while content loads", async () => {
   reset();
   const fileId = "79797979-7979-4979-8979-797979797979";
   const sourceText = "Loaded course syllabus.";
@@ -1819,12 +1819,14 @@ test("expanded syllabus preview shows a centered file icon and Loading Syllabus 
     await render(Workspace, { initialProfile: baseProfile });
     await click("Dashboard");
     await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
-    await waitUntil(() => rootNode.querySelector(".expanded-class-syllabus-loading"), "syllabus loading indicator");
+    await waitUntil(() => rootNode.querySelector(".course-syllabus-preview .course-preview-placeholder"), "blurred syllabus placeholder");
     const preview = rootNode.querySelector('[aria-label="Syllabus preview"]');
     const loading = preview.querySelector('[role="status"]');
     assert.equal(loading.textContent, "Loading Syllabus");
-    assert.ok(loading.classList.contains("expanded-class-syllabus-loading"));
-    assert.equal(loading.querySelector("svg")?.getAttribute("aria-hidden"), "true");
+    assert.ok(loading.classList.contains("course-preview-status"));
+    assert.equal(preview.querySelector(".course-preview-placeholder").getAttribute("src"), "/preview-placeholders/syllabus-blurred.png");
+    assert.equal(preview.querySelector(".course-preview-placeholder").getAttribute("alt"), "");
+    assert.equal(preview.querySelector(".course-preview-content").getAttribute("aria-hidden"), "true");
     assert.doesNotMatch(preview.textContent, /Loading private/);
     resolveContent(new Response(sourceText, { headers: { "content-type": "text/plain" } }));
     await waitUntil(() => preview.querySelector("pre")?.textContent === sourceText, "loaded syllabus text");

@@ -1,6 +1,6 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Private authenticated blob URLs cannot use the public image optimizer. */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { fileKinds, fileMetadata, fileSize, MAX_FILE_BYTES, type FileMetadata, type PrivateFile } from "../lib/files";
 import type { Course } from "../lib/academics";
 import type { SavedAssignment } from "../lib/workspace-codec";
@@ -229,40 +229,199 @@ export function PrivateImage({ file, store, fadeIn = false, onDecoded, onSettled
 
 type InlinePreviewSource = { id: string; updatedAt: string; metadataRevision: number; contentRevision: number; state: string; trashedAt: string | null; deletedAt: string | null; mimeType: string; sizeBytes: number; blob: FileStore["blob"] };
 type InlinePreviewResult = { source: InlinePreviewSource; attempt: number; url: string; text: string; data: Blob };
+type InlinePreviewRequest = { source: InlinePreviewSource; attempt: number; controller: AbortController; timer: ReturnType<typeof setTimeout> | null; phase: "fetch" | "image" | "done"; timedOut: boolean; url: string };
 
-export function InlineFilePreview({ file, store, loadingFallback }: { file: PrivateFile; store: FileStore; loadingFallback?: ReactNode }) {
+const INLINE_PREVIEW_TIMEOUT_MS = 30_000;
+
+function clearInlinePreviewTimer(request: InlinePreviewRequest): void {
+  if (request.timer !== null) clearTimeout(request.timer);
+  request.timer = null;
+}
+
+export function InlineFilePreview({ file, store, loadingFallback, onPreviewSettled }: { file: PrivateFile; store: FileStore; loadingFallback?: ReactNode; onPreviewSettled?: () => void }) {
   const [result, setResult] = useState<InlinePreviewResult | null>(null);
   const [failure, setFailure] = useState<{ source: InlinePreviewSource; attempt: number; message: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const blob = store.blob;
   const source = useMemo<InlinePreviewSource>(() => ({ id: file.id, updatedAt: file.updated_at, metadataRevision: file.metadata_revision, contentRevision: file.content_revision, state: file.state, trashedAt: file.trashed_at, deletedAt: file.deleted_at ?? null, mimeType: file.mime_type, sizeBytes: Number(file.size_bytes), blob }), [file.id, file.updated_at, file.metadata_revision, file.content_revision, file.state, file.trashed_at, file.deleted_at, file.mime_type, file.size_bytes, blob]);
   const sourceRef = useRef(source);
   const fileRef = useRef(file);
+  const attemptRef = useRef(attempt);
+  const mountedRef = useRef(false);
+  const onPreviewSettledRef = useRef(onPreviewSettled);
+  const settlementRef = useRef<{ source: InlinePreviewSource; attempt: number; notified: boolean } | null>(null);
+  const activeRequestRef = useRef<InlinePreviewRequest | null>(null);
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const request = activeRequestRef.current;
+      if (request) {
+        clearInlinePreviewTimer(request);
+        request.controller.abort();
+        activeRequestRef.current = null;
+      }
+    };
+  }, []);
   useLayoutEffect(() => { fileRef.current = file; }, [file]);
-  useLayoutEffect(() => { sourceRef.current = source; }, [source]);
+  useLayoutEffect(() => {
+    sourceRef.current = source;
+    const request = activeRequestRef.current;
+    if (request && request.source !== source) {
+      clearInlinePreviewTimer(request);
+      request.controller.abort();
+      activeRequestRef.current = null;
+    }
+  }, [source]);
+  useLayoutEffect(() => {
+    attemptRef.current = attempt;
+    const request = activeRequestRef.current;
+    if (request && request.attempt !== attempt) {
+      clearInlinePreviewTimer(request);
+      request.controller.abort();
+      activeRequestRef.current = null;
+    }
+  }, [attempt]);
+  const notifySettled = useCallback((requested: InlinePreviewSource, requestedAttempt: number) => {
+    const settlement = settlementRef.current;
+    if (!mountedRef.current || !settlement || settlement.source !== requested || settlement.attempt !== requestedAttempt || settlement.notified || sourceRef.current !== requested || attemptRef.current !== requestedAttempt || !onPreviewSettledRef.current) return;
+    settlement.notified = true;
+    try { onPreviewSettledRef.current(); } catch { /* An optional observer cannot interrupt preview display. */ }
+  }, []);
+  const settle = useCallback((requested: InlinePreviewSource, requestedAttempt: number) => {
+    if (!mountedRef.current || sourceRef.current !== requested || attemptRef.current !== requestedAttempt) return;
+    let settlement = settlementRef.current;
+    if (!settlement || settlement.source !== requested || settlement.attempt !== requestedAttempt) {
+      settlement = { source: requested, attempt: requestedAttempt, notified: false };
+      settlementRef.current = settlement;
+    }
+    notifySettled(requested, requestedAttempt);
+  }, [notifySettled]);
+  const isCurrentRequest = useCallback((request: InlinePreviewRequest) => mountedRef.current
+    && activeRequestRef.current === request
+    && sourceRef.current === request.source
+    && attemptRef.current === request.attempt
+    && !request.controller.signal.aborted, []);
+  const failRequest = useCallback((request: InlinePreviewRequest, message: string) => {
+    if (!isCurrentRequest(request)) return;
+    request.phase = "done";
+    clearInlinePreviewTimer(request);
+    if (request.url) {
+      const failedUrl = request.url;
+      request.url = "";
+      URL.revokeObjectURL(failedUrl);
+    }
+    setFailure({ source: request.source, attempt: request.attempt, message });
+    settle(request.source, request.attempt);
+  }, [isCurrentRequest, settle]);
+  const startDeadline = useCallback((request: InlinePreviewRequest) => {
+    if (!onPreviewSettledRef.current || request.timer !== null || request.phase === "done" || request.timedOut) return;
+    request.timer = setTimeout(() => {
+      request.timer = null;
+      if (!isCurrentRequest(request)) return;
+      request.timedOut = true;
+      const message = request.phase === "image"
+        ? "The image preview timed out. Retry or download the file."
+        : "The preview timed out. Retry or download the file.";
+      failRequest(request, message);
+      request.controller.abort();
+    }, INLINE_PREVIEW_TIMEOUT_MS);
+  }, [failRequest, isCurrentRequest]);
+  useLayoutEffect(() => {
+    onPreviewSettledRef.current = onPreviewSettled;
+    notifySettled(sourceRef.current, attemptRef.current);
+    const request = activeRequestRef.current;
+    if (onPreviewSettled && request?.phase === "fetch") startDeadline(request);
+  }, [onPreviewSettled, notifySettled, startDeadline]);
+  const observesSettlement = !!onPreviewSettled;
   const available = source.state === "ready" && !source.trashedAt && !source.deletedAt;
   const supported = source.mimeType.startsWith("image/") || source.mimeType === "application/pdf" || (source.mimeType === "text/plain" && source.sizeBytes <= 1_000_000);
   useEffect(() => {
-    if (!available || !supported) return;
+    if (!available || !supported) {
+      settle(source, attempt);
+      return;
+    }
     const requested = source;
-    const controller = new AbortController();
-    let owned = "";
-    void blob(fileRef.current, controller.signal).then(async (data) => {
-      if (controller.signal.aborted || sourceRef.current !== requested) return;
+    const requestedAttempt = attempt;
+    const request: InlinePreviewRequest = { source: requested, attempt: requestedAttempt, controller: new AbortController(), timer: null, phase: "fetch", timedOut: false, url: "" };
+    activeRequestRef.current = request;
+    startDeadline(request);
+    void blob(fileRef.current, request.controller.signal).then(async (data) => {
+      if (!isCurrentRequest(request)) return;
       if (requested.mimeType === "text/plain" && data.size > 1_000_000) throw new Error("This text file is too large to preview. Download it to read it.");
       const text = requested.mimeType === "text/plain" ? await data.text() : "";
-      if (controller.signal.aborted || sourceRef.current !== requested) return;
+      if (!isCurrentRequest(request)) return;
       try {
-        owned = URL.createObjectURL(requested.mimeType === "application/pdf" ? data.slice(0, data.size, "application/pdf") : data);
-        setResult({ source: requested, attempt, url: owned, text, data });
-      } catch (cause) { if (!controller.signal.aborted) setFailure({ source: requested, attempt, message: cause instanceof Error ? cause.message : "Could not create a private preview." }); }
-    }).catch((cause) => { if (!controller.signal.aborted && sourceRef.current === requested) setFailure({ source: requested, attempt, message: cause instanceof Error ? cause.message : "Could not load this private file." }); });
-    return () => { controller.abort(); if (owned) URL.revokeObjectURL(owned); };
-  }, [source, blob, attempt, available, supported]);
+        request.url = URL.createObjectURL(requested.mimeType === "application/pdf" ? data.slice(0, data.size, "application/pdf") : data);
+        request.phase = requested.mimeType.startsWith("image/") ? "image" : "done";
+        clearInlinePreviewTimer(request);
+        setResult({ source: requested, attempt: requestedAttempt, url: request.url, text, data });
+        if (requested.mimeType === "text/plain") settle(requested, requestedAttempt);
+      } catch (cause) {
+        failRequest(request, cause instanceof Error ? cause.message : "Could not create a private preview.");
+      }
+    }).catch((cause) => {
+      // The timeout path already rendered the retry/download fallback before aborting this request.
+      if (!request.timedOut && isCurrentRequest(request)) failRequest(request, cause instanceof Error ? cause.message : "Could not load this private file.");
+    });
+    return () => {
+      clearInlinePreviewTimer(request);
+      request.controller.abort();
+      if (activeRequestRef.current === request) activeRequestRef.current = null;
+      if (request.url) URL.revokeObjectURL(request.url);
+    };
+  }, [source, blob, attempt, available, supported, settle, startDeadline, isCurrentRequest, failRequest]);
   const current = result?.source === source && result.attempt === attempt ? result : null;
   const error = failure?.source === source && failure.attempt === attempt ? failure.message : "";
+  useLayoutEffect(() => {
+    if (!current || !source.mimeType.startsWith("image/")) return;
+    const image = imageRef.current;
+    const request = activeRequestRef.current;
+    if (!image || !request || request.source !== current.source || request.attempt !== current.attempt || request.phase !== "image") return;
+    const requested = current.source;
+    const requestedAttempt = current.attempt;
+    let cancelled = false;
+    const isCurrent = () => !cancelled && imageRef.current === image && request.phase === "image" && isCurrentRequest(request);
+    const fail = () => {
+      if (isCurrent()) failRequest(request, "This image could not be previewed. Retry or download the file.");
+    };
+    const finish = () => {
+      if (!isCurrent()) return;
+      request.phase = "done";
+      clearInlinePreviewTimer(request);
+      settle(requested, requestedAttempt);
+    };
+    const decode = () => {
+      if (!isCurrent()) return;
+      if (image.naturalWidth <= 0) {
+        fail();
+        return;
+      }
+      if (typeof image.decode === "function") {
+        try { void image.decode().then(() => { if (isCurrent() && image.naturalWidth > 0) finish(); else fail(); }, fail); }
+        catch { fail(); }
+      } else {
+        finish();
+      }
+    };
+    if (observesSettlement) startDeadline(request);
+    if (image.complete) {
+      if (image.naturalWidth > 0) decode();
+      else fail();
+    } else {
+      image.addEventListener("load", decode);
+      image.addEventListener("error", fail);
+    }
+    return () => {
+      cancelled = true;
+      clearInlinePreviewTimer(request);
+      image.removeEventListener("load", decode);
+      image.removeEventListener("error", fail);
+    };
+  }, [current, source.mimeType, observesSettlement, settle, startDeadline, isCurrentRequest, failRequest]);
   return <div className="inline-file-preview">
-    {!available ? <p>Preview unavailable. This file is not ready or is in Trash.</p> : !supported ? <p>Preview is not supported. <a href={store.url(file)} download>Download this file</a> to open it.</p> : error ? <p role="alert">{error} <button type="button" onClick={() => setAttempt((attemptNumber) => attemptNumber + 1)}>Retry preview</button> <a href={store.url(file)} download>Download this file</a></p> : !current ? loadingFallback ?? <p>Loading private preview…</p> : source.mimeType.startsWith("image/") ? <img className="private-preview-image" src={current.url} alt={file.name} /> : source.mimeType === "application/pdf" ? <PdfPreview key={current.url} data={current.data} name={file.name} downloadUrl={current.url} /> : <pre className="syllabus-source">{current.text}</pre>}
+    {!available ? <p>Preview unavailable. This file is not ready or is in Trash.</p> : !supported ? <p>Preview is not supported. <a href={store.url(file)} download>Download this file</a> to open it.</p> : error ? <p role="alert">{error} <button type="button" onClick={() => setAttempt((attemptNumber) => attemptNumber + 1)}>Retry preview</button> <a href={store.url(file)} download>Download this file</a></p> : !current ? loadingFallback ?? <p>Loading private preview…</p> : source.mimeType.startsWith("image/") ? <img ref={imageRef} className="private-preview-image" src={current.url} alt={file.name} /> : source.mimeType === "application/pdf" ? <PdfPreview key={current.url} data={current.data} name={file.name} downloadUrl={current.url} onSettled={() => settle(current.source, current.attempt)} /> : <pre className="syllabus-source">{current.text}</pre>}
   </div>;
 }
 

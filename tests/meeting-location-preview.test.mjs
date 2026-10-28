@@ -189,3 +189,149 @@ test("meeting preview aborts stale lookups, uses coordinates, and falls back aft
   assert.equal(pending.length, 4, "address searches stay within the existing 160 character bound");
   assert.match(rootNode.textContent, /Map preview unavailable/);
 });
+
+test("coordinated map previews settle on frame load, frame timeout, and geocoding failure", async (t) => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/", pretendToBeVisual: true });
+  for (const name of ["window", "document", "HTMLElement", "Element", "Node", "Event"]) globalThis[name] = dom.window[name];
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const [{ createElement, act }, { createRoot }, { default: MeetingLocationPreview }, { CoursePreviewRevealProvider }] = await Promise.all([
+    import("react"), import("react-dom/client"), import(await clientModule("app/meeting-location-preview.tsx")), import(await clientModule("app/course-preview-reveal.tsx")),
+  ]);
+  const rootNode = document.getElementById("root");
+  const root = createRoot(rootNode);
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const originalRandom = Math.random;
+  const pending = [];
+  const previewTimers = new Map();
+  let nextPreviewTimer = 0;
+  let randomCall = 0;
+  const randomValues = [0.1, 0.9, 0.9, 0.1];
+  Math.random = () => randomValues[randomCall++] ?? 0.5;
+  globalThis.fetch = (url) => new Promise((resolve, reject) => pending.push({ url, resolve, reject }));
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    if (delay === 12_000) {
+      const handle = { previewTimer: ++nextPreviewTimer };
+      previewTimers.set(handle, () => callback(...args));
+      return handle;
+    }
+    return originalSetTimeout(callback, delay, ...args);
+  };
+  globalThis.clearTimeout = (handle) => {
+    if (previewTimers.delete(handle)) return;
+    return originalClearTimeout(handle);
+  };
+  const flush = () => new Promise((resolve) => originalSetTimeout(resolve, 0));
+  const renderMaps = (locations, participants) => act(async () => root.render(createElement(CoursePreviewRevealProvider, { participants }, ...locations.map(([location, key]) => createElement(MeetingLocationPreview, { key, location, previewKey: key })))));
+  const reveal = () => rootNode.querySelector(".course-preview-surface")?.classList.contains("is-revealed") ?? false;
+
+  t.after(async () => {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    Math.random = originalRandom;
+    await act(async () => root.unmount());
+    dom.window.close();
+  });
+
+  await renderMaps([["Barrier Load Hall", "load-map"], ["Barrier Timeout Hall", "timeout-map"]], ["load-map", "timeout-map"]);
+  assert.equal(pending.length, 2, "each address starts a location lookup");
+  assert.equal(reveal(), false, "pending geocoding keeps the map group hidden");
+  assert.equal(rootNode.querySelectorAll(".course-preview-content[aria-hidden='true']").length, 2);
+  const placeholdersBeforeGeocoding = [...rootNode.querySelectorAll(".course-preview-placeholder")].map((image) => image.getAttribute("src"));
+  assert.deepEqual(placeholdersBeforeGeocoding, ["/preview-placeholders/map-1.png", "/preview-placeholders/map-2.png"], "map placeholders choose deterministic randomized samples per mounted preview");
+
+  await act(async () => {
+    for (const request of pending) request.resolve(Response.json({ locations: [{ latitude: 38.5449, longitude: -121.7405 }] }));
+    await flush();
+  });
+  const frames = [...rootNode.querySelectorAll("iframe")];
+  assert.equal(frames.length, 2);
+  assert.deepEqual([...rootNode.querySelectorAll(".course-preview-placeholder")].map((image) => image.getAttribute("src")), placeholdersBeforeGeocoding, "geocoding's div-to-anchor switch preserves each placeholder choice");
+  assert.ok(frames.every((frame) => frame.getAttribute("loading") === "eager"), "coordinated offscreen maps load eagerly so they can release the barrier");
+  assert.equal(reveal(), false, "successful geocoding alone does not reveal an unloaded frame");
+
+  await act(async () => frames[0].dispatchEvent(new dom.window.Event("load")));
+  assert.equal(reveal(), false, "one loaded map cannot reveal the group while another map is pending");
+  assert.deepEqual([...rootNode.querySelectorAll(".course-preview-placeholder")].map((image) => image.getAttribute("src")), placeholdersBeforeGeocoding, "loading a map frame keeps its placeholder stable through reveal");
+  const timeout = [...previewTimers.values()][0];
+  assert.equal(typeof timeout, "function", "the map frame has a bounded timeout");
+  await act(async () => timeout());
+  assert.equal(reveal(), true, "the loaded frame and timed-out frame both release the barrier");
+  assert.deepEqual([...rootNode.querySelectorAll(".course-preview-placeholder")].map((image) => image.getAttribute("src")), placeholdersBeforeGeocoding, "the placeholder choice remains stable when the group reveals");
+  assert.equal(rootNode.querySelectorAll("iframe").length, 1, "a timed-out map is replaced with its fallback");
+  assert.match(rootNode.textContent, /Map preview unavailable/);
+
+  const failedKey = "failed-map";
+  globalThis.fetch = (url) => url.includes("Geocoding%20Failure") ? Promise.reject(new Error("offline")) : Promise.resolve(Response.json({ locations: [] }));
+  await act(async () => root.render(createElement(CoursePreviewRevealProvider, { participants: [failedKey] }, createElement(MeetingLocationPreview, { location: "Geocoding Failure", previewKey: failedKey }))));
+  await act(async () => flush());
+  assert.equal(reveal(), true, "geocoding failure falls back and settles the only participant");
+  assert.match(rootNode.textContent, /Map preview unavailable/);
+});
+
+test("late callbacks from a replaced map frame cannot disturb the current frame", async (t) => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/", pretendToBeVisual: true });
+  for (const name of ["window", "document", "HTMLElement", "Element", "Node", "Event"]) globalThis[name] = dom.window[name];
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const [{ createElement, act }, { createRoot }, { default: MeetingLocationPreview }, { CoursePreviewRevealProvider }] = await Promise.all([
+    import("react"), import("react-dom/client"), import(await clientModule("app/meeting-location-preview.tsx")), import(await clientModule("app/course-preview-reveal.tsx")),
+  ]);
+  const rootNode = document.getElementById("root");
+  const root = createRoot(rootNode);
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const previewTimers = new Map();
+  let nextPreviewTimer = 0;
+  globalThis.fetch = async (url) => {
+    const latitude = url.includes("Replacement%20Map") ? 42 : 38;
+    return Response.json({ locations: [{ latitude, longitude: -121 }] });
+  };
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    if (delay === 12_000) {
+      const handle = { previewTimer: ++nextPreviewTimer };
+      previewTimers.set(handle, () => callback(...args));
+      return handle;
+    }
+    return originalSetTimeout(callback, delay, ...args);
+  };
+  globalThis.clearTimeout = (handle) => {
+    if (previewTimers.delete(handle)) return;
+    return originalClearTimeout(handle);
+  };
+  const flush = () => new Promise((resolve) => originalSetTimeout(resolve, 0));
+  const renderMap = (location) => act(async () => root.render(createElement(CoursePreviewRevealProvider, { participants: ["stable-map"] }, createElement(MeetingLocationPreview, { key: "stable-map", location, previewKey: "stable-map" }))));
+
+  t.after(async () => {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    await act(async () => root.unmount());
+    dom.window.close();
+  });
+
+  await renderMap("Original Map Hall");
+  await act(async () => flush());
+  const oldFrame = rootNode.querySelector("iframe");
+  assert.ok(oldFrame);
+  const oldFramePropsKey = Object.keys(oldFrame).find((key) => key.startsWith("__reactProps$"));
+  assert.ok(oldFramePropsKey, "the mounted iframe has React event props");
+  const staleLoad = oldFrame[oldFramePropsKey].onLoad;
+  const staleError = oldFrame[oldFramePropsKey].onError;
+
+  await renderMap("Replacement Map Hall");
+  await act(async () => flush());
+  const currentFrame = rootNode.querySelector("iframe");
+  assert.ok(currentFrame);
+  assert.notEqual(currentFrame, oldFrame, "source changes replace the old frame element");
+  await act(async () => currentFrame.dispatchEvent(new dom.window.Event("load")));
+  assert.ok(rootNode.querySelector(".course-preview-surface").classList.contains("is-revealed"));
+  assert.equal(previewTimers.size, 0, "a successful current frame leaves no timeout pending");
+
+  await act(async () => staleLoad());
+  await act(async () => staleError());
+  assert.equal(previewTimers.size, 0, "old load and error callbacks cannot restart a timeout for the new frame");
+  assert.equal(rootNode.querySelector("iframe"), currentFrame, "an old frame error cannot replace the current preview with a fallback");
+});

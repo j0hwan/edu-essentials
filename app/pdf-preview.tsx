@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderPdfPreviewPage } from "../lib/pdf-preview-client";
 
-type PreviewProps = { data: Blob; name: string; downloadUrl?: string };
+type PreviewProps = { data: Blob; name: string; downloadUrl?: string; onSettled?: () => void };
+type DocumentProps = Omit<PreviewProps, "onSettled"> & { onDocumentSettled: (data: Blob) => void };
 type RenderQueue = { current: Promise<void> };
 
-function PdfPageCanvas({ data, name, downloadUrl, page, queueRef, onReady }: PreviewProps & {
+function PdfPageCanvas({ data, name, downloadUrl, page, queueRef, onReady, onDocumentSettled }: DocumentProps & {
   page: number; queueRef: RenderQueue; onReady: (pages: number, ratio: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -25,6 +26,7 @@ function PdfPageCanvas({ data, name, downloadUrl, page, queueRef, onReady }: Pre
       controller.abort();
       if (autoRecoveryRef.current) {
         setResult({ attempt, error: "This PDF could not be previewed. Its canvas context was lost. Download the original file to open it." });
+        if (page === 1) onDocumentSettled(data);
       } else {
         autoRecoveryRef.current = true;
         setAttempt((previous) => previous + 1);
@@ -38,10 +40,14 @@ function PdfPageCanvas({ data, name, downloadUrl, page, queueRef, onReady }: Pre
         if (!controller.signal.aborted) {
           setResult({ attempt });
           onReady(pages, canvas.width / canvas.height);
+          if (page === 1) onDocumentSettled(data);
         }
       } catch (cause) {
         const detail = cause instanceof Error ? ` ${cause.message}` : "";
-        if (!controller.signal.aborted) setResult({ attempt, error: `This PDF could not be previewed.${detail} Download the original file to open it.` });
+        if (!controller.signal.aborted) {
+          setResult({ attempt, error: `This PDF could not be previewed.${detail} Download the original file to open it.` });
+          if (page === 1) onDocumentSettled(data);
+        }
       }
     });
     return () => {
@@ -51,7 +57,7 @@ function PdfPageCanvas({ data, name, downloadUrl, page, queueRef, onReady }: Pre
       canvas.width = 0;
       canvas.height = 0;
     };
-  }, [data, page, attempt, queueRef, onReady]);
+  }, [data, page, attempt, queueRef, onReady, onDocumentSettled]);
 
   const retry = () => {
     autoRecoveryRef.current = false;
@@ -65,7 +71,7 @@ function PdfPageCanvas({ data, name, downloadUrl, page, queueRef, onReady }: Pre
   </>;
 }
 
-function PdfPage({ page, root, queueRef, onDocumentReady, ...props }: PreviewProps & {
+function PdfPage({ page, root, queueRef, onDocumentReady, ...props }: DocumentProps & {
   page: number; root: HTMLDivElement | null; queueRef: RenderQueue; onDocumentReady: (pages: number) => void;
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
@@ -89,7 +95,7 @@ function PdfPage({ page, root, queueRef, onDocumentReady, ...props }: PreviewPro
   </div>;
 }
 
-function PdfDocument(props: PreviewProps) {
+function PdfDocument(props: DocumentProps) {
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [pages, setPages] = useState(1);
   const queueRef = useRef(Promise.resolve());
@@ -101,6 +107,27 @@ function PdfDocument(props: PreviewProps) {
 
 export function PdfPreview(props: PreviewProps) {
   const [document, setDocument] = useState({ data: props.data, revision: 0 });
+  const onSettledRef = useRef(props.onSettled);
+  const mountedRef = useRef(false);
+  const settlementRef = useRef({ data: props.data, settled: false, notified: false });
+  const notify = useCallback((settlement: typeof settlementRef.current) => {
+    if (!mountedRef.current || !settlement.settled || settlement.notified || !onSettledRef.current) return;
+    settlement.notified = true;
+    try { onSettledRef.current(); } catch { /* An optional settlement observer cannot interrupt PDF rendering. */ }
+  }, []);
+  const onDocumentSettled = useCallback((data: Blob) => {
+    const settlement = settlementRef.current;
+    if (!mountedRef.current || settlement.data !== data) return;
+    settlement.settled = true;
+    notify(settlement);
+  }, [notify]);
+  useLayoutEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  useLayoutEffect(() => {
+    if (settlementRef.current.data !== props.data) settlementRef.current = { data: props.data, settled: false, notified: false };
+    onSettledRef.current = props.onSettled;
+    if (settlementRef.current.data === props.data) notify(settlementRef.current);
+  }, [props.data, props.onSettled, notify]);
   if (document.data !== props.data) setDocument({ data: props.data, revision: document.revision + 1 });
-  return <PdfDocument key={document.revision} {...props} />;
+  const documentProps = { data: props.data, name: props.name, downloadUrl: props.downloadUrl };
+  return <PdfDocument key={document.revision} {...documentProps} onDocumentSettled={onDocumentSettled} />;
 }

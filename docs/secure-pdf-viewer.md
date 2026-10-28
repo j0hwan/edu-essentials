@@ -136,6 +136,27 @@ not provide text selection/search, a PDF text accessibility layer, interactive
 forms, or native print/zoom controls. Original downloads remain available as a
 fallback. Avoid adding nested scroll containers when embedding the viewer.
 
+### Expanded-course loading reveal
+
+The expanded course coordinates its syllabus and meeting previews with
+`CoursePreviewRevealProvider`. Each current source has a participant key; a
+source, course, profile, or session change creates a fresh group. Maps report
+their iframe load or terminal fallback. `InlineFilePreview.onPreviewSettled`
+waits for image decode, text, a terminal failure, or `PdfPreview.onSettled` after
+the first PDF page renders. Later lazy PDF pages do not block the group.
+
+All surfaces reveal together using the header image's gradient-mask animation,
+with the same reduced-motion behavior. While waiting, local map samples are
+blurred in CSS; the syllabus uses a preblurred PNG, avoiding seams from a live
+blur on a large display layer.
+Add map samples to `MAP_PREVIEW_PLACEHOLDERS` in
+`app/course-preview-reveal.tsx`; each mounted map randomly chooses one sample
+and keeps it through rerenders. The images live in `public/preview-placeholders/`.
+After building, `node scripts/verify-course-preview-reveal.mjs` verifies the
+shared animation with controlled map responses and a real PDF worker, including
+reduced motion. It accepts the same browser-tooling environment variables as
+the PDF pixel verifier below.
+
 ## Regression checks
 
 Run from the repository root; build first because the emitted-worker test reads
