@@ -212,7 +212,11 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .meeting-location-preview-fallback > svg { flex-shrink: 0; }
 .meeting-location-preview:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 .expanded-class-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-column: 1 / -1; grid-row: 2; align-self: end; gap: 8px; min-width: 0; margin: 0; padding: 0; list-style: none; }
-.expanded-class-weekdays > li { display: grid; place-items: center; min-width: 0; min-height: 48px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 14px; }
+.expanded-class-weekdays > li { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; min-height: 96px; padding: 12px 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 14px; }
+.expanded-class-weekday-meetings { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+.expanded-class-weekday-meeting-anchor { position: relative; display: block; max-width: 100%; }
+.expanded-class-weekday-meeting { display: block; max-width: 100%; padding: 3px 4px; border: 0; border-radius: 5px; background: var(--brand-soft); color: var(--ink); font: inherit; font-size: 12px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; text-align: center; cursor: help; }
+.expanded-class-weekday-tooltip { position: absolute; z-index: 5; bottom: 100%; left: 50%; width: max-content; max-width: min(220px, 60vw); padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); font-size: 12px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; text-align: left; transform: translateX(-50%); }
 .expanded-class-section > summary { cursor: pointer; font-size: 13px; font-weight: 650; }
 .expanded-class-section .syllabus-source { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
 .expanded-class-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr); grid-template-rows: auto 1fr; gap: 18px; margin-bottom: 18px; }

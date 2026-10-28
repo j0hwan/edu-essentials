@@ -1554,6 +1554,44 @@ test("study controls persist targets, timers, history and grades", async (t) => 
   });
 });
 
+test("expanded class weekday tiles show only scheduled meeting abbreviations", async () => {
+  reset();
+  const { addDays, dayKey, weekStart } = await import(await clientModule("lib/academics.ts"));
+  const today = dayKey(new Date(), baseProfile.timezone);
+  const start = weekStart(today, false);
+  const dates = Array.from({ length: 7 }, (_, index) => addDays(start, index));
+  const meeting = { days: [0, 1, 2, 3, 4, 5, 6], start: "09:00", end: "10:00", from: "1900-01-01", until: "2200-12-31", location: "" };
+  const details = { officeHours: "", meetings: [
+    { ...meeting, id: "lecture", name: "Lecture" },
+    { ...meeting, id: "lab", name: "Lab", start: "11:00", end: "12:00" },
+    { ...meeting, id: "cancelled", name: "Cancelled", excludedDates: dates },
+    { ...meeting, id: "ended", name: "Ended", until: addDays(today, -1) },
+  ] };
+  installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: details } } }, [{ ...sampleCourse, room: "" }]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    const weekdays = rootNode.querySelector('[aria-label="Class details"] .expanded-class-weekdays');
+    assert.ok(weekdays);
+    assert.equal(weekdays.children.length, 7);
+    assert.deepEqual([...weekdays.querySelectorAll("time")].map((day) => day.textContent), ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
+    assert.deepEqual([...weekdays.querySelectorAll("time")].map((day) => day.getAttribute("datetime")), dates);
+    for (const day of weekdays.children) assert.deepEqual([...day.querySelectorAll(".expanded-class-weekday-meeting")].map((entry) => entry.textContent), ["Lectu", "Lab"]);
+    const meetingLabel = weekdays.querySelector(".expanded-class-weekday-meeting");
+    const meetingAnchor = meetingLabel.parentElement;
+    await act(async () => meetingAnchor.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
+    const tooltip = weekdays.querySelector('[role="tooltip"]');
+    assert.equal(tooltip?.textContent, "Lecture");
+    assert.equal(meetingLabel.getAttribute("aria-describedby"), tooltip.id);
+    await act(async () => meetingAnchor.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true })));
+    assert.equal(weekdays.querySelector('[role="tooltip"]'), null);
+    await act(async () => meetingAnchor.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
+    await act(async () => meetingLabel.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    await waitUntil(() => !rootNode.querySelector('[aria-label="Class details"]'), "Escape closes the class while a tooltip is hovered");
+  } finally { if (root) await unmount(); }
+});
+
 test("class cards enlarge in place with all class tools and retain nested assignment behavior", async () => {
   reset();
   const assignment = { id: "class-expansion-assignment", title: "Research outline", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Read the source material", weight: "" };
