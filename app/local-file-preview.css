@@ -1,0 +1,34 @@
+.files-local-preview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 9px;
+  min-height: 180px;
+  max-height: 360px;
+  overflow: hidden;
+  border: 1px solid #29466e;
+  border-radius: 12px;
+  background: #071425;
+}
+
+.files-local-preview-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 0;
+  color: #a9c4ef;
+  font-size: 10px;
+}
+
+.files-local-preview-header > div { display: grid; min-width: 0; gap: 3px; }
+.files-local-preview-header strong { color: #edf3ff; font-size: 12px; }
+.files-local-preview-header span { overflow: hidden; color: #87d6b1; text-overflow: ellipsis; white-space: nowrap; }
+.files-local-preview-header > span { flex: 0 0 auto; max-width: 45%; color: #91a9cf; }
+.files-local-preview-image { display: grid; min-height: 0; place-items: center; overflow: auto; padding: 0 10px 10px; }
+.files-local-preview-image img { display: block; max-width: 100%; max-height: 300px; object-fit: contain; }
+.files-local-preview-pdf { display: grid; min-height: 220px; place-items: center; overflow: auto; background: #101825; padding: 0 10px 10px; }
+.files-local-preview-pdf img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; }
+.files-local-preview-pdf span { color: #a9c0e7; font-size: 11px; }
+.files-local-preview-text { min-height: 0; overflow: auto; margin: 0; border-top: 1px solid #192f4d; padding: 12px; color: #cad8f1; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.files-local-preview-unavailable { padding: 14px; color: #9eb3d6; font-size: 11px; line-height: 1.5; }

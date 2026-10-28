@@ -65,17 +65,22 @@ test("file discovery preferences round trip without persisting search text", () 
     assert.throws(() => decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: { ...preferences, ...patch } } }), /Invalid file preferences/);
   }
 });
-test("saved upload confirmation preferences remain loadable and survive a workspace save", () => {
+test("upload confirmation preferences preserve legacy defaults and round-trip saved booleans", () => {
   const defaults = { assignments: [], manualEvents: [], dashboardView: "cards" };
+  const legacyPreferences = { filter: "all", view: "grid" };
+  const decodePreferences = (value) => decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: value } }).data.filePreferences;
+  assert.equal(decodePreferences(legacyPreferences).confirmUploads, undefined);
   for (const confirmUploads of [false, true]) {
     const preferences = { filter: "all", view: "grid", sortBy: "modified", sortDirection: "desc", appearanceVersion: 2, confirmUploads };
     const decoded = decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: preferences } });
     assert.deepEqual(decoded.data.filePreferences, preferences);
     const saved = encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, decoded.data);
     assert.deepEqual(decodeWorkspaceState(saved).data.filePreferences, preferences);
+    assert.deepEqual(decodePreferences({ ...legacyPreferences, confirmUploads }), { ...legacyPreferences, confirmUploads });
   }
   for (const confirmUploads of [null, 0, "false", {}, []]) {
     assert.throws(() => decodeWorkspaceState({ ...layout, d: { ...defaults, filePreferences: { filter: "all", view: "grid", confirmUploads } } }), /Invalid file preferences/);
+    assert.throws(() => decodePreferences({ ...legacyPreferences, confirmUploads }), /Invalid file preferences/);
   }
 });
 // No live users or production data are created by these tests.

@@ -5,6 +5,9 @@ import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
 
 const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/" });
+// Keep scoped runs independent of earlier tests that install browser frame APIs.
+dom.window.requestAnimationFrame = (callback) => dom.window.setTimeout(() => callback(dom.window.performance.now()), 0);
+dom.window.cancelAnimationFrame = (frame) => dom.window.clearTimeout(frame);
 class TestAnimationEvent extends dom.window.Event {
   constructor(type, { animationName = "", ...options } = {}) { super(type, options); this.animationName = animationName; }
 }
@@ -150,8 +153,13 @@ function uploadChooser() {
   assert.ok(input, "The upload panel retains its file picker behind Choose files");
   return input;
 }
+async function confirmUploadBatch() {
+  const panel = rootNode.querySelector('.files-upload-dialog');
+  assert.ok(panel, "the upload review panel remains open until confirmation");
+  await clickIn(panel, "Upload files");
+}
 async function returnToFilesRoot() {
-  const button = [...rootNode.querySelectorAll(".files-view-nav button")].find((node) => node.textContent.trim() === "Files");
+  const button = [...rootNode.querySelectorAll(".files-revamp-nav button")].find((node) => node.textContent.trim() === "Files");
   assert.ok(button, "Files view navigation is available");
   await act(async () => { button.click(); });
 }
@@ -546,6 +554,16 @@ async function clickIn(container, text) {
   const button = [...container.querySelectorAll("button")].find((node) => node.textContent.trim() === text || node.getAttribute("aria-label") === text);
   assert.ok(button, `Missing button ${text}`); await act(async () => button.click());
 }
+function confirmUploadSetting(panel) {
+  const toggle = [...panel.querySelectorAll('[aria-label="Confirm before uploading"], [role="menuitemcheckbox"]')]
+    .find((node) => node.getAttribute("aria-label") === "Confirm before uploading" || node.textContent.includes("Confirm before uploading"));
+  assert.ok(toggle, "Upload settings exposes the confirmation preference");
+  return toggle;
+}
+function isUploadConfirmationEnabled(toggle) {
+  if (toggle instanceof HTMLInputElement) return toggle.checked;
+  return toggle.getAttribute("aria-checked") === "true";
+}
 function installWorkspaceServer(initial = savedDashboard, courses = [], profile = baseProfile) {
   const server = { dashboard: structuredClone(initial), courses, profile, revision: baseProfile.updated_at, writes: 0, reads: 0, offline: false, loseResponse: false, preservationFailure: false };
   fetcher = async (_url, init) => {
@@ -872,7 +890,7 @@ test("folder operations retain workspace drafts, retry creates, preserve associa
     await render(Workspace, { initialProfile: organizationProfile, filesBrowserEnabled: true });
     await click("Files");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder");
-    await clickAria(`Open folder: ${sampleCourse.code}`); await click("New"); await click("New folder");
+    await clickAria(`Open folder: ${sampleCourse.code}`); await click("New"); await click("Create new folder");
     await edit("Folder name", "Research notes"); await clickIn(dialog(), "Create folder");
     await waitUntil(() => dialog()?.textContent.includes("could not be reached"), "ambiguous create failure");
     assert.equal(creates.length, 1); assert.equal(creates[0].parentId, courseFolderId);
@@ -911,7 +929,7 @@ test("folder operations retain workspace drafts, retry creates, preserve associa
     await clickAria("More options for Course notes.txt"); await click("Edit text");
     await waitUntil(() => rootNode.querySelector(".native-document-fields textarea:not(:disabled)"), "moved document body");
     assert.equal(field("Text").value, text); assert.equal(documentReads.length, 1); assert.equal(activityOpens.length, 1); await click("Close editor");
-    await click("New"); await click("New folder"); await edit("Folder name", "Previous account draft");
+    await click("New"); await click("Create new folder"); await edit("Folder name", "Previous account draft");
     const writesBeforeAccountChange = creates.length + renames.length + moves.length;
     const changedProfile = { ...baseProfile, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", auth_user_id: "user-b", email: "second@example.invalid" };
     server.profile = changedProfile;
@@ -1800,16 +1818,17 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.ok(expanded.querySelector(".expanded-class-heading h2").textContent.includes(sampleCourse.name));
     assert.equal(rootNode.querySelector(".side-panel-backdrop"), null);
     assert.equal(card.getAttribute("aria-expanded"), "true");
-    for (const label of ["Instructor", "Office hours", "Lecture", "Meeting 2", "Assignments", "Syllabus", "Saved History guide", "Tuesday, 2–3 PM"]) assert.ok(expanded.textContent.includes(label), label);
+    assert.equal(expanded.querySelector('.expanded-class-heading [data-course-morph="instructor"]').textContent, sampleCourse.instructor);
+    for (const label of ["Lecture", "Meeting 2", "Assignments", "Syllabus"]) assert.ok(expanded.textContent.includes(label), label);
     const classActions = [...expanded.querySelectorAll(".expanded-class-heading .expanded-class-actions button")];
     assert.deepEqual(classActions.map((button) => button.textContent.trim()), ["Add assignment", "Edit class"]);
     assert.ok(classActions[0].classList.contains("primary-button"));
     assert.ok(classActions[1].classList.contains("secondary-button"));
     assert.equal(classActions[1].querySelector("svg"), null);
-    const courseDetails = expanded.querySelector('[aria-label="Course details"]');
-    assert.deepEqual([...courseDetails.querySelectorAll(":scope > div > h3")].map((heading) => heading.textContent), ["Instructor", "Office hours", "Meeting Notes"]);
-    assert.ok(courseDetails.textContent.includes(details.meetingNotes));
-    assert.equal(courseDetails.nextElementSibling.getAttribute("aria-label"), "Course schedule");
+    const meetingNotes = expanded.querySelector('[aria-label="Course meeting notes"]');
+    assert.equal(meetingNotes.querySelector("h3").textContent, "Meeting Notes");
+    assert.ok(meetingNotes.textContent.includes(details.meetingNotes));
+    assert.equal(meetingNotes.nextElementSibling.getAttribute("aria-label"), "Course schedule");
     const meetingColumns = [...expanded.querySelectorAll('[aria-label="Course schedule"] .expanded-class-meeting')];
     assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("h3").textContent), ["Lecture", "Meeting 2", "Lab", "Seminar"]);
     assert.deepEqual(meetingColumns.map((meeting) => meeting.querySelector("p").innerHTML.split(/<br\s*\/?\s*>/)), [["Monday, Wednesday, Friday", "9:00am–10:00am", "Lecture Hall"], ["Tuesday", "11:00am–12:00pm", "Discussion Room"], ["Thursday", "1:00pm–2:00pm", "Lab Room"], ["Friday", "3:00pm–4:00pm", "Seminar Room"]]);
@@ -1826,7 +1845,7 @@ test("class cards enlarge in place with all class tools and retain nested assign
 
     const syllabusSection = expanded.querySelector('[aria-label="Course syllabus"]');
     assert.ok(syllabusSection);
-    assert.equal(syllabusSection.parentElement, courseDetails.parentElement);
+    assert.equal(syllabusSection.parentElement, meetingNotes.parentElement);
     assert.ok(syllabusSection.parentElement.classList.contains("expanded-class-grid"));
     assert.equal(syllabusSection.previousElementSibling.getAttribute("aria-label"), "Course schedule");
     assert.ok([...syllabusSection.querySelectorAll("button")].some((button) => button.textContent.trim() === "Import syllabus"));
@@ -1855,6 +1874,7 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusText, replacementText);
     assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusName, "Updated History guide");
     assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusFileId, sourceId, "the existing source remains linked to this course");
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].officeHours, details.officeHours, "existing office hours remain saved when the syllabus is updated");
     await waitUntil(() => rootNode.querySelector('[aria-label="Class details"]'), "expanded course after syllabus import");
     expanded = rootNode.querySelector('[aria-label="Class details"]');
     assert.equal(expanded.querySelector(".expanded-class-header .course-pill").textContent, sampleCourse.code);
@@ -1890,7 +1910,7 @@ test("class cards enlarge in place with all class tools and retain nested assign
     const reloadedCard = rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`);
     assert.ok(reloadedCard, "the existing course remains available after reload");
     await act(async () => reloadedCard.click());
-    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"] .expanded-class-syllabus')?.textContent.includes("Updated History guide"), "saved course syllabus after reload");
+    await waitUntil(() => rootNode.querySelector('[aria-label="Class details"] [aria-label="Course syllabus"]'), "saved course syllabus section after reload");
     await waitUntil(() => rootNode.querySelector('[aria-label="Class details"] [aria-label="Syllabus preview"] .syllabus-source')?.textContent === replacementText, "updated syllabus text appears inline after reload");
   } finally { filesFetcher = undefined; await unmount(); }
 });
@@ -3562,7 +3582,7 @@ test("real Files preferences save with academic data while temporary search is d
     await edit("File type", "pdf");
     await edit("Sort by", "modified");
     await clickAria("Sort descending");
-    assert.equal(rootNode.querySelector('[aria-label="Sort ascending"]').textContent.trim(), "Ascending");
+    assert.ok(rootNode.querySelector('[aria-label="Sort ascending"]'), "the direction control updates its accessible name to ascending");
     await clickAria("Sort ascending");
     await edit("Include archived", true);
     await clickAria("Grid view");
@@ -3585,13 +3605,13 @@ test("real Files preferences save with academic data while temporary search is d
 
     await saveAndReload({ initialProfile: profile, filesBrowserEnabled: true });
     await click("Files");
-    await waitUntil(() => rootNode.querySelector('[aria-label="Search files"]'), "Files tools after workspace reload");
+    await waitUntil(() => rootNode.querySelector('input[aria-label="Search files"]'), "Files tools after workspace reload");
     await clickAria("Filters");
-    assert.equal(rootNode.querySelector('[aria-label="Search files"]').value, "", "a reload clears the temporary query");
+    assert.equal(rootNode.querySelector('input[aria-label="Search files"]').value, "", "a reload clears the temporary query");
     assert.equal(field("Course filter").value, sampleCourse.id);
     assert.equal(field("File type").value, "pdf");
     assert.equal(field("Sort by").value, "modified");
-    assert.equal(rootNode.querySelector('[aria-label="Sort descending"]').textContent.trim(), "Descending");
+    assert.ok(rootNode.querySelector('[aria-label="Sort descending"]'), "the saved descending preference reloads with the matching accessible control name");
     assert.equal(field("Include archived").checked, true);
     assert.equal(rootNode.querySelector('.files-layout-toggle button[aria-label="Grid view"]').getAttribute("aria-pressed"), "true");
     assert.deepEqual(server.dashboard.d.filePreferences, expected);
@@ -3687,6 +3707,8 @@ test("real Files activity records successful upload previews and native reads/sa
     const selectedUpload = new File(["Uploaded bytes"], "Uploaded notes.txt", { type: "text/plain" });
     const chooser = uploadChooser();
     await act(async () => { Object.defineProperty(chooser, "files", { configurable: true, value: [selectedUpload] }); chooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    assert.equal(uploadXhr.requests.length, 0, "the activity test explicitly confirms the reviewed selection");
+    await confirmUploadBatch();
     await waitUntil(() => uploadXhr.requests.length === 1, "failed upload attempt starts");
     const firstUpload = uploadXhr.requests[0];
     const uploadedId = new URL(firstUpload.url, "https://edu.example").searchParams.get("id");
@@ -3712,7 +3734,7 @@ test("real Files activity records successful upload previews and native reads/sa
     await clickAria("Preview file: Uploaded notes.txt");
     await waitUntil(() => rootNode.querySelector(".syllabus-source")?.textContent === "Uploaded bytes", "uploaded file bytes read successfully");
     await waitUntil(() => openActions.length === 1, "uploaded preview Recent acknowledgement");
-    await click("Close file preview"); await click("Recent");
+    await click("Close file preview"); await click("See history");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: Uploaded notes.txt"]`), "uploaded file in Recent");
     assert.equal(rootNode.querySelector(`[aria-label="Preview file: ${failedPreview.name}"]`), null, "failed preview is absent from Recent");
 
@@ -3736,7 +3758,7 @@ test("real Files activity records successful upload previews and native reads/sa
     await click("Retry save");
     await waitUntil(() => native.content_revision === 2 && openActions.filter((action) => action.items[0].id === native.id).length === 2, "successful native save Recent acknowledgement", 6000);
     assert.equal(nativeBody, changedText); assert.equal(native.size_bytes, new TextEncoder().encode(changedText).byteLength);
-    await click("Close editor"); await click("Recent");
+    await click("Close editor"); await click("See history");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Edit text: ${native.name}"]`), "native document in Recent");
     assert.equal(server.writes, 0, "file reads and native content saves do not rewrite academic workspace data");
     assert.deepEqual(server.dashboard.d.assignments, [assignment]);
@@ -3920,6 +3942,8 @@ test("Workspace multi-file uploads retain independent retries, block account act
       chooser.dispatchEvent(new window.Event("change", { bubbles: true }));
     });
 
+    assert.equal(xhr.requests.length, 0, "the retry test does not upload before explicit confirmation");
+    await confirmUploadBatch();
     await waitUntil(() => xhr.requests.length === 1, "first queued upload");
     const failedRequest = xhr.requests[0];
     const failedId = new URL(failedRequest.url, "https://edu.example").searchParams.get("id");
@@ -3936,18 +3960,22 @@ test("Workspace multi-file uploads retain independent retries, block account act
     storedFiles.set(successfulRow.id, successfulRow); fileBytes.set(successfulRow.id, "second upload body");
     await act(async () => successfulRequest.respond(201, { file: successfulRow }));
     await waitUntil(() => rootNode.querySelector(`[data-upload-id="${successfulRow.id}"] .files-upload-status`)?.textContent === "Uploaded and verified", "second file success");
-    assert.equal(xhr.requests.length, 2, "an oversized selection is retained as a row without starting an upload");
+    assert.equal(xhr.requests.length, 2, "an oversized local review item never starts an upload");
     assert.match(rootNode.querySelector(`[data-upload-id="${failedId}"] .files-upload-error`).textContent, /Storage offline/);
-    const oversizedRow = [...rootNode.querySelectorAll(".files-upload-row")].find((row) => row.textContent.includes(oversizedFile.name));
+    const oversizedRow = [...rootNode.querySelectorAll(".files-upload-review-row")].find((row) => row.textContent.includes(oversizedFile.name));
+    assert.ok(oversizedRow, "the invalid oversized file remains in local review after valid files are admitted");
     assert.match(oversizedRow.querySelector(".files-upload-error").textContent, /25 MiB/);
     assert.equal(activityActions.length, 0, "upload completion alone never marks a file Recent");
 
+    await clickIn(rootNode.querySelector('.files-upload-dialog'), "Cancel selection");
+    assert.equal(rootNode.querySelector('[aria-label="Files ready for upload"]'), null, "the user can cancel invalid local files without admitting them to the queue");
     await clickAria("Close upload panel");
     assert.equal(rootNode.querySelector('[role="dialog"][aria-labelledby="files-upload-title"]'), null, "closing the chooser leaves its queue mounted in Workspace");
-    await click("Recent");
+    await waitUntil(() => !rootNode.querySelector(".files-upload-dialog"), "the upload panel exit animation to finish before navigating away");
+    await click("See history");
     await waitUntil(() => rootNode.querySelector(".files-state-panel h3")?.textContent === "No recent files", "empty Recent view before a real open");
     assert.doesNotMatch(rootNode.querySelector(".files-browser-content").textContent, /Open me\.txt/);
-    await clickIn(rootNode.querySelector('.files-view-nav'), "Files");
+    await clickIn(rootNode.querySelector('.files-revamp-nav'), "Files");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Open folder: ${sampleCourse.code}"]`), "course folder after Recent view");
     await clickAria(`Open folder: ${sampleCourse.code}`);
     await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: ${successfulFile.name}"]`), "uploaded file in My files");
@@ -3955,7 +3983,7 @@ test("Workspace multi-file uploads retain independent retries, block account act
     await waitUntil(() => rootNode.querySelector(".syllabus-source")?.textContent === "second upload body", "uploaded file preview read");
     await waitUntil(() => activityActions.length === 1, "open acknowledged to Recent");
     assert.deepEqual(fileReads, [successfulRow.id]);
-    await click("Close file preview"); await click("Recent");
+    await click("Close file preview"); await click("See history");
     await waitUntil(() => rootNode.querySelector(`[aria-label="Preview file: ${successfulFile.name}"]`), "file appears in Recent only after opening");
 
     await click("Settings");
@@ -3968,7 +3996,7 @@ test("Workspace multi-file uploads retain independent retries, block account act
     const failedDraft = currentDraft.fileUploads.uploads.find((upload) => upload.id === failedId);
     assert.ok(failedDraft, "the current-work draft preserves the failed selection for recovery");
     assert.deepEqual(failedDraft.metadata, failedMetadata);
-    assert.ok(currentDraft.fileUploads.uploads.some((upload) => upload.name === oversizedFile.name));
+    assert.equal(currentDraft.fileUploads.uploads.some((upload) => upload.name === oversizedFile.name), false, "unconfirmed invalid Files stay out of the retry draft");
 
     await click("Review uploads");
     const failedRow = rootNode.querySelector(`[data-upload-id="${failedId}"]`);
@@ -3987,9 +4015,7 @@ test("Workspace multi-file uploads retain independent retries, block account act
     storedFiles.set(retriedRow.id, retriedRow); fileBytes.set(retriedRow.id, "first upload body");
     await act(async () => retryRequest.respond(201, { file: retriedRow }));
     await waitUntil(() => rootNode.querySelector(`[data-upload-id="${failedId}"] .files-upload-status`)?.textContent === "Uploaded and verified", "failed selection retry success");
-    assert.equal(rootNode.querySelector('a[href^="/api/export"]').getAttribute("aria-disabled"), "true", "the invalid oversized row still blocks account export");
-    await clickAria(`Dismiss upload ${oversizedFile.name}`);
-    assert.equal(unloadBlocked(), false, "completing retry and dismissing the invalid row clears upload protection");
+    assert.equal(unloadBlocked(), false, "completing the only retryable queue row clears upload protection after local review was canceled");
     assert.notEqual(rootNode.querySelector('a[href^="/api/export"]').getAttribute("aria-disabled"), "true");
     assert.equal([...rootNode.querySelectorAll("button")].find((button) => button.textContent.trim() === "Sign out").disabled, false);
     assert.equal(server.writes, 0, "upload progress and file reads do not rewrite the academic workspace");
@@ -4001,7 +4027,169 @@ test("Workspace multi-file uploads retain independent retries, block account act
   }
 });
 
-test("legacy assignment upload controls keep their associations beside the Files upload queue", async () => {
+test("upload confirmation opt-out is confirmed, account-scoped, restorable, and survives reload", async () => {
+  reset();
+  const previousFrame = window.requestAnimationFrame, previousCancelFrame = window.cancelAnimationFrame;
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(window.performance.now()), 0);
+  window.cancelAnimationFrame = (frame) => window.clearTimeout(frame);
+  const profileA = { ...baseProfile, id: "78787878-7878-4787-8787-787878787878" };
+  const profileB = { ...baseProfile, id: "89898989-8989-4898-8989-898989898989", email: "second@example.invalid" };
+  const profiles = new Map([[profileA.id, profileA], [profileB.id, profileB]]);
+  const accounts = new Map([...profiles].map(([id, profile]) => [id, {
+    profile,
+    dashboard: structuredClone(savedDashboard),
+    courses: [sampleCourse],
+    revision: profile.updated_at,
+    writes: 0,
+    reads: 0,
+  }]));
+  fetcher = async (_url, init = {}) => {
+    const profileId = new Headers(init.headers).get("x-profile-id");
+    const account = accounts.get(profileId);
+    assert.ok(account, `Workspace request used an unknown profile ${profileId}`);
+    if (init.method === "PUT") {
+      const body = JSON.parse(init.body);
+      if (body.baseRevision !== account.revision) return Response.json({}, { status: 409 });
+      const saved = academicSnapshot(body.courses, body.dashboard);
+      account.dashboard = saved.dashboard;
+      account.courses = saved.courses;
+      account.writes++;
+      account.revision = new Date(Date.parse(account.revision) + 1000).toISOString();
+      return Response.json({ ok: true, revision: account.revision });
+    }
+    account.reads++;
+    return Response.json({ initialized: true, courses: account.courses, dashboard: account.dashboard, revision: account.revision, profile: account.profile });
+  };
+  const xhr = installUploadXhr();
+  filesFetcher = async (url, init = {}) => {
+    const profileId = new Headers(init.headers).get("x-profile-id");
+    assert.ok(accounts.has(profileId), `Files request stayed scoped to a saved account: ${profileId}`);
+    if (url === "/api/files" || url.startsWith("/api/files?view=active")) return Response.json({ files: [], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/files?view=trash")) return Response.json({ files: [], activities: { files: [], folders: [] } });
+    if (url.startsWith("/api/file-folders?view=")) return Response.json({ folders: [], activities: { files: [], folders: [] } });
+    throw new Error(`Unexpected upload preference request: ${init.method ?? "GET"} ${url}`);
+  };
+  try {
+    await render(Workspace, { initialProfile: profileA, filesBrowserEnabled: true });
+    await click("Files"); await waitUntil(() => rootNode.querySelector(".files-browser"), "Files for account A");
+    await click("New"); await click("Upload files");
+    let panel = rootNode.querySelector('.files-upload-dialog');
+    assert.ok(panel);
+    await clickIn(panel, "Upload settings");
+    let toggle = confirmUploadSetting(panel);
+    assert.equal(isUploadConfirmationEnabled(toggle), true, "an older account preference with no boolean defaults to confirmation enabled");
+    await clickIn(panel, "Upload settings");
+
+    const pendingAtSettingChange = new File(["Must not be admitted by changing the setting"], "pending-when-setting-changes.txt", { type: "text/plain" });
+    const pendingChooser = uploadChooser();
+    await act(async () => { Object.defineProperty(pendingChooser, "files", { configurable: true, value: [pendingAtSettingChange] }); pendingChooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    assert.equal(xhr.requests.length, 0, "the pending batch starts in local review");
+    assert.ok(panel.querySelector('[aria-label="Local file preview"]'));
+    await clickIn(panel, "Upload settings");
+    toggle = confirmUploadSetting(panel);
+    await act(async () => { toggle.click(); });
+    await waitUntil(() => accounts.get(profileA.id).dashboard.d.filePreferences?.confirmUploads === false, "saving confirmation off while a batch is pending");
+    assert.equal(xhr.requests.length, 0, "turning confirmation off does not admit files already under review");
+    assert.ok(panel.querySelector('[aria-label="Local file preview"]'), "the pending local batch stays in review after the setting changes");
+    await act(async () => { toggle.click(); });
+    await waitUntil(() => accounts.get(profileA.id).dashboard.d.filePreferences?.confirmUploads === true, "restoring confirmation while a batch is pending");
+    assert.equal(xhr.requests.length, 0, "turning confirmation back on does not admit the pending batch either");
+    await clickIn(panel, "Cancel selection");
+    assert.equal(panel.querySelector('[aria-label="Files ready for upload"]'), null, "the explicitly canceled pending batch is cleared");
+    await clickIn(panel, "Upload settings");
+    const writesBeforeOptOut = accounts.get(profileA.id).writes;
+
+    const reviewedFiles = [
+      new File(["First reviewed upload"], "remember-first.txt", { type: "text/plain" }),
+      new File(["Second reviewed upload"], "remember-second.txt", { type: "text/plain" }),
+    ];
+    const chooser = uploadChooser();
+    await act(async () => { Object.defineProperty(chooser, "files", { configurable: true, value: reviewedFiles }); chooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    assert.equal(xhr.requests.length, 0, "the default review does not call the upload transport");
+    const optOut = [...panel.querySelectorAll('input[type="checkbox"]')].find((input) => input.closest("label")?.textContent.includes("Do not show again"));
+    assert.ok(optOut, "the review has a Do not show again checkbox");
+    await act(async () => { optOut.click(); });
+    assert.equal(accounts.get(profileA.id).writes, writesBeforeOptOut, "checking the opt-out does not persist it before confirmation");
+    assert.equal(xhr.requests.length, 0, "checking the opt-out does not auto-upload the batch under review");
+    await waitForMilliseconds(750);
+    assert.equal(accounts.get(profileA.id).writes, writesBeforeOptOut, "opening review and checking its draft preference do not force a workspace write");
+    await confirmUploadBatch();
+    await waitUntil(() => xhr.requests.length === 1, "explicit confirmation starts the reviewed upload");
+    const firstReviewedRequest = xhr.requests[0];
+    assert.equal(firstReviewedRequest.headers.get("x-profile-id"), profileA.id);
+    assert.equal(firstReviewedRequest.body, reviewedFiles[0], "confirmation admits the original first File");
+    assert.equal(firstReviewedRequest.aborted, false, "saving the future-upload opt-out does not abort the upload already confirmed");
+    assert.equal(accounts.get(profileA.id).dashboard.d.filePreferences?.confirmUploads, true, "the saved preference stays on while a confirmed upload is still in flight");
+    assert.equal(accounts.get(profileA.id).writes, writesBeforeOptOut, "the preference commit waits while the confirmed batch is unsettled");
+    await act(async () => firstReviewedRequest.respond(201, { file: await uploadedFileForRequest(firstReviewedRequest) }));
+    await waitUntil(() => xhr.requests.length === 2, "the second explicitly confirmed file starts after the first ACK");
+    const secondReviewedRequest = xhr.requests[1];
+    assert.equal(secondReviewedRequest.body, reviewedFiles[1], "one confirmation admits every valid File in the reviewed batch");
+    await act(async () => secondReviewedRequest.respond(201, { file: await uploadedFileForRequest(secondReviewedRequest) }));
+    await waitUntil(() => rootNode.querySelector(`[data-upload-id="${new URL(secondReviewedRequest.url, "https://edu.example").searchParams.get("id")}"] .files-upload-status`)?.textContent === "Uploaded and verified", "all opted-out batch uploads complete");
+    await waitUntil(() => accounts.get(profileA.id).dashboard.d.filePreferences?.confirmUploads === false, "confirmed opt-out preference save after the queued upload settles");
+
+    const fastFile = new File(["Future upload bypasses local review"], "future.txt", { type: "text/plain" });
+    const fastChooser = uploadChooser();
+    await act(async () => { Object.defineProperty(fastChooser, "files", { configurable: true, value: [fastFile] }); fastChooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await waitUntil(() => xhr.requests.length === 3, "future upload uses the saved opt-out fast path");
+    assert.equal(rootNode.querySelector('[aria-label="Local file preview"]'), null, "a future upload bypasses the review UI");
+    assert.equal(xhr.requests[2].headers.get("x-profile-id"), profileA.id);
+    await act(async () => xhr.requests[2].respond(201, { file: await uploadedFileForRequest(xhr.requests[2]) }));
+    await waitUntil(() => rootNode.querySelector(`[data-upload-id="${new URL(xhr.requests[2].url, "https://edu.example").searchParams.get("id")}"] .files-upload-status`)?.textContent === "Uploaded and verified", "opted-out fast-path upload verification");
+
+    await clickAria("Close upload panel", panel);
+    await render(Workspace, { initialProfile: profileB, filesBrowserEnabled: true });
+    await waitUntil(() => rootNode.querySelector(".files-browser"), "Files for account B");
+    await click("New"); await click("Upload files");
+    panel = rootNode.querySelector('.files-upload-dialog');
+    assert.ok(panel);
+    await clickIn(panel, "Upload settings");
+    toggle = confirmUploadSetting(panel);
+    assert.equal(isUploadConfirmationEnabled(toggle), true, "account B retains its independent default confirmation setting");
+    await clickIn(panel, "Upload settings");
+    const bFile = new File(["B stays confirmed"], "account-b.txt", { type: "text/plain" });
+    const bChooser = uploadChooser();
+    await act(async () => { Object.defineProperty(bChooser, "files", { configurable: true, value: [bFile] }); bChooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    assert.equal(xhr.requests.length, 3, "account B's default review stays before the upload transport");
+    assert.ok(panel.querySelector('[aria-label="Local file preview"]'));
+    await clickAria("Close upload panel", panel);
+
+    await render(Workspace, { initialProfile: profileA, filesBrowserEnabled: true });
+    await waitUntil(() => rootNode.querySelector(".files-browser"), "account A after switching back");
+    await click("New"); await click("Upload files");
+    panel = rootNode.querySelector('.files-upload-dialog');
+    assert.ok(panel);
+    await clickIn(panel, "Upload settings");
+    toggle = confirmUploadSetting(panel);
+    assert.equal(isUploadConfirmationEnabled(toggle), false, "account A reloads its own saved opt-out after switching back");
+    await act(async () => { toggle.click(); });
+    await waitUntil(() => accounts.get(profileA.id).dashboard.d.filePreferences?.confirmUploads === true, "restored preference save");
+    assert.equal(accounts.get(profileB.id).dashboard.d.filePreferences?.confirmUploads, undefined, "restoring account A does not write account B's preference");
+    await clickIn(panel, "Upload settings");
+    await clickAria("Close upload panel", panel);
+
+    await unmount(); reset();
+    await render(Workspace, { initialProfile: profileA, filesBrowserEnabled: true });
+    await click("Files"); await waitUntil(() => rootNode.querySelector(".files-browser"), "Files after account A reload");
+    await click("New"); await click("Upload files");
+    panel = rootNode.querySelector('.files-upload-dialog');
+    assert.ok(panel);
+    await clickIn(panel, "Upload settings");
+    toggle = confirmUploadSetting(panel);
+    assert.equal(isUploadConfirmationEnabled(toggle), true, "restoring confirmation survives a full Workspace reload");
+    assert.equal(accounts.get(profileA.id).writes, 4, "only setting changes and explicit confirmation/restore wrote the workspace");
+    assert.equal(accounts.get(profileB.id).writes, 0, "reading account B's default did not force a save");
+  } finally {
+    filesFetcher = undefined;
+    xhr.restore();
+    if (root) await unmount();
+    if (previousFrame) window.requestAnimationFrame = previousFrame; else delete window.requestAnimationFrame;
+    if (previousCancelFrame) window.cancelAnimationFrame = previousCancelFrame; else delete window.cancelAnimationFrame;
+  }
+});
+
+test("legacy course and assignment upload controls keep their associations beside the Files upload queue", async () => {
   reset();
   const profile = { ...baseProfile, id: "34343434-3434-4434-8434-343434343434" };
   const assignment = { id: "history-essay", title: "History essay", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Keep the course link", weight: "15%" };
@@ -4084,6 +4272,8 @@ test("late upload acknowledgements are fenced across an A to B to A profile sess
     await click("New"); await click("Upload files");
     const chooser = uploadChooser();
     await act(async () => { Object.defineProperty(chooser, "files", { configurable: true, value: [lateFile] }); chooser.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    assert.equal(xhr.requests.length, 0, "the session-fencing test keeps the selection local until confirmation");
+    await confirmUploadBatch();
     await waitUntil(() => xhr.requests.length === 1, "account A upload starts");
     const heldRequest = xhr.requests[0];
     assert.equal(heldRequest.headers.get("x-profile-id"), profileA.id);

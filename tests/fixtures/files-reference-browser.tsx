@@ -131,7 +131,7 @@ const OFFICE_DOCX = makeMinimalDocx();
 
 const query = new URLSearchParams(window.location.search);
 const scenarioValue = query.get("scenario");
-const scenario = ["empty", "populated", "rich-grid", "legacy-list"].includes(scenarioValue ?? "") ? scenarioValue! : "populated";
+const scenario = ["empty", "populated", "rich-grid", "charcoal", "legacy-list"].includes(scenarioValue ?? "") ? scenarioValue! : "populated";
 const profile = {
   ...validateProfile({ display_name: "Johan", major: "comp eng", school_type: "college", university: "" }),
   id: PROFILE_ID,
@@ -235,11 +235,11 @@ function makeFile(id: string, name: string, folderId: string | null, body: strin
   };
 }
 
-let folders = scenario === "populated" || scenario === "rich-grid"
+let folders = scenario === "populated" || scenario === "rich-grid" || scenario === "charcoal"
   ? [
       makeFolder(COURSE_FOLDER_ID, course.code, null, { kind: "course", course_id: COURSE_ID, course_code: course.code }),
       makeFolder(LAB_FOLDER_ID, "FPGA lab", COURSE_FOLDER_ID),
-      ...(scenario === "rich-grid" ? [
+      ...(scenario === "rich-grid" || scenario === "charcoal" ? [
         makeFolder(MATERIALS_FOLDER_ID, "Study materials", null),
         makeFolder(REFERENCES_FOLDER_ID, "Lab references", null),
       ] : []),
@@ -250,7 +250,7 @@ let files = scenario === "populated"
       { ...makeFile(NOTES_ID, "Digital systems notes.txt", null, NOTE_CONTENT), course_id: COURSE_ID },
       makeFile(STUDY_PLAN_ID, "CPE 281 study plan.txt", null, STUDY_PLAN_CONTENT),
     ]
-  : scenario === "rich-grid"
+  : scenario === "rich-grid" || scenario === "charcoal"
     ? [
         { ...makeFile(NOTES_ID, "Digital systems notes.txt", null, NOTE_CONTENT), course_id: COURSE_ID },
         makeFile(STUDY_PLAN_ID, "CPE 281 study plan.txt", null, STUDY_PLAN_CONTENT),
@@ -271,7 +271,23 @@ const fileBodies = new Map<string, string | Uint8Array>([
   [CHECKLIST_ID, OFFICE_DOCX],
 ]);
 const nativeBodies = new Map<string, string>();
-const lastOpened = new Map<string, string>();
+function daysAgoAtLocalNoon(daysAgo: number) {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() - daysAgo);
+  return date.toISOString();
+}
+const seededLastOpened: [string, string][] = scenario === "charcoal" ? [
+  [NOTES_ID, daysAgoAtLocalNoon(0)],
+  [STUDY_PLAN_ID, daysAgoAtLocalNoon(1)],
+  [BUILD_LOG_ID, daysAgoAtLocalNoon(3)],
+  [REVIEW_PDF_ID, daysAgoAtLocalNoon(5)],
+  [DIAGRAM_ID, daysAgoAtLocalNoon(9)],
+  [CHECKLIST_ID, daysAgoAtLocalNoon(12)],
+] : [];
+const lastOpened = new Map<string, string>(seededLastOpened);
+const starredFiles = new Map<string, string>();
+const starredFolders = new Map<string, string>(scenario === "charcoal" ? [[COURSE_FOLDER_ID, daysAgoAtLocalNoon(0)]] : []);
 const requests: RequestRecord[] = [];
 let revision = STAMP;
 let folderSequence = 10;
@@ -283,8 +299,16 @@ function json(value: unknown, status = 200) {
 
 function activityPayload() {
   return {
-    files: [...lastOpened.entries()].map(([file_id, last_opened_at]) => ({ file_id, starred_at: null, last_opened_at })),
-    folders: [],
+    files: [...new Set([...lastOpened.keys(), ...starredFiles.keys()])].map((file_id) => ({
+      file_id,
+      starred_at: starredFiles.get(file_id) ?? null,
+      last_opened_at: lastOpened.get(file_id) ?? null,
+    })),
+    folders: [...new Set([...starredFolders.keys()])].map((folder_id) => ({
+      folder_id,
+      starred_at: starredFolders.get(folder_id) ?? null,
+      last_opened_at: null,
+    })),
   };
 }
 
@@ -326,13 +350,24 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.pathname === "/api/file-folders") {
     const view = url.searchParams.get("view") ?? "active";
     const visible = view === "active" ? folders.filter((folder) => !folder.archived_at && !folder.trashed_at) : [];
-    return json({ folders: visible, activities: { folders: [] } });
+    return json({ folders: visible, activities: { folders: activityPayload().folders } });
   }
 
   if (url.pathname === "/api/files/actions" && method === "POST") {
-    const body = JSON.parse(String(init.body ?? "{}")) as { items?: { id: string }[] };
-    for (const item of body.items ?? []) lastOpened.set(item.id, STAMP);
-    return json({ activities: activityPayload() });
+    const body = JSON.parse(String(init.body ?? "{}")) as { action?: string; items?: { id: string; type: "file" | "folder" }[] };
+    for (const item of body.items ?? []) {
+      const changedAt = new Date().toISOString();
+      if (body.action === "open" && item.type === "file") lastOpened.set(item.id, changedAt);
+      if (body.action === "star" && item.type === "file") starredFiles.set(item.id, changedAt);
+      if (body.action === "unstar" && item.type === "file") starredFiles.delete(item.id);
+      if (body.action === "star" && item.type === "folder") starredFolders.set(item.id, changedAt);
+      if (body.action === "unstar" && item.type === "folder") starredFolders.delete(item.id);
+    }
+    const activity = activityPayload();
+    const selected = body.items?.[0];
+    return json({ activities: selected?.type === "folder"
+      ? { folders: activity.folders.filter((row) => row.folder_id === selected.id), files: [] }
+      : { files: activity.files.filter((row) => row.file_id === selected?.id), folders: [] } });
   }
 
   if (url.pathname === "/api/files" && url.searchParams.has("id") && method === "GET") {

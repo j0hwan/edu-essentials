@@ -12,3 +12,13 @@ Use case: stylized-concept. Asset type: clean panoramic website landscape backgr
 ## Folder illustration prompt
 
 Use case: background-extraction. Actual transparent PNG empty-state illustration, tightly framed in a landscape 4:3 composition. Edit the attached empty Files UI screenshot. Extract ONLY the glowing blue open folder with two floating blue paper/document sheets and the thin curved orbital line at right-center. Preserve the original perspective, shapes, folds, white/cyan rim, glassy navy/translucent blue fill and ruled lines. Feather the soft blue glow and cyan floor reflection to actual transparent alpha in every direction. Remove the navy background and ALL UI. Use actual RGBA with graded semitransparent glow and reflection, without an opaque rectangle, dark/white/checker plate, vignette box or hard straight edges. Surrounding pixels must be completely transparent; keep the blue objects. No additional objects, text, sidebar, titles, buttons, navigation, avatars, search, labels, branding or cards. Center with 12% transparent padding.
+
+## Google service icons
+
+The New menu uses unmodified product artwork linked from [Google's Workspace branding guidance](https://knowledge.workspace.google.com/admin/getting-started/brand-your-internal-communications-with-google-workspace). CSS only controls the displayed size.
+
+- `public/google-slides.svg`: https://knowledge.workspace.google.com/static/images/icons/product/slides.svg
+- `public/google-docs.svg`: https://knowledge.workspace.google.com/static/images/icons/product/docs.svg
+- `public/google-drive.svg`: https://knowledge.workspace.google.com/static/images/icons/product/drive.svg
+
+The menu opens `https://slides.google.com/`, `https://docs.google.com/`, and `https://drive.google.com/` in new tabs. Users manage and import files inside those services; these links do not request Google account access or create documents automatically.
