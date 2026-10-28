@@ -184,9 +184,9 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .expanded-class-heading > div { min-width: 0; }
 .expanded-class-title { flex: 1 1 280px; }
 .expanded-class-heading > .expanded-class-actions { margin-bottom: 0; }
-.expanded-class-heading h2 { display: flex; align-items: baseline; gap: 0.25em; margin: 8px 0; font-size: 24px; overflow-wrap: anywhere; }
-.expanded-class-heading [data-course-morph="name"] { flex: 1; min-width: 0; }
-.expanded-class-heading p { margin: 0; color: var(--muted); font-size: 14px; }
+.expanded-class-heading h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25em; margin: 8px 0; font-size: 24px; overflow-wrap: anywhere; }
+.expanded-class-heading [data-course-morph="name"] { min-width: 0; }
+.expanded-class-metadata { color: var(--muted); font-size: 14px; font-weight: 400; }
 .expanded-class-header > button { position: absolute; z-index: 2; top: 20px; right: 20px; gap: 8px; background: var(--surface); }
 .expanded-class-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 20px; overscroll-behavior: contain; }
 .expanded-class-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
