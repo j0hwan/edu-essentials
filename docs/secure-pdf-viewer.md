@@ -69,6 +69,10 @@ pipeline; do not assume the worker timeout or queue applies to thumbnails.
 - Changing the source Blob remounts the document, aborting old work and ignoring
   late results. Unmounting a page also aborts pending or active work. Bitmaps are
   closed after handling, including rejected or stale results.
+- A lost display-canvas context aborts its render and replaces that page's canvas
+  for one automatic recovery attempt. Repeated loss offers retry/download; a
+  manual retry allows recovery again. Rendering also rejects a lost context
+  instead of reporting a blank or black canvas as successfully loaded.
 - Errors are rendered as text, not HTML. Worker error details are limited to 200
   characters. A page failure offers retry/download without hiding other pages.
 
@@ -149,6 +153,14 @@ Coverage includes bounded rendering and disposal, worker abort/timeout/protocol,
 real PDF parsing with mocked drawing primitives, Vite/Vinext dev transformation,
 production-worker startup, private-file lifecycle, continuous page order,
 sequential scheduling, offscreen cleanup, retries, and filename visibility.
+
+After building, `node scripts/verify-pdf-preview-browser.mjs` checks actual page
+pixels across repeated mounts and interrupted renders in Chromium. It also
+clears page 1 to black and dispatches a controlled `contextlost` event, then
+verifies that a fresh canvas restores page 1 while page 2 stays intact. Set
+`PLAYWRIGHT_MODULE` and `CHROME_EXECUTABLE` if using external browser tooling.
+This controlled failure checks recovery; it does not reproduce a native GPU
+failure or identify the trigger of an intermittent user report.
 
 The Node/JSDOM and VM tests do not prove real browser font/canvas behavior or
 visual fidelity. Before release, manually check Helium/Chromium and other supported

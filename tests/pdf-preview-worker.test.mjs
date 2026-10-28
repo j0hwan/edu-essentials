@@ -24,6 +24,27 @@ test("only worker-rendered pixels reach the UI and the worker is terminated", as
   assert.equal(state.terminated, 1);
 });
 
+test("a lost canvas context before or during drawing cannot report success", async () => {
+  for (const lossPhase of ["before", "after"]) {
+    const { state, worker, canvas, bitmap, controller, data } = setup();
+    let lost = lossPhase === "before";
+    canvas.getContext = () => ({
+      isContextLost: () => lost,
+      drawImage: (...args) => {
+        state.painted.push(args);
+        if (lossPhase === "after") lost = true;
+      },
+    });
+    const result = renderPdfPreviewPage(data, canvas, 1, controller.signal, () => worker);
+    worker.onmessage({ data: { type: "pdf-preview:result", pages: 1, bitmap } });
+
+    await assert.rejects(result, /Canvas context was lost/);
+    assert.equal(state.painted.length, lossPhase === "before" ? 0 : 1);
+    assert.equal(state.closed, 1);
+    assert.equal(state.terminated, 1);
+  }
+});
+
 test("PDF.js startup and unrelated messages are ignored until the preview result arrives", async () => {
   const { state, worker, canvas, bitmap, controller, data } = setup();
   const result = renderPdfPreviewPage(data, canvas, 1, controller.signal, () => worker);

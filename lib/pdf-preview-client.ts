@@ -27,9 +27,11 @@ export function renderPdfPreviewPage(data: Blob, canvas: HTMLCanvasElement, page
         if (!bitmap || !pages || bitmap.width > 1200 || bitmap.height > 1600) throw new Error("PDF could not be rendered.");
         const context = canvas.getContext("2d", { alpha: false });
         if (!context) throw new Error("Canvas is unavailable.");
+        if (context.isContextLost?.()) throw new Error("Canvas context was lost.");
         canvas.width = bitmap.width;
         canvas.height = bitmap.height;
         context.drawImage(bitmap, 0, 0);
+        if (context.isContextLost?.()) throw new Error("Canvas context was lost.");
         finish(pages);
       } catch (cause) { finish(0, cause instanceof Error ? cause : new Error("PDF preview failed.")); }
       finally { bitmap?.close(); }

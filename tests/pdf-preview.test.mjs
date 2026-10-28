@@ -5,12 +5,12 @@ import { clientModule } from "./helpers/client-modules.mjs";
 const { renderPdfPreviewPage } = await import(await clientModule("lib/pdf-preview.ts"));
 const pdfBlob = () => new Blob(["%PDF-1.7\nprivate document"]);
 
-function renderer({ renderPromise = Promise.resolve(), documentPromise, pagePromise } = {}) {
+function renderer({ renderPromise = Promise.resolve(), documentPromise, pagePromise, context = {} } = {}) {
   const calls = { destroyed: 0, cancelled: 0, options: null, pages: [], renders: [] };
   const page = { getViewport: ({ scale }) => ({ width: 600 * scale, height: 800 * scale }), render: (options) => { calls.renders.push(options); return { promise: renderPromise, cancel: () => { calls.cancelled++; } }; } };
   const pdf = { numPages: 3, getPage: async (number) => { calls.pages.push(number); return pagePromise ?? page; } };
   const load = async () => ({ getDocument: (options) => { calls.options = options; return { promise: documentPromise ?? Promise.resolve(pdf), destroy: async () => { calls.destroyed++; } }; } });
-  const canvas = { width: 0, height: 0, getContext: () => ({}) };
+  const canvas = { width: 0, height: 0, getContext: () => context };
   return { calls, load, canvas };
 }
 
@@ -38,6 +38,13 @@ test("rejects HTML masquerading as PDF and oversized files before loading PDF.js
 test("destroys malformed PDF documents and propagates errors for the fallback", async () => {
   const { calls, load, canvas } = renderer({ documentPromise: Promise.reject(new Error("Malformed PDF")) });
   await assert.rejects(renderPdfPreviewPage(pdfBlob(), canvas, 1, new AbortController().signal, load), /Malformed PDF/);
+  assert.equal(calls.destroyed, 1);
+});
+
+test("rejects a PDF.js render if the canvas context was lost", async () => {
+  const { calls, load, canvas } = renderer({ context: { isContextLost: () => true } });
+  await assert.rejects(renderPdfPreviewPage(pdfBlob(), canvas, 1, new AbortController().signal, load), /Canvas context was lost/);
+  assert.equal(calls.renders.length, 1);
   assert.equal(calls.destroyed, 1);
 });
 

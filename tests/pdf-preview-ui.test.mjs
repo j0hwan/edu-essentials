@@ -132,6 +132,71 @@ test("reentering the viewport creates a fresh canvas and ignores a late stale re
   assert.equal(fresh.canvas.height, 1200);
 });
 
+test("context loss during an active render aborts it and rerenders on a fresh canvas", async () => {
+  await mount();
+  const stale = calls[0];
+
+  await act(async () => stale.canvas.dispatchEvent(new Event("contextlost")));
+
+  assert.equal(stale.signal.aborted, true);
+  assert.equal(calls.length, 2);
+  const fresh = calls[1];
+  assert.notEqual(fresh.canvas, stale.canvas);
+  await act(async () => fresh.resolve(1));
+  await act(async () => stale.resolve(99));
+  assert.equal(host.querySelector('[data-page="1"] canvas'), fresh.canvas);
+  assert.equal(fresh.canvas.hidden, false);
+});
+
+test("context loss on a ready page leaves another page render usable", async () => {
+  await mount();
+  const firstPage = calls[0];
+  await act(async () => firstPage.resolve(3));
+  await nearby(2);
+  const secondPage = calls[1];
+
+  await act(async () => firstPage.canvas.dispatchEvent(new Event("contextlost")));
+  assert.equal(secondPage.signal.aborted, false);
+  assert.equal(calls.length, 2);
+
+  await act(async () => secondPage.resolve(3));
+  assert.equal(calls.length, 3);
+  const recoveredFirstPage = calls[2];
+  assert.equal(recoveredFirstPage.page, 1);
+  assert.notEqual(recoveredFirstPage.canvas, firstPage.canvas);
+  assert.equal(secondPage.canvas.hidden, false);
+  await act(async () => recoveredFirstPage.resolve(3));
+  assert.equal(secondPage.canvas.hidden, false);
+  assert.equal(recoveredFirstPage.canvas.hidden, false);
+});
+
+test("repeated context loss offers fallback and manual retry resets recovery allowance", async () => {
+  await mount();
+  await act(async () => calls[0].canvas.dispatchEvent(new Event("contextlost")));
+  await act(async () => calls[1].canvas.dispatchEvent(new Event("contextlost")));
+
+  assert.match(host.querySelector('[role="alert"]').textContent, /context was lost/);
+  assert.equal(host.querySelector("a[download]").getAttribute("href"), "blob:private-pdf");
+  await act(async () => host.querySelector("button").click());
+  assert.equal(calls.length, 3);
+  await act(async () => calls[2].canvas.dispatchEvent(new Event("contextlost")));
+  assert.equal(calls.length, 4);
+  assert.equal(host.querySelector('[role="alert"]'), null);
+});
+
+test("context loss after unmount is ignored and its listener is removed", async () => {
+  await mount();
+  const staleCanvas = calls[0].canvas;
+  await act(async () => root.unmount());
+  root = undefined;
+  const countAfterUnmount = calls.length;
+
+  staleCanvas.dispatchEvent(new Event("contextlost"));
+
+  assert.equal(calls.length, countAfterUnmount);
+  assert.equal(calls[0].signal.aborted, true);
+});
+
 test("StrictMode effect cleanup replay still lets the surviving render become visible", async () => {
   root ??= createRoot(host);
   await act(async () => root.render(createElement(StrictMode, null, createElement(PdfPreview, {

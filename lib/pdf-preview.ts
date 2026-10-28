@@ -29,6 +29,7 @@ export async function renderPdfPreviewPage(data: Blob, canvas: HTMLCanvasElement
     const rendering = page.render({ canvas, canvasContext: context, viewport });
     renderTask = rendering;
     await rendering.promise;
+    if (!signal.aborted && context.isContextLost?.()) throw new Error("Canvas context was lost.");
     return signal.aborted ? 0 : pdf.numPages;
   } finally {
     signal.removeEventListener("abort", cancel);
