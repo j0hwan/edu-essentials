@@ -69,6 +69,7 @@ import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-mo
 import TopbarSearch from "./topbar-search";
 import SyllabusReview from "./syllabus-review";
 import { SyllabusAttachment, SyllabusTextPreview, type SyllabusAttachmentValue } from "./course-syllabus";
+import { DeleteSyllabusDialog } from "./delete-syllabus-dialog";
 import AcademicCalendar from "./academic-calendar";
 import { calendarTime } from "../lib/calendar-layout";
 import { usePrivateFiles } from "./use-private-files";
@@ -561,6 +562,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [fileActionSession, setFileActionSession] = useState({ profileId: initialProfile.id, generation: 0 });
   if (fileActionSession.profileId !== initialProfile.id) setFileActionSession({ profileId: initialProfile.id, generation: fileActionSession.generation + 1 });
   const fileActionSessionRef = useRef(fileActionSession);
+  const [syllabusDeletion, setSyllabusDeletion] = useState<{ session: typeof fileActionSession; courseId: string; fileId?: string; file?: PrivateFile } | null>(null);
+  const currentSyllabusDeletion = syllabusDeletion?.session === fileActionSession ? syllabusDeletion : null;
   const undoAbortRef = useRef<AbortController | null>(null);
   const [trashUndo, setTrashUndo] = useState<{ session: typeof fileActionSession; receipt: TrashUndoReceipt; busy: boolean; error: string; restored?: boolean; recovered?: boolean } | null>(null);
   const currentTrashUndo = trashUndo?.session === fileActionSession ? trashUndo : null;
@@ -623,7 +626,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const handleUploadSaved = useCallback(async (_file: PrivateFile, signal: AbortSignal) => {
     await refreshFiles(signal, true);
     if (!signal.aborted) setFilesDataRevision((revision) => revision + 1);
-  }, [refreshFiles]);
+  }, [refreshFiles, setFilesDataRevision]);
   const fileUploads = useFileUploads(fileActionSession, fileStore, handleUploadSaved, canWriteFiles && !profilePending && !organizationState && !nativeDocumentDialog);
   const fileActivity = useFileActivity(fileActionSession, !experimentalMode && saveState.ready && !profilePending, refreshFiles);
   const handleFileOpened = fileActivity.opened;
@@ -1126,10 +1129,12 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     setExtraData({ courseDetails: data.courseDetails, syllabusDrafts: [], study: data.study, filePreferences: data.filePreferences, widgetAppearance: data.widgetAppearance }); return true;
   };
   const commitStudy = (patch: Partial<StudyData>) => commitAcademic(courses, { study: { ...study, ...patch } });
-  const saveCourseSyllabus = async (courseId: string, value: SyllabusAttachmentValue) => {
+  const saveCourseSyllabus = async (courseId: string, value: SyllabusAttachmentValue, deleting = false) => {
     if (experimentalMode || profilePending || !autosave.getSnapshot().ready || !courses.some((course) => course.id === courseId)) throw new Error("Reload the saved course before attaching a syllabus.");
     const generation = workspaceLoadGeneration.current;
     const details = { ...(extraData.courseDetails[courseId] ?? emptyCourseDetails()), syllabusText: value.syllabusText, syllabusName: value.syllabusName };
+    if (deleting) details.syllabusDeleted = true;
+    else delete details.syllabusDeleted;
     if (value.syllabusFileId) details.syllabusFileId = value.syllabusFileId;
     else delete details.syllabusFileId;
     const nextExtra = { ...extraData, courseDetails: { ...extraData.courseDetails, [courseId]: details } };
@@ -1142,7 +1147,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     if (generation !== workspaceLoadGeneration.current) throw new Error("The workspace was reloaded. Reopen the saved course to continue.");
     const saved = autosave.getSnapshot();
     if (!saved.ready || saved.dirty || saved.status !== "saved") throw new Error(saved.message || "The syllabus could not be saved. Your draft is still here; retry saving.");
-    flash("Syllabus saved");
+    if (!deleting) flash("Syllabus saved");
   };
   const controlTimer = (action: "start" | "pause" | "resume" | "finish" | "reset", kind: TimerKind) => {
     // This callback runs only from StudyPanel/StudyWidget user events.
@@ -1460,6 +1465,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
       {editor && <AcademicEditor key={(editor.course ?? editor.assignment ?? editor.event)!.id} initial={editor} courses={courses} today={today} onApply={applyEditor} onClose={() => setEditor(null)} onDelete={editor.course && courses.some((c) => c.id === editor.course!.id) ? () => removeClass(editor.course!) : editor.assignment && storedAssignments.some((a) => a.id === editor.assignment!.id) ? () => { if (window.confirm("Delete this assignment and its notes?")) { if (commitAcademic(courses, { assignments: storedAssignments.filter((a) => a.id !== editor.assignment!.id) })) setEditor(null); } } : editor.event && manualEvents.some((e) => e.id === editor.event!.id) ? () => { if (window.confirm("Delete this event?")) { if (commitAcademic(courses, { manualEvents: manualEvents.filter((e) => e.id !== editor.event!.id) })) setEditor(null); } } : undefined} />}
       <ModalPresence key={`syllabus-review:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`} animateExit={!profilePending && !experimentalRestoring}>{syllabusDraft ? <SyllabusReview key={syllabusDraft.id} draft={syllabusDraft} onUpload={() => setFileDialog({ defaults: { kind: "syllabus" }, reviewId: syllabusDraft.id })} onFile={() => { const file = fileStore.files.find((f) => f.id === syllabusDraft.sourceFileId); if (file) { setSyllabusPreviewFileId(file.id); setFilePreview(file); } else flash("Refresh Files to load this saved source."); }} onChange={setSyllabusDraft} onApprove={() => approveReview(syllabusDraft)} onClose={() => { if (window.confirm("Discard this unsaved syllabus review? Reviews are not saved for later.")) setSyllabusDraft(null); }} onDelete={() => { if (window.confirm("Discard this syllabus review and its source text?")) setSyllabusDraft(null); }} /> : null}</ModalPresence>
       {syllabusAttachment && courses.filter((course) => course.id === syllabusAttachment.courseId).map((course) => <SyllabusAttachment key={course.id} courseId={course.id} course={course} details={extraData.courseDetails[course.id] ?? emptyCourseDetails()} folderId={syllabusAttachment.folderId} store={fileStore} canWrite={canWriteFiles} onSave={(value) => saveCourseSyllabus(course.id, value)} onClose={() => setSyllabusAttachment(null)} />)}
+      {currentSyllabusDeletion && <DeleteSyllabusDialog key={`${initialProfile.id}:${fileActionSession.generation}:${currentSyllabusDeletion.courseId}`} profileId={initialProfile.id} file={currentSyllabusDeletion.file} fileId={currentSyllabusDeletion.fileId} canWrite={!experimentalMode && saveState.ready && !profilePending && !undoBusy && !organizationState && !nativeDocumentDialog} onDetach={() => saveCourseSyllabus(currentSyllabusDeletion.courseId, { syllabusText: "", syllabusName: "" }, true)} onRefresh={async (signal) => { await refreshFiles(signal, true); if (!signal.aborted) setFilesDataRevision((revision) => revision + 1); }} onDeleted={() => { setSyllabusDeletion(null); flash("Syllabus deleted"); }} onClose={() => setSyllabusDeletion(null)} />}
       {syllabusTextCourseId && courses.filter((course) => course.id === syllabusTextCourseId).map((course) => <SyllabusTextPreview key={course.id} course={course} text={extraData.courseDetails[course.id]?.syllabusText ?? ""} name={extraData.courseDetails[course.id]?.syllabusName ?? course.code + " syllabus"} onClose={() => setSyllabusTextCourseId(null)} />)}
       {nativeDocumentDialog && <NativeDocumentEditor key={nativeDocumentDialog.file?.id ?? nativeDocumentDialog.create!.id} profileId={initialProfile.id} file={nativeDocumentDialog.file} create={nativeDocumentDialog.create} canWrite={!nativeDocumentDialog.readOnly && !experimentalMode && saveState.ready && !profilePending} onSaved={handleNativeDocumentSaved} onClose={closeNativeDocument} onDraftChange={handleNativeDocumentDraft} />}
       {fileDialog && <FileEditor key={fileDialog.initial?.id ?? fileDialog.reviewId ?? "new-file"} store={fileStore} courses={courses} assignments={assignments} initial={fileDialog.initial} defaults={fileDialog.defaults} canWrite={canWriteFiles} onClose={() => setFileDialog(null)} onSaved={(file) => { if (fileDialog.initial?.state === "ready") handleFileOpened(file); if (fileDialog.reviewId) setSyllabusDraft((current) => current && current.id === fileDialog.reviewId ? { ...current, sourceFileId: file.id, sourceName: file.name } : current); }} />}
@@ -2076,7 +2082,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     const items = assignments.filter((a) => a.courseId === course.id), details = extraData.courseDetails[course.id] ?? emptyCourseDetails();
     const syllabusFile = fileStore.files.find((file) => file.id === details.syllabusFileId && file.kind === "syllabus" && file.state === "ready" && !file.trashed_at);
     const hasSyllabusPreview = Boolean(syllabusFile || details.syllabusText);
-    return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} skipOpeningAnimation={skipOpeningAnimation} closeControlRef={closeExpandedClassRef} onCloseStart={clearSavedCourse} onClose={() => setSelectedClass(null)} suspended={!!(selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || studyOpen || editor || syllabusDraft)}>{(close) => <>
+    return <ClassCardExpansion key={`${initialProfile.id}:${course.id}`} courseId={course.id} skipOpeningAnimation={skipOpeningAnimation} closeControlRef={closeExpandedClassRef} onCloseStart={clearSavedCourse} onClose={() => setSelectedClass(null)} suspended={!!(selectedAssignment || fileDialog || filePreview || nativeDocumentDialog || syllabusAttachment || syllabusTextCourseId || currentSyllabusDeletion || studyOpen || editor || syllabusDraft)}>{(close) => <>
       {renderClassVisual(course, close)}
       <div className="expanded-class-body">
         <div className="expanded-class-heading"><div className="expanded-class-title"><h2><span className="expanded-class-code">{course.code} · </span><span data-course-morph="name">{course.name}</span><span className="expanded-class-metadata">· <span data-course-morph="instructor">{course.instructor || "No instructor entered"}</span> · <span data-course-morph="credits">{course.credits} credits</span></span></h2></div>
@@ -2094,7 +2100,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             <h3>Syllabus</h3>
             <div className="expanded-class-actions">
               <button className="secondary-button" disabled={!canWriteFiles || profilePending} onClick={() => setSyllabusAttachment({ courseId: course.id, folderId: null })}><Upload size={15} />Import syllabus</button>
-              {details.syllabusFileId && <button className="secondary-button" onClick={() => { const next = { ...details }; delete next.syllabusFileId; commitAcademic(courses, { courseDetails: { ...extraData.courseDetails, [course.id]: next } }); }}>Detach syllabus file</button>}
+              {(details.syllabusFileId || details.syllabusText) && <button className="secondary-button" disabled={!canWriteFiles || profilePending || fileStore.busy} onClick={() => setSyllabusDeletion({ session: fileActionSession, courseId: course.id, fileId: details.syllabusFileId, file: fileStore.files.find((item) => item.id === details.syllabusFileId) })}><Trash2 size={15} aria-hidden="true" />Delete Syllabus</button>}
             </div>
           </div>
           {!hasSyllabusPreview && <p>{details.syllabusFileId ? "The attached syllabus file is unavailable. Import a replacement to preview it." : "No syllabus imported. Import a file or paste syllabus text for this course."}</p>}

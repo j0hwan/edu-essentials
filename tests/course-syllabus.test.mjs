@@ -43,6 +43,7 @@ const sqlMigrations = [
   "20261008090000_archive_integrity.sql",
   "20261009100000_selected_file_download.sql",
   "20261009110000_file_release_integrity.sql", "20261009120000_ai_file_result_fence.sql",
+  "20261027000000_explicit_syllabus_deletion.sql",
 ];
 
 async function setup({ withAi = true } = {}) {
@@ -142,6 +143,18 @@ test("adding a first pasted syllabus preserves existing schedule details without
   assert.equal(saved.officeHours, before.officeHours);
   assert.deepEqual(saved.meetings, before.meetings);
   assert.equal((await nativeBodies(b.id)).length, 0, "there was no previous syllabus body to preserve");
+});
+
+test("explicit syllabus deletion does not retain a native text backup", async (t) => {
+  const fixture = await setup();
+  const { pg, a, payload, save, nativeBodies } = fixture;
+  t.after(() => pg.close());
+
+  const current = await payload(a.id);
+  current.d.courseDetails.history = { ...current.d.courseDetails.history, syllabusText: "", syllabusName: "", syllabusDeleted: true };
+  await save(a.id, USER_A, current);
+  assert.equal((await nativeBodies(a.id)).length, 0, "explicit deletion does not create a backup of the deleted syllabus");
+  assert.equal((await payload(a.id)).d.courseDetails.history.syllabusDeleted, true);
 });
 
 test("syllabus replacement migration works when optional AI source tables are absent", async (t) => {

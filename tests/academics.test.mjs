@@ -78,3 +78,12 @@ test("meeting names are optional, bounded strings and survive workspace persiste
   const decoded = decodeWorkspaceState(JSON.parse(JSON.stringify(snapshot.dashboard)));
   assert.equal(decoded.data.courseDetails.c.meetings[0].name, "Lecture");
 });
+
+test("explicit syllabus deletion marker must be boolean and contain no syllabus data", () => {
+  const deleted = { officeHours: "", meetings: [], syllabusDeleted: true };
+  assert.deepEqual(validateCourseDetails(deleted), deleted);
+  assert.doesNotThrow(() => validateCourseDetails({ ...deleted, syllabusText: "", syllabusName: "" }));
+  for (const patch of [{ syllabusDeleted: "true" }, { syllabusText: "retained text" }, { syllabusName: "old name" }, { syllabusFileId: "11111111-1111-4111-8111-111111111111" }]) {
+    assert.throws(() => validateCourseDetails({ ...deleted, ...patch }));
+  }
+});

@@ -3,7 +3,7 @@ import type { CourseImageFraming } from "./course-image-framing";
 
 export type Course = { id: string; code: string; name: string; credits: number; instructor: string; room: string; color: string; soft: string; initials: string };
 export type Meeting = { id: string; name?: string; days: number[]; start: string; end: string; from: string; until: string; location: string; excludedDates?: string[] };
-export type CourseDetails = { officeHours: string; meetingNotes?: string; meetings: Meeting[]; icon?: CourseIconId; imageFraming?: CourseImageFraming; syllabusText?: string; syllabusName?: string; syllabusFileId?: string };
+export type CourseDetails = { officeHours: string; meetingNotes?: string; meetings: Meeting[]; icon?: CourseIconId; imageFraming?: CourseImageFraming; syllabusText?: string; syllabusName?: string; syllabusFileId?: string; syllabusDeleted?: boolean };
 export type ReviewItem = { id: string; title: string; date: string; type: "Assignment" | "Exam" | "Project"; description: string; weight: string };
 export type SyllabusDraft = { id: string; sourceText: string; sourceName: string; sourceFileId?: string; course: Course; items: ReviewItem[] };
 export const assignmentTypes = ["Assignment", "Exam", "Project"] as const;
@@ -58,8 +58,10 @@ export function validateCourseDetails(value: unknown): CourseDetails {
     if (!isDate(String(m.from)) || !isDate(String(m.until)) || String(m.until) < String(m.from)) throw new Error("Choose a valid meeting date range.");
     if (m.excludedDates !== undefined && (!Array.isArray(m.excludedDates) || m.excludedDates.length > 100 || m.excludedDates.some((date) => typeof date !== "string" || !isDate(date) || date < String(m.from) || date > String(m.until)) || new Set(m.excludedDates).size !== m.excludedDates.length)) throw new Error("Choose up to 100 unique excluded dates within the meeting date range.");
   }
+  if (d.syllabusDeleted !== undefined && typeof d.syllabusDeleted !== "boolean") throw new Error("Invalid syllabus deletion marker.");
   if (d.syllabusText !== undefined) text(d.syllabusText, "syllabus text", 60000);
   if (d.syllabusName !== undefined) text(d.syllabusName, "syllabus name", 255);
+  if (d.syllabusDeleted === true && ((typeof d.syllabusText === "string" && d.syllabusText !== "") || (typeof d.syllabusName === "string" && d.syllabusName !== "") || d.syllabusFileId !== undefined)) throw new Error("Deleted syllabus must not include syllabus content or an attachment.");
   if (d.syllabusFileId !== undefined && !/^[a-f\d]{8}-[a-f\d]{4}-[1-5][a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i.test(String(d.syllabusFileId))) throw new Error("Invalid syllabus file.");
   return d as CourseDetails;
 }

@@ -1554,6 +1554,58 @@ test("study controls persist targets, timers, history and grades", async (t) => 
   });
 });
 
+test("expanded syllabus deletion clears saved content before permanently removing its source", async () => {
+  reset();
+  const profile = { ...baseProfile, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+  const fileId = "79797979-7979-4979-8979-797979797979";
+  const sourceFile = {
+    id: fileId, name: "Syllabus.txt", mime_type: "text/plain", size_bytes: 8,
+    course_id: sampleCourse.id, assignment_id: null, kind: "syllabus", state: "ready",
+    created_at: "2026-10-01T00:00:00.000Z", updated_at: "2026-10-01T00:00:00.000Z",
+    content_sha256: null, folder_id: null, content_backend: "object", metadata_revision: 1, content_revision: 1,
+    trashed_at: null, deleted_at: null, trash_operation_id: null, original_folder_id: null,
+  };
+  const details = { officeHours: "Monday", meetings: [], syllabusFileId: fileId, syllabusText: "Syllabus", syllabusName: sourceFile.name };
+  const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse], profile);
+  const actions = [];
+  let removed = false;
+  filesFetcher = async (url, init = {}) => {
+    if (url === "/api/files/actions") {
+      const body = JSON.parse(init.body);
+      actions.push(body.action);
+      const saved = server.dashboard.d.courseDetails[sampleCourse.id];
+      assert.equal(saved.syllabusFileId, undefined);
+      assert.equal(saved.syllabusText, "");
+      assert.equal(saved.syllabusName, "");
+      assert.equal(saved.syllabusDeleted, true);
+      assert.equal(saved.officeHours, "Monday");
+      if (body.action === "trash") return Response.json({ files: [{ ...sourceFile, metadata_revision: 2, trashed_at: "2026-10-27T00:00:00.000Z", trash_operation_id: "88888888-8888-4888-8888-888888888888" }], folders: [] });
+      assert.equal(body.action, "permanent-delete");
+      assert.equal(body.items[0].revision, 2);
+      removed = true;
+      return Response.json({ requestId: body.requestId, removed: { files: [fileId], folders: [] } });
+    }
+    if (url === "/api/files") return Response.json({ files: removed ? [] : [sourceFile], activities: { files: [], folders: [] } });
+    if (url === `/api/files?id=${fileId}`) return new Response("Syllabus", { headers: { "content-type": "text/plain" } });
+    throw new Error(`Unexpected syllabus deletion request: ${url}`);
+  };
+  try {
+    await render(Workspace, { initialProfile: profile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    await click("Delete Syllabus");
+    const dialog = rootNode.querySelector('[aria-label="Delete syllabus"]');
+    assert.ok(dialog);
+    assert.equal(actions.length, 0);
+    await act(async () => [...dialog.querySelectorAll("button")].find((button) => button.textContent === "Delete Syllabus").click());
+    await waitUntil(() => removed && !rootNode.querySelector('[aria-label="Delete syllabus"]'), "syllabus permanent deletion");
+    assert.deepEqual(actions, ["trash", "permanent-delete"]);
+    assert.ok(rootNode.textContent.includes("No syllabus imported."));
+    assert.equal(server.courses.length, 1);
+    assert.equal(rootNode.querySelector('[aria-label="Syllabus preview"]'), null);
+  } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
 test("expanded syllabus preview shows a centered file icon and Loading Syllabus while content loads", async () => {
   reset();
   const fileId = "79797979-7979-4979-8979-797979797979";
