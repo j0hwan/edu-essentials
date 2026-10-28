@@ -5,7 +5,7 @@ import type { FileStore } from "./use-private-files";
 import { useSaveProtection } from "./use-save-protection";
 
 export type FileUploadSession = { profileId: string; generation: number };
-export type FileUploadDefaults = { folderId: string | null; courseId: string };
+export type FileUploadDefaults = { folderId: string | null; courseId: string; kind?: FileMetadata["kind"] };
 export type FileUploadStatus = "queued" | "uploading" | "refreshing" | "complete" | "error" | "refresh-error";
 
 export type FileUploadRow = {
@@ -216,11 +216,11 @@ export function useFileUploads(
       let validationError = "";
       try {
         if (file.size > MAX_FILE_BYTES) throw new Error("Choose a file up to 25 MiB.");
-        metadata = fileMetadata({ name: file.name, courseId: defaults.courseId, assignmentId: "", kind: "resource", folderId: defaults.folderId });
+        metadata = fileMetadata({ name: file.name, courseId: defaults.courseId, assignmentId: "", kind: defaults.kind ?? "resource", folderId: defaults.folderId });
         Object.freeze(metadata);
       } catch (error) {
         validationError = getError(error, "Choose a valid file name and destination.");
-        metadata = Object.freeze({ name: file.name, courseId: defaults.courseId, assignmentId: "", kind: "resource", folderId: defaults.folderId });
+        metadata = Object.freeze({ name: file.name, courseId: defaults.courseId, assignmentId: "", kind: defaults.kind ?? "resource", folderId: defaults.folderId });
       }
       return {
         id,

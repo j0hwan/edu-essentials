@@ -1,0 +1,25 @@
+.course-syllabus-upload.small-modal { width: min(100%, 640px); padding: 26px; }
+.course-syllabus-upload .modal-header { align-items: center; margin-bottom: 24px; }
+.course-syllabus-upload .modal-header h2 { font-size: 20px; }
+.course-syllabus-upload .modal-header > div > p { margin-top: 6px; font-size: 12px; }
+.course-syllabus-upload .modal-header .icon-button { flex-shrink: 0; }
+.course-syllabus-dropzone { display: flex; min-height: 280px; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 30px 20px; border: 2px dashed var(--border-strong); border-radius: 16px; background: var(--surface-2); text-align: center; transition: border-color 160ms ease, background-color 160ms ease; }
+.course-syllabus-dropzone[data-dragging="true"] { border-color: var(--brand); background: var(--brand-soft); }
+.course-syllabus-upload-icon { display: grid; width: 64px; height: 64px; place-items: center; color: var(--brand-dark); }
+.course-syllabus-dropzone .course-syllabus-dropzone-title { margin: 0; color: var(--ink); font-size: 18px; font-weight: 550; line-height: 1.5; }
+.course-syllabus-dropzone .course-syllabus-dropzone-hint { margin: -6px 0 8px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.course-syllabus-dropzone > .secondary-button { min-width: 138px; min-height: 42px; justify-content: center; font-size: 14px; }
+.course-syllabus-upload-status { display: flex; align-items: center; gap: 12px; margin-top: 18px; color: var(--muted); }
+.course-syllabus-upload-status > svg { flex-shrink: 0; color: var(--brand-dark); }
+.course-syllabus-upload-status > div { display: grid; min-width: 0; flex: 1; gap: 5px; }
+.course-syllabus-upload-status strong { overflow-wrap: anywhere; color: var(--ink); font-size: 13px; font-weight: 550; }
+.course-syllabus-upload-status span { font-size: 12px; }
+.course-syllabus-upload-status progress { width: 100%; height: 6px; accent-color: var(--brand); }
+.course-syllabus-upload-error { margin: 16px 0 0; color: var(--red); font-size: 13px; line-height: 1.5; }
+@media (max-width: 650px) {
+  .course-syllabus-upload.small-modal { padding: 20px; }
+  .course-syllabus-dropzone { min-height: 250px; padding: 24px 14px; }
+  .course-syllabus-dropzone .course-syllabus-dropzone-title { font-size: 16px; }
+  .course-syllabus-upload-status { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .course-syllabus-dropzone { transition: none; } }

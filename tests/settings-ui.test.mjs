@@ -1554,6 +1554,27 @@ test("study controls persist targets, timers, history and grades", async (t) => 
   });
 });
 
+test("expanded course syllabus import opens a simple drop zone and closes without closing the class", async () => {
+  reset();
+  installWorkspaceServer(savedDashboard, [sampleCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    await click("Import syllabus");
+    const importer = rootNode.querySelector('[aria-label="Import syllabus"]');
+    assert.ok(importer);
+    assert.ok(importer.querySelector(".course-syllabus-dropzone"));
+    assert.ok(importer.textContent.includes("Choose a file or drag & drop it here"));
+    assert.ok(importer.textContent.includes("Browse File"));
+    assert.equal(importer.querySelectorAll("textarea, select, input:not([type='file'])").length, 0);
+    assert.equal(rootNode.querySelector(".syllabus-attachment-modal"), null);
+    await clickAria("Close syllabus import");
+    assert.equal(rootNode.querySelector('[aria-label="Import syllabus"]'), null);
+    assert.ok(rootNode.querySelector(".class-card-expansion-dialog"));
+  } finally { if (root) await unmount(); }
+});
+
 test("expanded syllabus deletion clears saved content before permanently removing its source", async () => {
   reset();
   const profile = { ...baseProfile, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
