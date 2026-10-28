@@ -50,18 +50,15 @@ test("meeting locations distinguish safe public websites, unsafe URL-like text, 
   assert.equal(classifyMeetingLocation("" ).kind, "empty");
 });
 
-test("map previews encode a bounded OSM bbox and open validated coordinates in Google Maps", () => {
+test("map previews embed and open validated coordinates in Google Maps", () => {
   const urls = buildMeetingMapUrls(38.5449, -121.7405);
   assert.ok(urls);
   const embed = new URL(urls.embedUrl);
-  assert.equal(embed.origin, "https://www.openstreetmap.org");
-  assert.equal(embed.pathname, "/export/embed.html");
-  assert.equal(embed.searchParams.get("layer"), "mapnik");
-  assert.equal(embed.searchParams.get("marker"), "38.5449,-121.7405");
-  const bounds = embed.searchParams.get("bbox").split(",").map(Number);
-  assert.equal(bounds.length, 4);
-  assert.ok(bounds[0] < -121.7405 && bounds[2] > -121.7405);
-  assert.ok(bounds[1] < 38.5449 && bounds[3] > 38.5449);
+  assert.equal(embed.origin, "https://maps.google.com");
+  assert.equal(embed.pathname, "/maps");
+  assert.equal(embed.searchParams.get("q"), "38.5449,-121.7405");
+  assert.equal(embed.searchParams.get("z"), "14");
+  assert.equal(embed.searchParams.get("output"), "embed");
   const map = new URL(urls.mapUrl);
   assert.equal(map.origin, "https://www.google.com");
   assert.equal(map.pathname, "/maps/search/");
@@ -113,8 +110,10 @@ test("meeting preview aborts stale lookups, uses coordinates, and falls back aft
     await flush();
   });
   const iframe = rootNode.querySelector("iframe");
-  assert.ok(iframe, "a valid address result renders an OSM map");
-  assert.equal(new URL(iframe.src).searchParams.get("marker"), "38.5449,-121.7405", "the stale North Hall result never paints");
+  assert.ok(iframe, "a valid address result renders a Google Maps preview");
+  assert.equal(new URL(iframe.src).origin, "https://maps.google.com");
+  assert.equal(new URL(iframe.src).searchParams.get("output"), "embed");
+  assert.equal(new URL(iframe.src).searchParams.get("q"), "38.5449,-121.7405", "the stale North Hall result never paints");
   assert.equal(iframe.getAttribute("loading"), "lazy");
   assert.equal(iframe.getAttribute("tabindex"), "-1");
   assert.match(iframe.title, /South Hall/);

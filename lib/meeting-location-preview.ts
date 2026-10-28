@@ -89,15 +89,10 @@ export function classifyMeetingLocation(value: string): MeetingLocationTarget {
 
 export function buildMeetingMapUrls(latitude: number, longitude: number): { embedUrl: string; mapUrl: string } | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
-  const delta = 0.012;
-  const west = Math.max(-180, longitude - delta);
-  const south = Math.max(-90, latitude - delta);
-  const east = Math.min(180, longitude + delta);
-  const north = Math.min(90, latitude + delta);
-  const embed = new URL("https://www.openstreetmap.org/export/embed.html");
-  embed.searchParams.set("bbox", `${west},${south},${east},${north}`);
-  embed.searchParams.set("layer", "mapnik");
-  embed.searchParams.set("marker", `${latitude},${longitude}`);
+  const embed = new URL("https://maps.google.com/maps");
+  embed.searchParams.set("q", `${latitude},${longitude}`);
+  embed.searchParams.set("z", "14");
+  embed.searchParams.set("output", "embed");
   const map = new URL("https://www.google.com/maps/search/");
   map.searchParams.set("api", "1");
   map.searchParams.set("query", `${latitude},${longitude}`);
