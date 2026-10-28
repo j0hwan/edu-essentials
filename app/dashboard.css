@@ -204,6 +204,11 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .expanded-class-meeting { min-width: 0; }
 .expanded-class-meeting h3 { display: flex; align-items: center; min-height: 40px; margin-bottom: 4px; font-size: 24px; font-weight: 680; line-height: 1; transform: translateY(-2px); }
 .expanded-class-meeting p { margin-top: 0; }
+.expanded-class-meetings-odd { grid-template-columns: minmax(0, 1fr); }
+.expanded-class-meetings-odd > .expanded-class-meeting { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; align-items: start; }
+.expanded-class-meetings-odd > .expanded-class-meeting > h3 { grid-column: 1; grid-row: 1; }
+.expanded-class-meetings-odd > .expanded-class-meeting > p { grid-column: 1; grid-row: 2; margin-bottom: 0; overflow-wrap: anywhere; }
+.expanded-class-meetings-odd > .expanded-class-meeting > .meeting-location-preview { grid-column: 2; grid-row: 1 / span 2; align-self: center; margin-top: 0; }
 .meeting-location-preview { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; aspect-ratio: 16 / 10; margin-top: 12px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 14px; text-align: center; text-decoration: none; }
 .meeting-location-preview > img, .meeting-location-preview > iframe { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border: 0; object-fit: cover; object-position: top; pointer-events: none; }
 .meeting-location-preview > svg { flex-shrink: 0; }

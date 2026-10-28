@@ -1765,6 +1765,20 @@ test("expanded class weekday tiles show only scheduled meeting abbreviations", a
   } finally { if (root) await unmount(); }
 });
 
+for (const count of [0, 1, 2, 3, 4, 5, 6]) test(`expanded class uses side-by-side location previews for odd meeting counts (${count})`, async () => {
+  reset();
+  const meetings = Array.from({ length: count }, (_, index) => ({ id: `meeting-${index}`, name: `Meeting ${index + 1}`, days: [1], start: "09:00", end: "10:00", from: "2026-01-01", until: "2027-12-31", location: "https://example.com/meeting" }));
+  installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: { officeHours: "", meetings } } } }, [sampleCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    const expanded = rootNode.querySelector('[aria-label="Class details"]');
+    assert.equal(expanded.querySelector(".expanded-class-meetings").classList.contains("expanded-class-meetings-odd"), count % 2 === 1);
+    assert.equal(expanded.querySelectorAll(".expanded-class-meeting > .meeting-location-preview").length, count);
+  } finally { if (root) await unmount(); }
+});
+
 test("class cards enlarge in place with all class tools and retain nested assignment behavior", async () => {
   reset();
   const assignment = { id: "class-expansion-assignment", title: "Research outline", courseId: sampleCourse.id, dateKey: "2026-10-15", due: "", status: "later", progress: 20, description: "Read the source material", weight: "" };

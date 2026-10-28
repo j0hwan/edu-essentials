@@ -1811,6 +1811,31 @@ test("expanded course uses a narrower syllabus column and a two-column meeting g
   } finally { layout.window.close(); }
 });
 
+for (const count of [1, 3, 5]) test(`odd meeting counts align previews beside their text in consistent rows (${count})`, async () => {
+  const styles = await readFile(new URL("../app/dashboard.css", import.meta.url), "utf8");
+  const meeting = '<div class="expanded-class-meeting"><h3>Lecture</h3><p>Monday<br>9:00–10:00<br>Room 1</p><a class="meeting-location-preview"></a></div>';
+  const layout = new JSDOM(`<style>${styles}</style><div class="expanded-class-meetings expanded-class-meetings-odd">${meeting.repeat(count)}</div><div class="expanded-class-meetings">${meeting.repeat(2)}</div>`);
+  try {
+    const computed = (element) => layout.window.getComputedStyle(element);
+    const meetings = layout.window.document.querySelector(".expanded-class-meetings-odd");
+    assert.equal(computed(meetings).gridTemplateColumns, "minmax(0, 1fr)");
+    for (const row of meetings.children) {
+      assert.equal(computed(row).display, "grid");
+      assert.equal(computed(row).gridTemplateColumns, "repeat(2, minmax(0, 1fr))");
+      assert.equal(computed(row.querySelector("h3")).gridColumn, "1");
+      assert.equal(computed(row.querySelector("p")).gridRow, "2");
+      const preview = computed(row.querySelector(".meeting-location-preview"));
+      assert.equal(preview.gridColumn, "2");
+      assert.equal(preview.gridRow, "1 / span 2");
+      assert.equal(preview.alignSelf, "center");
+      assert.equal(preview.marginTop, "0px");
+    }
+    const defaultMeetings = meetings.nextElementSibling;
+    assert.equal(computed(defaultMeetings).gridTemplateColumns, "repeat(2, minmax(0, 1fr))");
+    assert.equal(computed(defaultMeetings.querySelector(".meeting-location-preview")).marginTop, "12px");
+  } finally { layout.window.close(); }
+});
+
 test("expanded course hides an available syllabus filename while preserving missing-syllabus guidance and actions", async () => {
   const source = await readFile(new URL("../app/workspace-client.tsx", import.meta.url), "utf8");
   const syllabusSection = source.match(/<section className="expanded-class-section expanded-class-syllabus"[\s\S]*?<\/section>/)?.[0];
