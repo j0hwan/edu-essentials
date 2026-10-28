@@ -583,6 +583,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
 
     let released = false;
     let closing = false;
+    let backdropDimTimer: number | undefined;
     let sourceSnapshot: SourceSnapshot | null = null;
     let bodyOverflow: SavedProperty | null = null;
     let shapeAnimation: Animation | null = null;
@@ -968,7 +969,6 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
     };
 
     const finishOpeningMorph = () => {
-      if (!released && !closing && backdrop) backdrop.dataset.dimmed = "true";
       clearDetailGeometry("translateX(0px)");
       if (!openingMorphPending) return;
       openingMorphPending = false;
@@ -1223,6 +1223,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
     function release() {
       if (released) return;
       released = true;
+      window.clearTimeout(backdropDimTimer);
       if (backdrop) delete backdrop.dataset.dimmed;
       for (const cleanup of [...imageHandoffCleanups]) cleanup();
       cancelShape();
@@ -1253,6 +1254,7 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
     function requestClose() {
       if (released || closing) return;
       closing = true;
+      window.clearTimeout(backdropDimTimer);
       if (backdrop) delete backdrop.dataset.dimmed;
       onCloseStartRef.current?.();
       for (const cleanup of [...imageHandoffCleanups]) cleanup();
@@ -1394,6 +1396,9 @@ export default function ClassCardExpansion({ courseId, onClose, onCloseStart, sk
         worldLeftFrom: detailWorldLeft,
         worldLeftTo: destination.left + dialogBorder().left,
       });
+      backdropDimTimer = window.setTimeout(() => {
+        if (!released && !closing && backdrop) backdrop.dataset.dimmed = "true";
+      }, 50);
     } else {
       applyRect(expansionDialog, destination);
       applyVisualAppearance(expansionDialog, expandedAppearance);
