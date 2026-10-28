@@ -1999,7 +1999,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   function renderAssignmentTable(items: Assignment[], compact = false) {
     return <div className={`assignment-table ${compact ? "compact" : ""}`}>
       {!compact && <div className="assignment-table-head"><span>Status</span><span>Assignment</span><span>Class</span><span>Due</span><span>Progress</span><span /></div>}
-      {!items.length && <p className="form-hint">No assignments yet.</p>}
+      {!items.length && <div className="assignment-row assignment-empty"><span>No assignments yet...</span></div>}
       {items.map((assignment) => { const course = courseFor(courses, assignment.courseId); return <button className={`assignment-row ${assignment.status === "done" ? "completed" : ""}`} key={assignment.id} onClick={() => setSelectedAssignment(assignment)}>
         <span><StatusBadge status={assignment.status} /></span>
         <span className="assignment-title"><strong>{assignment.title}</strong>{compact && <small>{course.code}</small>}</span>

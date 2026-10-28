@@ -2219,7 +2219,8 @@ html[data-theme="dark"] .tone-blue { background: #1d3546; color: #78c8ff; }
 }
 
 .assignment-row:first-of-type { border-top: 0; }
-.assignment-row:hover { background: var(--surface-2); }
+.assignment-row:not(.assignment-empty):hover { background: var(--surface-2); }
+.assignment-empty > span { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
 .assignment-row.completed { opacity: 0.64; }
 .assignment-row.completed .assignment-title strong { text-decoration: line-through; }
 .assignment-title strong { display: block; font-size: 12px; }
