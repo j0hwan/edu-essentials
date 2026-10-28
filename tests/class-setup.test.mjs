@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test, { after, afterEach } from "node:test";
 import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
@@ -11,6 +12,22 @@ const { createRoot } = await import("react-dom/client");
 const { default: ClassSetup } = await import(await clientModule("app/class-setup.tsx"));
 const { default: AcademicEditor } = await import(await clientModule("app/academic-editor.tsx"));
 const { emptyCourse } = await import(await clientModule("lib/academics.ts"));
+test("add a class heading matches the active setup step typography", async () => {
+  const styles = await readFile(new URL("../app/class-setup.css", import.meta.url), "utf8");
+  const layout = new JSDOM(`<style>.modal-header h2 { font-size: 22px; letter-spacing: -0.04em; }${styles}</style><section class="add-class-choice-modal"><div class="modal-header"><h2>Add a class</h2></div></section><ol class="class-setup-progress"><li aria-current="step">Info</li></ol>`);
+  try {
+    const heading = layout.window.getComputedStyle(layout.window.document.querySelector("h2"));
+    const step = layout.window.getComputedStyle(layout.window.document.querySelector("li"));
+    for (const property of ["fontSize", "fontWeight", "lineHeight"]) assert.equal(heading[property], step[property], property);
+    assert.equal(heading.fontFamily, step.fontFamily);
+    assert.equal(heading.letterSpacing, "normal");
+    const responsive = [...layout.window.document.styleSheets[0].cssRules].find((rule) => rule.conditionText && [...(rule.cssRules ?? [])].some((child) => child.selectorText === ".add-class-choice-modal .modal-header h2"));
+    assert.ok(responsive);
+    const headingRule = [...responsive.cssRules].find((rule) => rule.selectorText === ".add-class-choice-modal .modal-header h2");
+    const stepRule = [...responsive.cssRules].find((rule) => rule.selectorText === ".class-setup-progress li");
+    assert.equal(headingRule.style.getPropertyValue("font-size"), stepRule.style.getPropertyValue("font-size"));
+  } finally { layout.window.close(); }
+});
 const host = document.getElementById("root");
 let root;
 let saved;

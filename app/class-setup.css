@@ -17,6 +17,7 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-progress { display: flex; align-items: center; justify-self: start; list-style: none; padding: 0; margin: 0; gap: 12px; }
 .class-setup-progress li { display: flex; align-items: center; gap: 8px; color: var(--muted); white-space: nowrap; font-size: 18px; line-height: 1.4; }
 .class-setup-progress li[aria-current="step"] { color: var(--ink); font-weight: 600; }
+.add-class-choice-modal .modal-header h2 { font-family: inherit; font-size: 18px; font-weight: 600; line-height: 1.4; letter-spacing: normal; }
 .class-setup-progress li.is-complete { color: var(--green); }
 .class-setup-progress svg { flex-shrink: 0; }
 .class-setup-progress .class-setup-step-separator { color: var(--muted); margin-left: 2px; }
@@ -163,6 +164,7 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
   .class-setup .class-setup-header { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
   .class-setup-progress { gap: 6px; }
   .class-setup-progress li { gap: 4px; font-size: clamp(12px, 3.5vw, 16px); }
+  .add-class-choice-modal .modal-header h2 { font-size: clamp(12px, 3.5vw, 16px); }
   .class-setup-progress svg { width: 14px; height: 14px; }
   .class-setup-week { gap: 3px; }
   .class-setup-week button { min-height: 40px; border-radius: 6px; font-size: 12px; }
