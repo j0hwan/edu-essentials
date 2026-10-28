@@ -1068,6 +1068,136 @@ test("invalid files are rejected and unavailable uploads do not block class crea
   await submit(); assert.equal(calls, 1);
 });
 
+test("editing hydrates the saved course details and saves the untouched class intact", async () => {
+  const initial = { ...emptyCourse("saved-course"), code: "BIO 201", name: "Cell Biology", credits: 4, instructor: "Dr. Moss", room: "Science Hall", color: "#b23b53", soft: "#b23b5318", initials: "CB" };
+  const initialDetails = {
+    officeHours: "Tue 2–4 PM",
+    meetingNotes: "Bring a lab coat",
+    icon: "flask-conical",
+    imageFraming: { fileId: "saved-image", x: 37, y: 62, zoom: 1.4 },
+    syllabusText: "Week 1: Cells",
+    syllabusName: "biology-syllabus.txt",
+    syllabusFileId: "79797979-7979-4979-8979-797979797979",
+    meetings: [{ id: "saved-meeting", name: "Lab", days: [1, 3], start: "13:30", end: "15:00", from: "2026-10-26", until: "2026-12-15", location: "Science Hall 204", excludedDates: ["2026-11-25"] }],
+  };
+  await mount({ initial, initialDetails, editing: true, savedImageUrl: "https://edu.example/saved-cover.png", savedSyllabusPreview: createElement("p", null, "Saved syllabus preview") });
+  const value = (label) => [...host.querySelectorAll("label")].find((node) => node.textContent.replace(/\s*\*$/, "").trim() === label).control.value;
+  assert.equal(value("Course code"), "BIO 201");
+  assert.equal(value("Class name"), "Cell Biology");
+  assert.equal(value("Instructor"), "Dr. Moss");
+  await submit();
+  assert.equal(button("Monday").getAttribute("aria-pressed"), "true");
+  assert.equal(button("Wednesday").getAttribute("aria-pressed"), "true");
+  assert.equal(value("Start time"), "13:30");
+  assert.equal(value("End time"), "15:00");
+  assert.equal([...host.querySelectorAll(".class-setup-meeting-fields label")].find((label) => label.textContent.includes("Classes start")).control.value, "2026-10-26");
+  assert.equal([...host.querySelectorAll('input[type="date"]')].find((input) => input.closest("label")?.textContent.includes("Classes end")).value, "2026-12-15");
+  assert.equal(value("Meeting location"), "Science Hall 204");
+  await submit();
+  assert.equal(button("Save class").textContent, "Save class");
+  assert.equal(host.querySelector('[aria-label="Class card preview"] .course-pill').textContent, "BIO 201");
+  assert.match(host.querySelector('[aria-label="Selected class cover"]').style.backgroundImage, /saved-cover\.png/);
+  assert.equal(host.textContent.includes("Saved syllabus preview"), true);
+  assert.equal(host.querySelector('.class-setup-icon-picker button[aria-label="Chemistry"]').getAttribute("aria-pressed"), "true");
+  assert.match(host.querySelector('[aria-label="Selected class cover"]').style.backgroundPosition, /37% 62%/);
+  await submit();
+  assert.equal(calls, 1);
+  assert.equal(saved[0].id, "saved-course");
+  assert.deepEqual(saved[0], initial);
+  assert.deepEqual(saved[1], initialDetails);
+  assert.deepEqual(saved[2], {});
+});
+
+test("editing preserves an intentionally empty meeting list and closes cleanly", async () => {
+  const initial = { ...emptyCourse("empty-meetings"), code: "ART 110", name: "Drawing" };
+  const initialDetails = { officeHours: "By appointment", meetings: [], icon: "palette", imageFraming: { fileId: "cover", x: 12, y: 78, zoom: 1.2 }, syllabusText: "Materials list" };
+  const originalConfirm = window.confirm;
+  let confirms = 0;
+  window.confirm = () => { confirms++; return false; };
+  try {
+    await mount({ initial, initialDetails, editing: true });
+    await submit();
+    assert.equal(host.querySelectorAll(".class-setup-meeting").length, 0);
+    await submit();
+    assert.equal(button("Save class").textContent, "Save class");
+    await submit();
+    assert.equal(saved[0].id, "empty-meetings");
+    assert.deepEqual(saved[1], initialDetails);
+    assert.deepEqual(saved[1].meetings, []);
+  } finally { window.confirm = originalConfirm; }
+
+  await act(async () => root.unmount()); root = undefined;
+  await mount({ initial, initialDetails, editing: true });
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(closed, 1);
+  assert.equal(confirms, 0);
+});
+
+test("removing a newly selected edit cover restores the saved image and framing", async () => {
+  const initial = { ...emptyCourse("framed-course"), code: "BIO 101", name: "Biology" };
+  const initialDetails = { officeHours: "", meetings: [], imageFraming: { fileId: "saved-cover", x: 24, y: 68, zoom: 1.6 } };
+  await mount({ initial, initialDetails, editing: true, savedImageUrl: "https://edu.example/saved-cover.png" });
+  await submit(); await submit();
+  const card = host.querySelector('[aria-label="Class card preview"]');
+  assert.match(host.querySelector('[aria-label="Selected class cover"]').style.backgroundImage, /saved-cover\.png/);
+  await file("image", new window.File(["new cover"], "new-cover.png", { type: "image/png" }));
+  assert.match(host.querySelector('[aria-label="Selected class cover"]').style.backgroundImage, /blob:class-cover/);
+  await click("Remove image");
+  assert.match(host.querySelector('[aria-label="Selected class cover"]').style.backgroundImage, /saved-cover\.png/);
+  assert.equal(saved, undefined);
+  assert.ok(card);
+  await submit();
+  assert.deepEqual(saved[1].imageFraming, initialDetails.imageFraming);
+  assert.equal(saved[2].image, undefined);
+});
+
+test("editing a saved cover without prior framing supports zoom without replacing the image", async () => {
+  await mount({ initialDetails: { officeHours: "", meetings: [], syllabusText: "Saved syllabus text" }, editing: true, savedImageId: "saved-cover", savedImageUrl: "https://edu.example/saved-cover.png" });
+  await submit(); await submit();
+  assert.ok(host.querySelector(".class-setup-document-preview").textContent.includes("Saved syllabus text"));
+  assert.equal(host.querySelector('[aria-label="Image zoom"]').disabled, false);
+  await change("Image zoom", "1.8");
+  await submit();
+  assert.deepEqual(saved[1].imageFraming, { fileId: "saved-cover", x: 50, y: 50, zoom: 1.8 });
+  assert.deepEqual(saved[2], {});
+});
+
+test("editing a newer saved cover ignores framing belonging to an older file", async () => {
+  await mount({ initialDetails: { officeHours: "", meetings: [], imageFraming: { fileId: "old-cover", x: 10, y: 90, zoom: 2 } }, editing: true, savedImageId: "new-cover", savedImageUrl: "https://edu.example/new-cover.png" });
+  await submit(); await submit();
+  assert.equal(host.querySelector('[aria-label="Image zoom"]').value, "1");
+  assert.equal(host.querySelector('[aria-label="Selected class cover"]').style.backgroundPosition, "50% 50%");
+  await change("Image zoom", "1.5");
+  await submit();
+  assert.deepEqual(saved[1].imageFraming, { fileId: "new-cover", x: 50, y: 50, zoom: 1.5 });
+  assert.deepEqual(saved[2], {});
+});
+
+test("edit footer replaces the step counter with an accessible trash button", async () => {
+  let deletions = 0;
+  await mount({ initialDetails: { officeHours: "", meetings: [] }, editing: true, onDelete: () => { deletions++; } });
+  for (const step of [0, 1, 2]) {
+    const footer = host.querySelector(".class-setup-actions");
+    assert.equal(footer.children.length, 3);
+    const trash = footer.children[1];
+    assert.equal(trash.getAttribute("aria-label"), "Delete class");
+    assert.equal(trash.type, "button");
+    assert.ok(trash.querySelector("svg.lucide-trash-2"));
+    assert.equal(footer.querySelector(":scope > span"), null);
+    await click("Delete class");
+    assert.equal(deletions, step + 1);
+    assert.equal(saved, undefined);
+    if (step < 2) await submit();
+  }
+});
+
+test("new class footer keeps its step counter and does not offer deletion", async () => {
+  await mount();
+  const footer = host.querySelector(".class-setup-actions");
+  assert.equal(footer.children[1].textContent, "1 / 3");
+  assert.equal(button("Delete class"), undefined);
+});
+
 test("saving locks navigation and duplicate submissions; focus returns to the opener", async () => {
   let resolveSave;
   const pending = new Promise((resolve) => { resolveSave = resolve; });

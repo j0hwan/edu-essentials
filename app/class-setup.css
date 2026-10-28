@@ -139,6 +139,7 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-document-empty p { margin: 0; font-size: 12px; }
 .class-setup-document-empty > span, .class-setup-document-fallback { font-size: 11px; }
 .class-setup-document-preview .private-pdf-preview { height: 100%; border: 0; }
+.class-setup-document-preview .inline-file-preview { height: 100%; min-height: 0; overflow: auto; }
 .class-setup-document-preview pre { height: 100%; margin: 0; padding: 16px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; }
 .class-setup-document-image { width: 100%; height: 100%; background-position: center; background-repeat: no-repeat; background-size: contain; }
 .class-setup-document-fallback { height: 100%; overflow: auto; overflow-wrap: anywhere; }
@@ -146,6 +147,7 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-syllabus > .form-hint { margin: 10px 0 0; font-size: 10px; }
 .class-setup-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 18px; }
 .class-setup-actions > span { font-size: 12px; color: var(--muted); }
+.class-setup-actions [aria-label="Delete class"] > svg { color: var(--red); }
 .class-setup button:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 .class-setup .class-setup-meeting-select:focus-visible { outline-offset: -4px; }
 @media (max-width: 760px) {

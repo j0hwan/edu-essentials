@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
 import { addDays, dateLabel, emptyCourseDetails, isDate, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
@@ -127,22 +127,32 @@ function MeetingTitle({ title, onRename }: { title: string; onRename: (name: str
   </div>;
 }
 
-export default function ClassSetup({ initial, today, canUpload, onSave, onClose, initialBounds }: {
+export default function ClassSetup({ initial, initialDetails: savedDetails, editing = false, savedImageId, savedImageUrl, savedSyllabusPreview, today, canUpload, onSave, onClose, onDelete, initialBounds }: {
   initial: Course; today: string; canUpload: boolean;
+  initialDetails?: CourseDetails;
+  editing?: boolean;
+  savedImageId?: string;
+  savedImageUrl?: string;
+  savedSyllabusPreview?: ReactNode;
   onSave: (course: Course, details: CourseDetails, uploads: ClassSetupUploads) => Promise<void>;
   onClose: () => void;
+  onDelete?: () => void;
   initialBounds?: ClassSetupBounds;
 }) {
   const creditsId = useId();
   const skipDatePickerId = useId();
   const [course, setCourse] = useState(initial);
-  const [initialDetails] = useState<CourseDetails>(() => ({ ...emptyCourseDetails(), meetings: [{ id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: initial.room }] }));
+  const [initialDetails] = useState<CourseDetails>(() => savedDetails ?? ({ ...emptyCourseDetails(), meetings: [{ id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: initial.room }] }));
   const [details, setDetails] = useState<CourseDetails>(initialDetails);
-  const [selectedMeetingId, setSelectedMeetingId] = useState(initialDetails.meetings[0].id);
+  const [selectedMeetingId, setSelectedMeetingId] = useState(initialDetails.meetings[0]?.id ?? "");
   const [skipDatePickerFallback, setSkipDatePickerFallback] = useState(false);
   const [step, setStep] = useState(0);
   const [uploads, setUploads] = useState<ClassSetupUploads>({});
   const [imagePreview, setImagePreview] = useState("");
+  const currentImagePreview = uploads.image ? imagePreview : savedImageUrl ?? "";
+  const currentImageId = uploads.image?.id ?? savedImageId;
+  const currentImageFraming = details.imageFraming && (!currentImageId || details.imageFraming.fileId === currentImageId)
+    ? details.imageFraming : currentImageId ? { ...DEFAULT_COURSE_IMAGE_FRAMING, fileId: currentImageId } : undefined;
   const imageUrlRef = useRef("");
   const [syllabusPreview, setSyllabusPreview] = useState("");
   const syllabusUrlRef = useRef("");
@@ -201,12 +211,12 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
     if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current);
   }, []);
   useEffect(() => {
-    if (!imagePreview) return;
+    if (!currentImagePreview) return;
     const image = new window.Image();
     image.onload = () => setImageSize({ width: image.naturalWidth, height: image.naturalHeight });
-    image.src = imagePreview;
+    image.src = currentImagePreview;
     return () => { image.onload = null; };
-  }, [imagePreview]);
+  }, [currentImagePreview]);
 
   const changeCourse = (patch: Partial<Course>) => setCourse((current) => ({ ...current, ...patch }));
   const changeMeeting = (id: string, patch: Partial<Meeting>) => setDetails((current) => ({ ...current, meetings: current.meetings.map((meeting) => meeting.id === id ? { ...meeting, ...patch } : meeting) }));
@@ -269,9 +279,9 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
   const field = (label: string, value: string | number, onChange: (value: string) => void, type = "text", required = false, maxLength = 160, placeholder?: string) => <label><span>{label}{required && requiredMarker(isMissing(value))}</span><input type={type} value={value} placeholder={placeholder} required={required} aria-invalid={required && isMissing(value) ? true : undefined} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} {...(type === "number" ? { min: 0, max: 30, step: 1 } : {})} /></label>;
   const startImageDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     suppressImageClickRef.current = false;
-    if (!uploads.image || !details.imageFraming || !imageSize || busy || attemptedSave || event.button !== 0 || event.isPrimary === false || (event.target as HTMLElement).closest(".class-setup-image-affordance")) return;
+    if (!currentImagePreview || !currentImageFraming || !imageSize || busy || attemptedSave || event.button !== 0 || event.isPrimary === false || (event.target as HTMLElement).closest(".class-setup-image-affordance")) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    imageDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, width: bounds.width, height: bounds.height, framing: details.imageFraming };
+    imageDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, width: bounds.width, height: bounds.height, framing: currentImageFraming };
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setDraggingImage(true);
   };
@@ -291,8 +301,8 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
   const moveImageWithKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    const framing = details.imageFraming;
-    if (!uploads.image || !framing || busy || attemptedSave || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    const framing = currentImageFraming;
+    if (!currentImagePreview || !framing || busy || attemptedSave || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     const delta = event.shiftKey ? 10 : 2;
     const x = Math.max(0, Math.min(100, framing.x + (event.key === "ArrowLeft" ? delta : event.key === "ArrowRight" ? -delta : 0)));
@@ -329,7 +339,7 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
       return;
     }
     try {
-      const validated = validateCourse({ ...course, initials: course.code.slice(0, 2).toUpperCase(), soft: `${course.color}18` });
+      const validated = validateCourse({ ...course, initials: editing && course.code === initial.code ? initial.initials : course.code.slice(0, 2).toUpperCase(), soft: editing && course.color === initial.color ? initial.soft : `${course.color}18` });
       if (step === 1 || step === 2) {
         const missingMeeting = details.meetings.find(hasMissingMeetingFields);
         const invalidMeeting = missingMeeting ?? details.meetings.find((meeting) => !isMeetingComplete(meeting));
@@ -421,9 +431,9 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
             <div className="class-setup-card-controls">
               <div className="class-setup-card-column">
                 <div className="class-card class-setup-card" aria-label="Class card preview">
-                  <button type="button" className={`class-card-visual class-setup-image-button${uploads.image ? " has-image" : ""}`} data-dragging={draggingImage || undefined} aria-label={uploads.image ? "Change class image" : "Add class image"} title={uploads.image ? "Drag to position the image, or use the arrow keys. Click to replace it." : "Choose a class image"} disabled={!canUpload || busy || attemptedSave} onPointerDown={startImageDrag} onPointerMove={moveImageDrag} onPointerUp={finishImageDrag} onPointerCancel={finishImageDrag} onLostPointerCapture={finishImageDrag} onKeyDown={moveImageWithKeyboard} onClick={() => { if (suppressImageClickRef.current) { suppressImageClickRef.current = false; return; } imageInputRef.current?.click(); }}>
+                  <button type="button" className={`class-card-visual class-setup-image-button${currentImagePreview ? " has-image" : ""}`} data-dragging={draggingImage || undefined} aria-label={currentImagePreview ? "Change class image" : "Add class image"} title={currentImagePreview ? "Drag to position the image, or use the arrow keys. Click to replace it." : "Choose a class image"} disabled={!canUpload || busy || attemptedSave} onPointerDown={startImageDrag} onPointerMove={moveImageDrag} onPointerUp={finishImageDrag} onPointerCancel={finishImageDrag} onLostPointerCapture={finishImageDrag} onKeyDown={moveImageWithKeyboard} onClick={() => { if (suppressImageClickRef.current) { suppressImageClickRef.current = false; return; } imageInputRef.current?.click(); }}>
                     <div className="class-setup-card-media" style={{ background: `linear-gradient(135deg, ${course.color}18, color-mix(in srgb, ${course.color} 18%, white))` }}>
-                      {uploads.image && imagePreview && <div className="class-setup-cover" role="img" aria-label="Selected class cover" style={{ backgroundImage: `url(${imagePreview})`, ...courseImageFramingStyle(details.imageFraming) }} />}
+                      {currentImagePreview && <div className="class-setup-cover" role="img" aria-label="Selected class cover" style={{ backgroundImage: `url(${currentImagePreview})`, ...courseImageFramingStyle(currentImageFraming) }} />}
                     </div>
                     <span className="course-watermark" aria-hidden="true">{course.code.slice(0, 2).toUpperCase()}</span>
                     <span className="course-pill" style={{ color: course.color }}>{course.code}</span>
@@ -436,8 +446,8 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
                 <div className="class-setup-color-row">
                   <label className="class-setup-color"><span>Class color</span><input aria-label="Class color" type="color" value={course.color} onChange={(event) => changeCourse({ color: event.target.value })} /></label>
                   <div className="class-setup-zoom">
-                    <label><span>Image zoom <output>{Math.round((details.imageFraming?.zoom ?? 1) * 100)}%</output></span><input aria-label="Image zoom" type="range" min="1" max="3" step="0.01" value={details.imageFraming?.zoom ?? 1} disabled={!uploads.image || attemptedSave || busy} onChange={(event) => { const zoom = Number(event.target.value); setDetails((current) => current.imageFraming ? { ...current, imageFraming: { ...current.imageFraming, zoom } } : current); }} /></label>
-                    {uploads.image && <button type="button" className="text-button" disabled={attemptedSave} onClick={() => { if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current); imageUrlRef.current = ""; setImagePreview(""); setImageSize(null); setDetails((current) => ({ ...current, imageFraming: undefined })); setUploads((current) => ({ ...current, image: undefined })); }}>Remove image</button>}
+                    <label><span>Image zoom <output>{Math.round((currentImageFraming?.zoom ?? 1) * 100)}%</output></span><input aria-label="Image zoom" type="range" min="1" max="3" step="0.01" value={currentImageFraming?.zoom ?? 1} disabled={!currentImagePreview || !currentImageFraming || attemptedSave || busy} onChange={(event) => { const zoom = Number(event.target.value); setDetails((current) => currentImageFraming ? { ...current, imageFraming: { ...currentImageFraming, zoom } } : current); }} /></label>
+                    {uploads.image && <button type="button" className="text-button" disabled={attemptedSave} onClick={() => { if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current); imageUrlRef.current = ""; setImagePreview(""); setImageSize(null); setDetails((current) => ({ ...current, imageFraming: initialDetails.imageFraming })); setUploads((current) => ({ ...current, image: undefined })); }}>Remove image</button>}
                   </div>
                 </div>
               </div>
@@ -447,18 +457,18 @@ export default function ClassSetup({ initial, today, canUpload, onSave, onClose,
           <fieldset className="class-setup-syllabus" disabled={attemptedSave}>
             <legend>Syllabus <span>(optional)</span></legend>
             <label className={`class-setup-syllabus-upload${uploads.syllabus ? " has-file" : ""}`}>
-              <FileText size={24} aria-hidden="true" /><span>{uploads.syllabus ? "Replace syllabus" : "Upload your syllabus"}<small>PDF, text, images, or other documents · Up to 25 MiB</small></span>
+              <FileText size={24} aria-hidden="true" /><span>{uploads.syllabus || details.syllabusFileId || details.syllabusText ? "Replace syllabus" : "Upload your syllabus"}<small>PDF, text, images, or other documents · Up to 25 MiB</small></span>
               <input aria-label="Syllabus (optional)" type="file" disabled={!canUpload || busy} onChange={(event) => { selectFile("syllabus", event.target.files?.[0]); event.target.value = ""; }} />
             </label>
-            {uploads.syllabus ? <><div className="class-setup-file"><span>{uploads.syllabus.file.name}</span><button type="button" className="text-button" onClick={() => { if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current); syllabusUrlRef.current = ""; setSyllabusPreview(""); setUploads((current) => ({ ...current, syllabus: undefined })); }}>Remove syllabus</button></div><ClassSetupDocumentPreview key={uploads.syllabus.id} file={uploads.syllabus.file} url={syllabusPreview} /></> : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>Your document preview appears here</p><span>Upload a syllabus to see it before saving.</span></div>}
+            {uploads.syllabus ? <><div className="class-setup-file"><span>{uploads.syllabus.file.name}</span><button type="button" className="text-button" onClick={() => { if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current); syllabusUrlRef.current = ""; setSyllabusPreview(""); setUploads((current) => ({ ...current, syllabus: undefined })); }}>Remove syllabus</button></div><ClassSetupDocumentPreview key={uploads.syllabus.id} file={uploads.syllabus.file} url={syllabusPreview} /></> : savedSyllabusPreview || details.syllabusText ? <>{details.syllabusName && <div className="class-setup-file"><span>{details.syllabusName}</span></div>}<div className="class-setup-document-preview">{savedSyllabusPreview ?? <pre>{details.syllabusText}</pre>}</div></> : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>{details.syllabusFileId ? "Saved syllabus unavailable" : "Your document preview appears here"}</p><span>{details.syllabusFileId ? "Your attachment is preserved. Upload a replacement to change it." : "Upload a syllabus to see it before saving."}</span></div>}
             <p className="form-hint">Storage only. Uploading will not change your course, schedule, or assignments.</p>
           </fieldset>
         </div>
-        {!canUpload && <p className="form-hint">File uploads are unavailable until your workspace is saved. You can still create this class and attach files later.</p>}
+        {!canUpload && <p className="form-hint">File uploads are unavailable until your workspace is saved. You can still {editing ? "save" : "create"} this class and attach files later.</p>}
       </>}
     </fieldset>
     {error && <p role="alert" className="auth-error">{error}</p>}
     {attemptedSave && !busy && error && <p className="form-hint">Selected files are locked for safe retries because some attachments may already be saved. Retry to finish, or close setup and manage saved attachments from the class files.</p>}
-    <div className="modal-actions class-setup-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { if (step) { transition(() => { setStep(step - 1); setError(""); }); } else close(); }}>{step ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button><span>{step + 1} / 3</span><button className="primary-button" disabled={busy}>{busy ? "Saving class…" : step === 2 ? "Create class" : <>Continue<ArrowRight size={16} /></>}</button></div>
+    <div className="modal-actions class-setup-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { if (step) { transition(() => { setStep(step - 1); setError(""); }); } else close(); }}>{step ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button>{onDelete ? <button type="button" className="secondary-button" aria-label="Delete class" title="Delete class" disabled={busy || attemptedSave} onClick={onDelete}><Trash2 size={18} aria-hidden="true" /></button> : <span>{step + 1} / 3</span>}<button className="primary-button" disabled={busy}>{busy ? "Saving class…" : step === 2 ? editing ? "Save class" : "Create class" : <>Continue<ArrowRight size={16} /></>}</button></div>
   </form></div>;
 }

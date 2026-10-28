@@ -605,8 +605,10 @@ test("class icon selection updates cards and expanded headers and survives save/
     assert.ok(card().querySelector('[data-course-morph="icon"].lucide-book-open'));
     await act(async () => card().click());
     await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Edit class");
+    await click("Continue"); await click("Continue");
     await clickAria("Atom", rootNode.querySelector(".course-icon-picker"));
     await click("Save class");
+    await waitUntil(() => !rootNode.querySelector(".class-setup"), "class edits saved");
     assert.ok(card().querySelector('[data-course-morph="icon"].lucide-atom'));
     await saveAndReload();
     assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].icon, "atom");
@@ -615,8 +617,9 @@ test("class icon selection updates cards and expanded headers and survives save/
     await act(async () => card().click());
     assert.ok(rootNode.querySelector('.expanded-class-header [data-course-morph="icon"].lucide-atom'));
     await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Edit class");
+    await click("Continue"); await click("Continue");
     assert.equal(rootNode.querySelector('.course-icon-picker [aria-label="Atom"]').getAttribute("aria-pressed"), "true");
-    await click("Close editor");
+    await click("Close class setup");
     await click("Add Class");
     await click("Manual entry");
     await edit("Course code", "ART 101");
@@ -631,6 +634,99 @@ test("class icon selection updates cards and expanded headers and survives save/
     const added = server.courses.find((course) => course.code === "ART 101");
     assert.equal(server.dashboard.d.courseDetails[added.id].icon, "palette");
   } finally { if (root) await unmount(); }
+});
+
+test("editing uses the prefilled setup wizard and preserves saved details through retry and reload", async () => {
+  reset();
+  const syllabusId = "79797979-7979-4979-8979-797979797979";
+  const imageId = "11111111-1111-4111-8111-111111111111";
+  const details = {
+    officeHours: "Tuesday by appointment", meetingNotes: "Bring notes", icon: "atom",
+    imageFraming: { fileId: imageId, x: 35, y: 65, zoom: 1.4 },
+    syllabusFileId: syllabusId, syllabusName: "saved.txt", syllabusText: "Saved source text",
+    meetings: [{ id: "saved-meeting", name: "Lecture", days: [1, 3], start: "09:30", end: "10:30", from: "2026-10-01", until: "2026-12-15", location: "Hall 2", excludedDates: ["2026-11-02"] }],
+  };
+  const course = { ...sampleCourse, room: "Legacy room" };
+  const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [course.id]: details } } }, [course]);
+  const file = { id: syllabusId, name: "saved.txt", mime_type: "text/plain", size_bytes: 8, course_id: course.id, assignment_id: null, kind: "syllabus", state: "ready", created_at: "2026-10-01T00:00:00.000Z", updated_at: "2026-10-01T00:00:00.000Z", content_sha256: null, folder_id: null, content_backend: "object", metadata_revision: 1, content_revision: 1, trashed_at: null, trash_operation_id: null, original_folder_id: null };
+  filesFetcher = async (url, init = {}) => {
+    assert.notEqual(init.method, "POST", "existing attachments are not uploaded again");
+    if (url.startsWith(`/api/files?id=${syllabusId}`)) return new Response("Syllabus", { headers: { "content-type": "text/plain" } });
+    if (url.startsWith(`/api/files?id=${imageId}`)) return new Response(new Blob(["cover"], { type: "image/png" }));
+    return Response.json({ files: [file, { ...file, id: imageId, name: "cover.png", mime_type: "image/png", kind: "class-image" }], folders: [], activities: { files: [], folders: [] } });
+  };
+  try {
+    await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${course.id}"]`).click());
+    await click("Edit class");
+    assert.ok(rootNode.querySelector(".class-setup"));
+    assert.equal(field("Course code").value, course.code);
+    assert.equal(field("Class name").value, course.name);
+    assert.equal(field("Meeting Notes").value, details.meetingNotes);
+    await edit("Instructor", "Dr. Updated"); await click("Continue");
+    assert.equal(field("Meeting location").value, "Hall 2");
+    assert.equal(field("Start time").value, "09:30");
+    assert.equal(rootNode.querySelectorAll(".class-setup-meeting").length, 1);
+    await click("Continue");
+    assert.equal(rootNode.querySelector('.course-icon-picker [aria-label="Atom"]').getAttribute("aria-pressed"), "true");
+    assert.ok(rootNode.querySelector('[aria-label="Selected class cover"]'));
+    await waitUntil(() => rootNode.querySelector(".class-setup-document-preview")?.textContent.includes("Syllabus"), "saved syllabus preview");
+    server.offline = true; await click("Save class");
+    await waitUntil(() => rootNode.querySelector('.class-setup [role="alert"]'), "failed edit remains open");
+    server.offline = false; await click("Save class");
+    await waitUntil(() => !rootNode.querySelector(".class-setup"), "edit retry completes");
+    assert.equal(server.courses.length, 1);
+    assert.equal(server.courses[0].id, course.id);
+    assert.equal(server.courses[0].instructor, "Dr. Updated");
+    assert.equal(server.courses[0].room, course.room);
+    assert.deepEqual(server.dashboard.d.courseDetails[course.id], details);
+    await saveAndReload(); await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${course.id}"]`).click());
+    await click("Edit class");
+    assert.equal(field("Instructor").value, "Dr. Updated");
+    await click("Close class setup");
+  } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
+test("editing replaces a syllabus without retaining old text and preserves the original until upload succeeds", async () => {
+  reset();
+  const originalId = "79797979-7979-4979-8979-797979797979";
+  const details = { officeHours: "By appointment", meetings: [], syllabusText: "Outdated syllabus content", syllabusName: "old.txt", syllabusFileId: originalId };
+  const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse]);
+  const attempts = [];
+  let uploaded;
+  filesFetcher = async (url, init = {}) => {
+    if (init.method === "POST") {
+      attempts.push(new URL(url, "https://edu.example").searchParams.get("id"));
+      assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusText, details.syllabusText);
+      if (attempts.length === 1) throw new Error("Upload offline");
+      uploaded = await uploadedFileForRequest({ url, headers: new Headers(init.headers), body: init.body });
+      return Response.json({ file: uploaded });
+    }
+    if (url.startsWith("/api/files?id=")) return new Response("New syllabus", { headers: { "content-type": "text/plain" } });
+    return Response.json({ files: uploaded ? [uploaded] : [], folders: [], activities: { files: [], folders: [] } });
+  };
+  try {
+    await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    await click("Edit class"); await click("Continue"); await click("Continue");
+    const syllabus = new window.File(["New syllabus"], "new.txt", { type: "text/plain" });
+    Object.defineProperty(syllabus, "arrayBuffer", { value: async () => new TextEncoder().encode("New syllabus").buffer });
+    const input = rootNode.querySelector('.class-setup input[aria-label="Syllabus (optional)"]');
+    await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [syllabus] }); input.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await click("Save class");
+    await waitUntil(() => rootNode.querySelector('.class-setup [role="alert"]')?.textContent.includes("attachments may be incomplete"), "syllabus upload failure");
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusFileId, originalId);
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusText, details.syllabusText);
+    await click("Save class");
+    await waitUntil(() => !rootNode.querySelector(".class-setup"), "replacement syllabus saved");
+    assert.equal(attempts.length, 2);
+    assert.equal(attempts[0], attempts[1]);
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusFileId, uploaded.id);
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusName, "new.txt");
+    assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].syllabusText, "");
+    assert.equal(server.courses.length, 1);
+  } finally { filesFetcher = undefined; if (root) await unmount(); }
 });
 
 test("manual class setup stores attachments without importing the syllabus and retries with stable IDs", async () => {
@@ -1734,9 +1830,11 @@ test("expanded class locations show venue and street while maps and editing keep
     assert.deepEqual(searchedAddresses.sort(), [venueAddress, streetAddress].sort());
     assert.deepEqual([...expanded.querySelectorAll(".meeting-location-preview")].map((preview) => preview.getAttribute("aria-label")), [`Open Google Maps for ${venueAddress}`, `Open Google Maps for ${streetAddress}`]);
     await click("Edit class");
+    await click("Continue");
     const values = [...rootNode.querySelectorAll(".academic-editor input")].map((input) => input.value);
     assert.ok(values.includes(venueAddress), "meeting editor retains the full venue address");
-    assert.ok(values.includes(streetAddress), "course location retains the full fallback address");
+    await click("Select meeting 2");
+    assert.equal(field("Meeting location").value, "", "the saved blank meeting location still uses the course fallback");
     assert.equal(server.dashboard.d.courseDetails[sampleCourse.id].meetings[0].location, venueAddress);
     assert.equal(server.courses[0].room, streetAddress);
   } finally { if (root) await unmount(); }
@@ -1956,9 +2054,9 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.equal(document.activeElement, card);
     await act(async () => card.click());
     await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Edit class");
-    assert.ok(rootNode.querySelector(".academic-editor"));
+    assert.ok(rootNode.querySelector(".class-setup"));
     assert.equal(rootNode.querySelector('[aria-label="Class details"]'), null);
-    await click("Close editor");
+    await click("Close class setup");
     await saveAndReload({ initialProfile: profile });
     await click("Dashboard");
     await waitUntil(() => rootNode.querySelector(".dashboard-classes-heading"), "dashboard after reload");
@@ -2121,7 +2219,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.equal(server.dashboard.d.courseDetails[course.id].meetingNotes, "Bring your field journal");
     assert.deepEqual(server.dashboard.d.courseDetails[course.id].meetings[0].excludedDates, ["2026-11-02"]);
     await act(async () => rootNode.querySelector(".class-card").click()); await click("Edit class");
-    assert.equal(field("Office hours").value, ""); await edit("Instructor", "Dr. Lake"); await click("Save class"); await saveAndReload();
+    await edit("Instructor", "Dr. Lake"); await click("Continue"); await click("Continue"); await click("Save class"); await waitUntil(() => !rootNode.querySelector(".class-setup"), "class edits saved"); await saveAndReload();
     assert.equal(server.courses[0].instructor, "Dr. Lake"); assert.equal(server.courses[0].id, course.id);
     assert.deepEqual(server.dashboard.d.courseDetails[course.id].meetings.map((meeting) => meeting.location), ["Garden", "Greenhouse"]);
   });
@@ -2137,7 +2235,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     const server = installWorkspaceServer(initial, [legacyCourse]);
     await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard");
     await act(async () => rootNode.querySelector(`[data-course-card-id="${legacyCourse.id}"]`).click());
-    await click("Edit class"); await edit("Instructor", "Dr. Newname"); await click("Save class"); await saveAndReload();
+    await click("Edit class"); await edit("Instructor", "Dr. Newname"); await click("Continue"); await click("Continue"); await click("Save class"); await waitUntil(() => !rootNode.querySelector(".class-setup"), "class edits saved"); await saveAndReload();
     assert.equal(server.courses[0].instructor, "Dr. Newname");
     assert.equal(server.courses[0].room, "Legacy Lab 4");
     assert.equal(server.dashboard.d.courseDetails[legacyCourse.id].officeHours, "Friday by appointment");
