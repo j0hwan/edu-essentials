@@ -24,6 +24,19 @@ async function unmount() { if (root) await act(async () => root.unmount()); root
 async function reset() { await unmount(); root = createRoot(node); }
 afterEach(unmount);
 
+test("inline previews use a supplied loading fallback only until their private content is ready", async () => {
+  await reset();
+  const pending = deferred();
+  const store = { blob: () => pending.promise };
+  await render({ file: file(), store, loadingFallback: createElement("div", { role: "status" }, "Loading Syllabus") });
+  assert.equal(node.querySelector('[role="status"]')?.textContent, "Loading Syllabus");
+  assert.doesNotMatch(node.textContent, /Loading private preview/);
+  pending.resolve(new Blob(["Loaded syllabus"]));
+  await flush();
+  assert.equal(node.querySelector('[role="status"]'), null);
+  assert.equal(node.querySelector("pre")?.textContent, "Loaded syllabus");
+});
+
 test("PDF uses a private canvas renderer without embedding uploaded content", async () => {
   await reset();
   let reads = 0;

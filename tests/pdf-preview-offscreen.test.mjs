@@ -4,12 +4,14 @@ import { readFile } from "node:fs/promises";
 import ts from "typescript";
 import { clientModule } from "./helpers/client-modules.mjs";
 
-function documentBlob() {
-  const contents = "0.2 0.4 0.8 rg 10 10 100 100 re f\nBT /F1 12 Tf 20 150 Td (Private PDF preview) Tj ET";
+function documentBlob(transparent = false) {
+  const contents = `${transparent ? "/GS1 gs " : ""}0.2 0.4 0.8 rg 10 10 100 100 re f\nBT /F1 12 Tf 20 150 Td (Private PDF preview) Tj ET`;
+  const transparencyGroup = transparent ? "/Group << /S /Transparency /CS /DeviceRGB >>" : "";
+  const graphicsState = transparent ? "/ExtGState << /GS1 << /Type /ExtGState /BM /Multiply /ca 0.5 /CA 0.5 >> >>" : "";
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ${transparencyGroup} /Resources << /Font << /F1 5 0 R >> ${graphicsState} >> /Contents 4 0 R >>`,
     `<< /Length ${contents.length} >>\nstream\n${contents}\nendstream`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
   ];
@@ -23,8 +25,8 @@ function documentBlob() {
   return new Blob([pdf], { type: "application/pdf" });
 }
 
-test("worker pipeline parses a real text-and-vector PDF without a DOM", async () => {
-  const messages = [], draws = [];
+test("worker pipeline parses real PDFs and preserves alpha in transparency layers", async () => {
+  const messages = [], draws = [], contexts = [];
   globalThis.self = { fonts: new Set(), postMessage: (message) => messages.push(message) };
   globalThis.FontFace = class {
     constructor(family) { this.family = family; this.loaded = Promise.resolve(this); }
@@ -38,7 +40,7 @@ test("worker pipeline parses a real text-and-vector PDF without a DOM", async ()
         get: (target, key) => key in target ? target[key] : (...args) => { draws.push([key, ...args]); },
       });
     }
-    getContext() { return this.context; }
+    getContext(kind, options) { contexts.push({ canvas: this, width: this.width, kind, options }); return this.context; }
     transferToImageBitmap() { return { width: this.width, height: this.height }; }
   };
   let source = await readFile(new URL("../lib/pdf-preview.worker.ts", import.meta.url), "utf8");
@@ -53,4 +55,13 @@ test("worker pipeline parses a real text-and-vector PDF without a DOM", async ()
   assert.equal(messages[0].bitmap.width, 1200);
   assert.ok(messages[0].bitmap.height <= 1600);
   assert.ok(draws.some(([method]) => method === "fillText"));
+  contexts.length = 0;
+  await self.onmessage({ data: { type: "pdf-preview:render", data: documentBlob(true), page: 1 } });
+  assert.equal(messages[1].error, undefined);
+  assert.equal(messages[1].pages, 1);
+  const pageContext = contexts.find((request) => request.options?.alpha === false);
+  assert.ok(pageContext, "the final display canvas remains opaque");
+  const layers = contexts.filter((request) => request.canvas !== pageContext.canvas && request.width > 1);
+  assert.ok(layers.length > 0, "the PDF exercises a real compositing layer");
+  assert.ok(layers.every((request) => request.options?.alpha !== false), "temporary PDF layers must retain transparency rather than paint an opaque black background");
 });

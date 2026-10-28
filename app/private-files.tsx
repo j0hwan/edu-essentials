@@ -1,6 +1,6 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Private authenticated blob URLs cannot use the public image optimizer. */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { fileKinds, fileMetadata, fileSize, MAX_FILE_BYTES, type FileMetadata, type PrivateFile } from "../lib/files";
 import type { Course } from "../lib/academics";
 import type { SavedAssignment } from "../lib/workspace-codec";
@@ -230,7 +230,7 @@ export function PrivateImage({ file, store, fadeIn = false, onDecoded, onSettled
 type InlinePreviewSource = { id: string; updatedAt: string; metadataRevision: number; contentRevision: number; state: string; trashedAt: string | null; deletedAt: string | null; mimeType: string; sizeBytes: number; blob: FileStore["blob"] };
 type InlinePreviewResult = { source: InlinePreviewSource; attempt: number; url: string; text: string; data: Blob };
 
-export function InlineFilePreview({ file, store }: { file: PrivateFile; store: FileStore }) {
+export function InlineFilePreview({ file, store, loadingFallback }: { file: PrivateFile; store: FileStore; loadingFallback?: ReactNode }) {
   const [result, setResult] = useState<InlinePreviewResult | null>(null);
   const [failure, setFailure] = useState<{ source: InlinePreviewSource; attempt: number; message: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -262,7 +262,7 @@ export function InlineFilePreview({ file, store }: { file: PrivateFile; store: F
   const current = result?.source === source && result.attempt === attempt ? result : null;
   const error = failure?.source === source && failure.attempt === attempt ? failure.message : "";
   return <div className="inline-file-preview">
-    {!available ? <p>Preview unavailable. This file is not ready or is in Trash.</p> : !supported ? <p>Preview is not supported. <a href={store.url(file)} download>Download this file</a> to open it.</p> : error ? <p role="alert">{error} <button type="button" onClick={() => setAttempt((attemptNumber) => attemptNumber + 1)}>Retry preview</button> <a href={store.url(file)} download>Download this file</a></p> : !current ? <p>Loading private preview…</p> : source.mimeType.startsWith("image/") ? <img className="private-preview-image" src={current.url} alt={file.name} /> : source.mimeType === "application/pdf" ? <PdfPreview key={current.url} data={current.data} name={file.name} downloadUrl={current.url} /> : <pre className="syllabus-source">{current.text}</pre>}
+    {!available ? <p>Preview unavailable. This file is not ready or is in Trash.</p> : !supported ? <p>Preview is not supported. <a href={store.url(file)} download>Download this file</a> to open it.</p> : error ? <p role="alert">{error} <button type="button" onClick={() => setAttempt((attemptNumber) => attemptNumber + 1)}>Retry preview</button> <a href={store.url(file)} download>Download this file</a></p> : !current ? loadingFallback ?? <p>Loading private preview…</p> : source.mimeType.startsWith("image/") ? <img className="private-preview-image" src={current.url} alt={file.name} /> : source.mimeType === "application/pdf" ? <PdfPreview key={current.url} data={current.data} name={file.name} downloadUrl={current.url} /> : <pre className="syllabus-source">{current.text}</pre>}
   </div>;
 }
 

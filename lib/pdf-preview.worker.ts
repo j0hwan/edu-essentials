@@ -6,7 +6,7 @@ class PreviewCanvasFactory {
   create(width: number, height: number) {
     if (!(width > 0 && height > 0) || width * height > 5_000_000) throw new Error("PDF canvas is too large.");
     const canvas = new OffscreenCanvas(width, height);
-    return { canvas, context: canvas.getContext("2d", { alpha: false }) };
+    return { canvas, context: canvas.getContext("2d", { alpha: true }) };
   }
   reset(target: { canvas: OffscreenCanvas }, width: number, height: number) {
     if (!(width > 0 && height > 0) || width * height > 5_000_000) throw new Error("PDF canvas is too large.");

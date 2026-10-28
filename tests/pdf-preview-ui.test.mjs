@@ -7,7 +7,7 @@ import { JSDOM } from "jsdom";
 const dom = new JSDOM('<div id="root"></div>', { url: "https://edu.example/" });
 for (const name of ["window", "document", "Element", "Node", "HTMLElement", "Event"]) globalThis[name] = dom.window[name];
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-const { createElement, act } = await import("react");
+const { createElement, StrictMode, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const calls = [];
 globalThis.pdfPreviewTestRender = (data, canvas, page, signal) => new Promise((resolve, reject) => {
@@ -103,6 +103,48 @@ test("serializes work and releases offscreen canvases while preserving page spac
   await nearby(3, false);
   assert.equal(calls[2].signal.aborted, true);
   assert.equal(calls[3].page, 4);
+});
+
+test("reentering the viewport creates a fresh canvas and ignores a late stale render", async () => {
+  await mount();
+  const old = calls[0];
+  const oldCanvas = old.canvas;
+  await nearby(1, false);
+  assert.equal(old.signal.aborted, true);
+  assert.equal(oldCanvas.width, 0);
+  assert.equal(oldCanvas.height, 0);
+  assert.equal(host.querySelector('[data-page="1"] canvas'), null);
+
+  await nearby(1, true);
+  assert.equal(calls.length, 2);
+  const fresh = calls[1];
+  assert.equal(fresh.page, 1);
+  assert.notEqual(fresh.canvas, oldCanvas);
+  await act(async () => fresh.resolve(1));
+  assert.equal(fresh.canvas.hidden, false);
+  assert.equal(fresh.canvas.width, 900);
+  assert.equal(fresh.canvas.height, 1200);
+
+  await act(async () => old.resolve(99));
+  assert.equal(host.querySelector('[data-page="1"] canvas'), fresh.canvas);
+  assert.equal(fresh.canvas.hidden, false);
+  assert.equal(fresh.canvas.width, 900);
+  assert.equal(fresh.canvas.height, 1200);
+});
+
+test("StrictMode effect cleanup replay still lets the surviving render become visible", async () => {
+  root ??= createRoot(host);
+  await act(async () => root.render(createElement(StrictMode, null, createElement(PdfPreview, {
+    data: new Blob(["pdf"]), name: "Private.pdf", downloadUrl: "blob:private-pdf",
+  }))));
+  assert.equal(calls.length, 1);
+  const surviving = calls[0];
+  await act(async () => surviving.resolve(1));
+  assert.equal(host.querySelector('[data-page="1"] canvas'), surviving.canvas);
+  assert.equal(surviving.canvas.hidden, false);
+  assert.equal(surviving.canvas.width, 900);
+  assert.equal(surviving.canvas.height, 1200);
+  assert.equal(surviving.signal.aborted, false);
 });
 
 test("failure offers retry and a private download, and unmount aborts work", async () => {

@@ -1554,6 +1554,43 @@ test("study controls persist targets, timers, history and grades", async (t) => 
   });
 });
 
+test("expanded syllabus preview shows a centered file icon and Loading Syllabus while content loads", async () => {
+  reset();
+  const fileId = "79797979-7979-4979-8979-797979797979";
+  const sourceText = "Loaded course syllabus.";
+  const sourceFile = {
+    id: fileId, name: "Syllabus.txt", mime_type: "text/plain", size_bytes: sourceText.length,
+    course_id: sampleCourse.id, assignment_id: null, kind: "syllabus", state: "ready",
+    created_at: "2026-10-01T00:00:00.000Z", updated_at: "2026-10-01T00:00:00.000Z",
+    content_sha256: null, folder_id: null, content_backend: "object", metadata_revision: 1, content_revision: 1,
+    trashed_at: null, deleted_at: null, trash_operation_id: null, original_folder_id: null,
+  };
+  const details = { officeHours: "", meetings: [], syllabusFileId: fileId };
+  installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, courseDetails: { [sampleCourse.id]: details } } }, [sampleCourse]);
+  let resolveContent;
+  const content = new Promise((resolve) => { resolveContent = resolve; });
+  filesFetcher = async (url) => {
+    if (url === "/api/files") return Response.json({ files: [sourceFile], activities: { files: [], folders: [] } });
+    if (url === `/api/files?id=${fileId}`) return content;
+    throw new Error(`Unexpected syllabus loading request: ${url}`);
+  };
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    await waitUntil(() => rootNode.querySelector(".expanded-class-syllabus-loading"), "syllabus loading indicator");
+    const preview = rootNode.querySelector('[aria-label="Syllabus preview"]');
+    const loading = preview.querySelector('[role="status"]');
+    assert.equal(loading.textContent, "Loading Syllabus");
+    assert.ok(loading.classList.contains("expanded-class-syllabus-loading"));
+    assert.equal(loading.querySelector("svg")?.getAttribute("aria-hidden"), "true");
+    assert.doesNotMatch(preview.textContent, /Loading private/);
+    resolveContent(new Response(sourceText, { headers: { "content-type": "text/plain" } }));
+    await waitUntil(() => preview.querySelector("pre")?.textContent === sourceText, "loaded syllabus text");
+    assert.equal(preview.querySelector('[role="status"]'), null);
+  } finally { filesFetcher = undefined; if (root) await unmount(); }
+});
+
 test("expanded class locations show venue and street while maps and editing keep full addresses", async () => {
   reset();
   const venueAddress = "Pizza Hut, 2 Station Road, Port Talbot, Cymru / Wales, SA13 1JB, United Kingdom";

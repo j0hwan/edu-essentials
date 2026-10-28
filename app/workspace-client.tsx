@@ -2098,7 +2098,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             </div>
           </div>
           {!hasSyllabusPreview && <p>{details.syllabusFileId ? "The attached syllabus file is unavailable. Import a replacement to preview it." : "No syllabus imported. Import a file or paste syllabus text for this course."}</p>}
-          {hasSyllabusPreview && <div className="expanded-class-syllabus-preview" role="region" aria-label="Syllabus preview">{syllabusFile ? <InlineFilePreview key={`${initialProfile.id}:${fileActionSession.generation}:${syllabusFile.id}`} file={syllabusFile} store={fileStore} /> : <pre className="syllabus-source">{details.syllabusText}</pre>}</div>}
+          {hasSyllabusPreview && <div className="expanded-class-syllabus-preview" role="region" aria-label="Syllabus preview">{syllabusFile ? <InlineFilePreview key={`${initialProfile.id}:${fileActionSession.generation}:${syllabusFile.id}`} file={syllabusFile} store={fileStore} loadingFallback={<div className="expanded-class-syllabus-loading" role="status"><FileText size={28} aria-hidden="true" /><span>Loading Syllabus</span></div>} /> : <pre className="syllabus-source">{details.syllabusText}</pre>}</div>}
           {syllabusFile && details.syllabusText && <details className="expanded-class-syllabus-text"><summary>Saved syllabus text</summary><pre className="syllabus-source">{details.syllabusText}</pre></details>}
         </section>
         </div>
