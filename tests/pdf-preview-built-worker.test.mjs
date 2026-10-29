@@ -50,15 +50,16 @@ test("production worker renders through PDF.js browser startup messages", async 
       });
     }
     getContext() { return this.context; }
-    transferToImageBitmap() { return { width: this.width, height: this.height, close: () => {} }; }
+    async convertToBlob() { return new Blob([new Uint8Array([1])], { type: "image/png" }); }
   };
   scope.Path2D = class { constructor() { return new Proxy(this, { get: () => () => {} }); } };
   vm.runInNewContext(await readFile(new URL(filename, directory), "utf8"), scope);
-  const canvas = { width: 0, height: 0, getContext: () => ({ drawImage: () => {} }) };
-  assert.equal(await renderPdfPreviewPage(pdfBlob(), canvas, 1, new AbortController().signal, () => worker), 1);
+  const preview = await renderPdfPreviewPage(pdfBlob(), 1, new AbortController().signal, () => worker);
+  assert.equal(preview.pages, 1);
+  assert.equal(preview.image.type, "image/png");
+  assert.ok(preview.image.size > 0);
   assert.ok(messages.some((message) => message.action === "ready" && message.sourceName === "worker"));
-  assert.ok(messages.some((message) => message.type === "pdf-preview:result" && message.bitmap));
+  assert.ok(messages.some((message) => message.type === "pdf-preview:result" && message.image));
   assert.equal(terminated, true);
-  assert.equal(canvas.width, 1200);
   assert.ok(draws.length > 0);
 });

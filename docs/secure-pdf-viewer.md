@@ -2,7 +2,7 @@
 
 This is the maintenance and reuse guide for the continuous PDF preview used by
 syllabus previews, private-file dialogs, and class setup. The viewer displays
-canvas pixels, not an embedded PDF document. Preserve this distinction when
+encoded PNG page images, not an embedded PDF document. Preserve this distinction when
 changing its appearance or adding new entry points.
 
 ## Why not a native PDF iframe?
@@ -23,16 +23,16 @@ The current solution renders PDF pages into images in an application-owned worke
 | --- | --- |
 | `app/private-files.tsx` | Loads private blobs, checks preview availability, guards against stale results, and revokes owned object URLs. |
 | `app/class-setup-document-preview.tsx` | Class-setup document preview entry point. |
-| `app/pdf-preview.tsx` | Continuous page layout, lazy rendering, sequential work queue, retries, and canvas cleanup. |
-| `lib/pdf-preview-client.ts` | Creates a worker per page, enforces timeout/abort, validates results, draws and closes bitmaps, and terminates workers. |
-| `lib/pdf-preview.worker.ts` | Adapts PDF.js to OffscreenCanvas, renders a page, and transfers its bitmap to the UI. |
+| `app/pdf-preview.tsx` | Continuous page layout, lazy rendering, sequential work queue, retries, image decoding, and object URL cleanup. |
+| `lib/pdf-preview-client.ts` | Creates a worker per page, enforces timeout/abort, validates encoded images, and terminates workers. |
+| `lib/pdf-preview.worker.ts` | Adapts PDF.js to OffscreenCanvas, renders a page, and encodes a PNG before returning it. |
 | `lib/pdf-preview.ts` | Validates input and page dimensions, configures PDF.js, bounds output size, and disposes parsing/rendering tasks. |
 | `app/api/files/route.ts` | Authenticated private-file download endpoint. |
 | `lib/file-content.ts` | Verifies file availability, content revision, byte length, and saved digest when present. |
 | `app/auth.css` | Shared scroll container and page styles. |
 
 The flow is authenticated download → private Blob → worker parsing/rendering →
-transferable ImageBitmap → visible canvas. No PDF iframe, object, or embed is
+encoded PNG Blob → decoded image element. No PDF iframe, object, or embed is
 needed. The renderer receives bytes rather than a remote PDF URL, and this UI
 does not install PDF scripting, attachment-opening, or interactive annotation
 handlers.
@@ -56,23 +56,23 @@ pipeline; do not assume the worker timeout or queue applies to thumbnails.
 - PDF.js receives `enableXfa: false`, `useWasm: false`,
   `maxImageSize: 5_000_000`, and `stopAtErrors: true`.
 - Output is scaled to at most 1,200 × 1,600 pixels and at most 2× source scale.
-  The client also rejects returned bitmaps exceeding those dimensions. The
+  The client also rejects returned images with metadata exceeding those dimensions. The
   custom intermediate canvas factory rejects canvases over 5,000,000 pixels.
 - Each page request has a default 20-second deadline. Abort, timeout, success,
   and failure terminate its worker. Termination is essential when parsing cannot
   cooperatively yield or be cancelled.
 - Each mounted PDF document serializes page work. Pages within an 800-pixel
   vertical margin of the scroll viewport are mounted for rendering; distant
-  canvases are unmounted and zero-sized while page placeholders retain space.
+  images are unmounted and their object URLs revoked while page placeholders retain space.
   Returning to a released page renders it again. Without IntersectionObserver,
   pages render sequentially without lazy unloading.
 - Changing the source Blob remounts the document, aborting old work and ignoring
-  late results. Unmounting a page also aborts pending or active work. Bitmaps are
-  closed after handling, including rejected or stale results.
-- A lost display-canvas context aborts its render and replaces that page's canvas
-  for one automatic recovery attempt. Repeated loss offers retry/download; a
-  manual retry allows recovery again. Rendering also rejects a lost context
-  instead of reporting a blank or black canvas as successfully loaded.
+  late results. Unmounting a page also aborts pending or active work and image
+  decoding. Owned object URLs live until that page is released, not just until load.
+- A page is ready only after its PNG decodes with nonzero natural dimensions.
+  Decode has a 20-second deadline and releases the queue on abort. Failed decoding
+  offers retry/download. No live display-canvas context needs recovery after reveal.
+  The worker still rejects context loss during PDF rendering.
 - Errors are rendered as text, not HTML. Worker error details are limited to 200
   characters. A page failure offers retry/download without hiding other pages.
 
@@ -87,7 +87,8 @@ downloads as sanitized output or log private file bytes during troubleshooting.
 ## Worker protocol and bundling pitfalls
 
 Requests use `{ type: "pdf-preview:render", data: Blob, page: number }`.
-Successful replies use `{ type: "pdf-preview:result", pages, bitmap }`; failures
+Successful replies use `{ type: "pdf-preview:result", pages, image, width, height }`,
+where `image` is a nonempty `image/png` Blob; failures
 use `{ type: "pdf-preview:result", error: true, reason }`.
 
 Only handle tagged result messages. PDF.js can emit its own startup message
@@ -143,7 +144,7 @@ The expanded course coordinates its syllabus and meeting previews with
 source, course, profile, or session change creates a fresh group. Maps report
 their iframe load or terminal fallback. `InlineFilePreview.onPreviewSettled`
 waits for image decode, text, a terminal failure, or `PdfPreview.onSettled` after
-the first PDF page renders. Later lazy PDF pages do not block the group.
+the first PDF page's PNG decodes. Later lazy PDF pages do not block the group.
 
 All surfaces reveal together using the header image's gradient-mask animation,
 with the same reduced-motion behavior. While waiting, local map samples are
@@ -176,12 +177,27 @@ production-worker startup, private-file lifecycle, continuous page order,
 sequential scheduling, offscreen cleanup, retries, and filename visibility.
 
 After building, `node scripts/verify-pdf-preview-browser.mjs` checks actual page
-pixels across repeated mounts and interrupted renders in Chromium. It also
-clears page 1 to black and dispatches a controlled `contextlost` event, then
-verifies that a fresh canvas restores page 1 while page 2 stays intact. Set
+pixels across repeated mounts, interrupted renders, and fresh page reloads in
+Chromium. Reload cycles render while masked, then reveal and resize the container,
+verify white/color patches, and assert that no display canvas is mounted. Set
 `PLAYWRIGHT_MODULE` and `CHROME_EXECUTABLE` if using external browser tooling.
-This controlled failure checks recovery; it does not reproduce a native GPU
-failure or identify the trigger of an intermittent user report.
+These checks exercise image persistence after the worker terminates; they do not
+prove the precise GPU/compositor trigger behind an intermittent user report.
+
+### Why the earlier black-page fixes were insufficient
+
+- `f296394c` enabled alpha on temporary PDF transparency layers. This fixes one
+  source of black pixels but leaves the final page in a live opaque canvas.
+- `4f622707` retried on `contextlost` and checked `isContextLost()`. This only
+  catches losses the browser reports; a completed render still depended on the
+  display canvas retaining and presenting its backing store.
+- `23aeb013` coordinated reveal with map readiness. Settlement was based on the
+  first canvas draw, not a durable decoded image, so masking/reveal still crossed
+  that live-canvas boundary. The exact native failure has not been reproduced.
+
+The PNG pipeline removes that boundary instead of adding another delayed redraw
+or assuming every black surface emits a context-loss event. Temporary PDF layers
+still retain alpha, and encoded pages remain private, local Blob URLs.
 
 The Node/JSDOM and VM tests do not prove real browser font/canvas behavior or
 visual fidelity. Before release, manually check Helium/Chromium and other supported

@@ -41,8 +41,10 @@ self.onmessage = async (event: MessageEvent<{ type: string; data: Blob; page: nu
       const pdfjs = await import("unpdf/pdfjs");
       return { getDocument: (options) => pdfjs.getDocument({ ...options, CanvasFactory: PreviewCanvasFactory, FilterFactory: PreviewFilterFactory, ownerDocument: self as unknown as Document, disableFontFace: false }) };
     });
-    const bitmap = canvas.transferToImageBitmap();
-    workerScope.postMessage({ type: "pdf-preview:result", pages, bitmap }, [bitmap]);
+    const image = await canvas.convertToBlob({ type: "image/png" });
+    if (!(image instanceof Blob) || image.type !== "image/png" || image.size === 0) throw new Error("PDF preview image encoding failed.");
+    if (!Number.isInteger(canvas.width) || !Number.isInteger(canvas.height) || canvas.width <= 0 || canvas.height <= 0 || canvas.width > 1200 || canvas.height > 1600) throw new Error("PDF preview dimensions are invalid.");
+    workerScope.postMessage({ type: "pdf-preview:result", pages, image, width: canvas.width, height: canvas.height });
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message.slice(0, 200) : "PDF rendering failed.";
     workerScope.postMessage({ type: "pdf-preview:result", error: true, reason });

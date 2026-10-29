@@ -43,12 +43,12 @@ test("inline previews use a supplied loading fallback only until their private c
   assert.equal(node.querySelector("pre")?.textContent, "Loaded syllabus");
 });
 
-test("PDF uses a private canvas renderer without embedding uploaded content", async () => {
+test("PDF uses private page images without embedding uploaded content", async () => {
   await reset();
   let reads = 0;
   await render({ file: file({ name: "Guide.pdf", mime_type: "application/pdf" }), store: { blob: async () => { reads++; return new Blob(["pdf"], { type: "application/pdf" }); } } });
   await flush();
-  assert.ok(node.querySelector(".private-pdf-preview canvas"));
+  assert.ok(node.querySelector(".private-pdf-preview img"));
   assert.equal(node.querySelector("iframe, embed, object"), null);
   assert.match(node.querySelector('[role="alert"]').textContent, /could not be previewed/);
   assert.equal(reads, 1);
@@ -57,7 +57,7 @@ test("PDF uses a private canvas renderer without embedding uploaded content", as
   assert.equal(node.querySelector("a[download]").getAttribute("href"), `blob:inline-${created}`);
 });
 
-test("modal PDF preview uses the same canvas renderer and normalizes the blob MIME", async () => {
+test("modal PDF preview uses the same page images and normalizes the blob MIME", async () => {
   await reset();
   await act(async () => root.render(createElement(FilePreview, {
     file: file({ name: "Guide.pdf", mime_type: "application/pdf" }),
@@ -65,7 +65,7 @@ test("modal PDF preview uses the same canvas renderer and normalizes the blob MI
     onClose: () => {}, onEdit: () => {}, canWrite: true,
   })));
   await flush();
-  assert.ok(node.querySelector(".private-pdf-preview canvas"));
+  assert.ok(node.querySelector(".private-pdf-preview img"));
   assert.equal(node.querySelector("iframe, embed, object, script"), null);
   assert.match(node.querySelector('[role="alert"]').textContent, /could not be previewed/);
   assert.equal(previewBlobs.at(-1).type, "application/pdf");

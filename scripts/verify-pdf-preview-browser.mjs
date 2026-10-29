@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,8 +7,6 @@ import { build } from "esbuild";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixturePath = join(projectRoot, "tests/fixtures/pdf-preview-browser.tsx");
-const sourceMode = process.env.PDF_PREVIEW_SOURCE ?? process.argv.find((arg) => arg.startsWith("--source="))?.slice("--source=".length) ?? "current";
-if (!new Set(["current", "head"]).has(sourceMode)) throw new Error("Choose --source=current or --source=head.");
 
 const cycleCount = (name, fallback) => {
   const value = Number.parseInt(process.env[name] ?? String(fallback), 10);
@@ -32,9 +29,6 @@ if (workers.length === 0) throw new Error(`No built pdf-preview worker found in 
 const workerBytes = await readFile(workers[0].path);
 
 function getSource(relativePath) {
-  if (sourceMode === "head") {
-    return execFileSync("git", ["show", `HEAD:${relativePath}`], { cwd: projectRoot, encoding: "utf8" });
-  }
   return readFile(join(projectRoot, relativePath), "utf8");
 }
 
@@ -73,7 +67,7 @@ await build({
   }],
 });
 const fixtureBytes = await readFile(compiledFixture);
-const html = "<!doctype html><html><head><meta charset=\"utf-8\"><style>body{margin:0}.private-pdf-preview{width:300px}canvas{display:block}canvas[hidden]{display:none}</style></head><body><div id=\"app\"></div><script src=\"/fixture.js\"></script></body></html>";
+const html = "<!doctype html><html><head><meta charset=\"utf-8\"><style>body{margin:0}.private-pdf-preview{width:300px}img{display:block;width:100%;height:auto}img[hidden]{display:none}</style></head><body><div id=\"app\"></div><script src=\"/fixture.js\"></script></body></html>";
 const server = createServer((request, response) => {
   if (request.url === "/") {
     response.writeHead(200, { "content-type": "text/html" });
@@ -117,14 +111,18 @@ try {
   await page.waitForFunction(() => typeof window.__mountPdfPreview === "function");
 
   const waitForPages = () => page.waitForFunction(() => {
-    const canvases = [...document.querySelectorAll('#app canvas[role="img"]:not([hidden])')];
-    return canvases.length >= 2 && canvases.every((canvas) => canvas.width > 0 && canvas.height > 0);
+    const images = [...document.querySelectorAll('#app img:not([hidden])')];
+    return images.length >= 2 && images.every((image) => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
   }, undefined, { timeout: 10_000 });
   const samplePixels = () => page.evaluate(() => {
     const pagePixels = (pageNumber) => {
-      const canvas = document.querySelector(`canvas[aria-label$="page ${pageNumber}"]`);
-      if (!canvas || canvas.width === 0 || canvas.height === 0) return { missing: true };
-      const context = canvas.getContext("2d");
+      const image = document.querySelector(`img[aria-label$="page ${pageNumber}"]`);
+      if (!image || !image.naturalWidth || !image.naturalHeight) return { missing: true };
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
       const pixel = (x, y) => [...context.getImageData(Math.floor(canvas.width * x), Math.floor(canvas.height * y), 1, 1).data];
       return {
         size: [canvas.width, canvas.height],
@@ -153,10 +151,10 @@ try {
     } catch (cause) {
       const state = await page.evaluate(() => ({
         bodyText: document.body.innerText,
-        canvases: [...document.querySelectorAll('#app canvas[role="img"]')].map((canvas) => ({
-          label: canvas.getAttribute("aria-label"),
-          hidden: canvas.hidden,
-          size: [canvas.width, canvas.height],
+        images: [...document.querySelectorAll("#app img")].map((image) => ({
+          label: image.getAttribute("aria-label"),
+          hidden: image.hidden,
+          size: [image.naturalWidth, image.naturalHeight],
         })),
       }));
       throw new Error(`PDF preview pages did not become ready: ${JSON.stringify({ state, pageErrors })}`, { cause });
@@ -186,62 +184,31 @@ try {
     await page.evaluate(() => window.__unmountPdfPreview());
   }
 
-  const beforeLossPixels = await mountAndCheck();
-  const loss = await page.evaluate(() => {
-    const pageOne = document.querySelector('canvas[aria-label$="page 1"]');
-    const pageTwo = document.querySelector('canvas[aria-label$="page 2"]');
-    if (!pageOne || !pageTwo) throw new Error("Both pages must be rendered before the controlled canvas loss.");
-    window.__lostPdfCanvas = pageOne;
-    window.__pageTwoBeforeLoss = pageTwo;
-    const width = pageOne.width;
-    const height = pageOne.height;
-    pageOne.width = width;
-    const context = pageOne.getContext("2d", { alpha: false });
-    const clearedCenter = [...context.getImageData(Math.floor(width / 2), Math.floor(height / 2), 1, 1).data];
-    const eventDispatched = pageOne.dispatchEvent(new Event("contextlost", { cancelable: true }));
-    return { dimensions: [width, height], clearedCenter, eventDispatched };
-  });
-
-  let recoveryWaitPassed = false;
-  try {
-    await page.waitForFunction(() => {
-      const pageOne = document.querySelector('canvas[aria-label$="page 1"]');
-      const pageTwo = document.querySelector('canvas[aria-label$="page 2"]');
-      if (!pageOne || !pageTwo || pageOne.hidden || pageTwo.hidden || pageOne === window.__lostPdfCanvas || pageTwo !== window.__pageTwoBeforeLoss) return false;
-      const sample = (canvas, x, y) => [...canvas.getContext("2d").getImageData(Math.floor(canvas.width * x), Math.floor(canvas.height * y), 1, 1).data];
-      const near = (actual, expected) => actual.slice(0, 3).every((channel, index) => Math.abs(channel - expected[index]) < 15);
-      if (pageOne.width === 0 || pageTwo.width === 0) return false;
-      return near(sample(pageOne, 0.5, 0.5), [255, 255, 255])
-        && near(sample(pageOne, 0.16, 0.875), [0, 0, 255])
-        && near(sample(pageOne, 0.75, 0.3), [255, 0, 0])
-        && near(sample(pageTwo, 0.5, 0.5), [255, 255, 255])
-        && near(sample(pageTwo, 0.16, 0.875), [0, 204, 0])
-        && near(sample(pageTwo, 0.75, 0.3), [255, 204, 0]);
-    }, undefined, { timeout: 10_000 });
-    recoveryWaitPassed = true;
-  } catch {
-    await page.waitForTimeout(100);
+  let reloadBad = 0;
+  for (let index = 0; index < stableCycles; index += 1) {
+    await page.reload();
+    await page.waitForFunction(() => typeof window.__mountPdfPreview === "function");
+    await page.evaluate(() => { document.getElementById("app").style.opacity = "0"; });
+    const hiddenPixels = await mountAndCheck();
+    await page.evaluate(() => {
+      const app = document.getElementById("app");
+      app.style.width = "280px";
+      app.getBoundingClientRect();
+      app.style.opacity = "1";
+    });
+    const revealedPixels = await samplePixels();
+    if (!isExpected(hiddenPixels) || !isExpected(revealedPixels)) reloadBad += 1;
+    if (await page.locator("#app canvas").count()) throw new Error("A live PDF display canvas must not be mounted.");
+    await page.evaluate(() => window.__unmountPdfPreview());
   }
-  const afterLossPixels = await samplePixels();
-  const recoveryState = await page.evaluate(() => ({
-    pageOneCanvasReplaced: document.querySelector('canvas[aria-label$="page 1"]') !== window.__lostPdfCanvas,
-    pageTwoCanvasRetained: document.querySelector('canvas[aria-label$="page 2"]') === window.__pageTwoBeforeLoss,
-  }));
-  await page.evaluate(() => window.__unmountPdfPreview());
 
   const failures = [];
   if (stableBad > 0) failures.push(`${stableBad} stable mount cycles had incorrect page pixels.`);
   if (cancelRemountBad > 0) failures.push(`${cancelRemountBad} cancel/remount cycles had incorrect page pixels.`);
-  if (!isExpected(beforeLossPixels)) failures.push("Pre-loss page pixels were incorrect.");
-  if (loss.clearedCenter[0] !== 0 || loss.clearedCenter[1] !== 0 || loss.clearedCenter[2] !== 0) failures.push("The controlled opaque-canvas reset did not produce a black center pixel.");
-  if (!loss.eventDispatched) failures.push("The controlled contextlost event was unexpectedly canceled.");
-  if (!recoveryWaitPassed || !recoveryState.pageOneCanvasReplaced || !recoveryState.pageTwoCanvasRetained || !isExpected(afterLossPixels)) {
-    failures.push(`Context-loss recovery did not replace page 1 with correct pixels while preserving page 2 (source=${sourceMode}).`);
-  }
+  if (reloadBad > 0) failures.push(`${reloadBad} reload/hidden/reveal cycles had incorrect page pixels.`);
   if (pageErrors.length > 0) failures.push(`${pageErrors.length} browser page errors occurred.`);
 
   console.log(JSON.stringify({
-    sourceMode,
     worker: basename(workers[0].path),
     workerBytes: workerBytes.length,
     pdfBytes: await page.evaluate(() => window.__pdfPreviewSize).catch(() => undefined),
@@ -250,16 +217,8 @@ try {
     cancelRemountCycles: cancelCycles,
     cancelRemountBad,
     firstPixels,
-    controlledLoss: {
-      dimensions: loss.dimensions,
-      pixelsBeforeLoss: beforeLossPixels,
-      blackPixelAfterBackingStoreReset: loss.clearedCenter,
-      eventDispatched: loss.eventDispatched,
-      pageOneCanvasReplaced: recoveryState.pageOneCanvasReplaced,
-      pageTwoCanvasRetained: recoveryState.pageTwoCanvasRetained,
-      recoveryWaitPassed,
-      pixelsAfterLoss: afterLossPixels,
-    },
+    reloadCycles: stableCycles,
+    reloadBad,
     pageErrors,
     failures,
   }, null, 2));

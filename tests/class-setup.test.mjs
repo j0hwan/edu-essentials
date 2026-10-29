@@ -1012,11 +1012,11 @@ test("syllabus PDF preview replaces and removes local object URLs without upload
     await mount(); await appearance();
     assert.ok(host.querySelector(".class-setup-document-empty"));
     await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
-    assert.equal(host.querySelector("canvas").getAttribute("aria-label"), "syllabus.pdf, page 1");
+    assert.equal(host.querySelector(".private-pdf-preview img").getAttribute("aria-label"), "syllabus.pdf, page 1");
     assert.equal(host.querySelector("iframe, embed, object"), null);
     assert.equal(calls, 0);
     await file("syllabus", new window.File(["replacement"], "revised.pdf", { type: "application/pdf" }));
-    assert.equal(host.querySelector("canvas").getAttribute("aria-label"), "revised.pdf, page 1");
+    assert.equal(host.querySelector(".private-pdf-preview img").getAttribute("aria-label"), "revised.pdf, page 1");
     assert.equal(revoked.length, 1);
     await click("Remove syllabus");
     assert.equal(host.querySelector("iframe"), null);
@@ -1043,7 +1043,7 @@ test("Escape in the syllabus preview uses the setup discard guard and stays lock
   try {
     await mount(); await appearance();
     await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
-    await act(async () => host.querySelector("canvas").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    await act(async () => host.querySelector(".private-pdf-preview img").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     assert.equal(closed, 1);
     await act(async () => root.unmount()); root = undefined;
     let finishSave;
@@ -1051,7 +1051,7 @@ test("Escape in the syllabus preview uses the setup discard guard and stays lock
     await mount({ onSave: () => saving }); await appearance();
     await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
     await act(async () => host.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
-    await act(async () => host.querySelector("canvas").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => host.querySelector(".private-pdf-preview img").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     assert.equal(closed, 0);
     await act(async () => finishSave());
   } finally { window.confirm = originalConfirm; }

@@ -41,7 +41,7 @@ test("worker pipeline parses real PDFs and preserves alpha in transparency layer
       });
     }
     getContext(kind, options) { contexts.push({ canvas: this, width: this.width, kind, options }); return this.context; }
-    transferToImageBitmap() { return { width: this.width, height: this.height }; }
+    async convertToBlob(options) { assert.equal(options.type, "image/png"); return new Blob([new Uint8Array([1])], { type: "image/png" }); }
   };
   let source = await readFile(new URL("../lib/pdf-preview.worker.ts", import.meta.url), "utf8");
   source = source.replace('"./pdf-preview"', JSON.stringify(await clientModule("lib/pdf-preview.ts"))).replace('"unpdf/pdfjs"', JSON.stringify(import.meta.resolve("unpdf/pdfjs")));
@@ -52,8 +52,11 @@ test("worker pipeline parses real PDFs and preserves alpha in transparency layer
   assert.equal(messages[0].error, undefined);
   assert.equal(messages[0].type, "pdf-preview:result");
   assert.equal(messages[0].pages, 1);
-  assert.equal(messages[0].bitmap.width, 1200);
-  assert.ok(messages[0].bitmap.height <= 1600);
+  assert.ok(messages[0].image instanceof Blob);
+  assert.equal(messages[0].image.type, "image/png");
+  assert.ok(messages[0].image.size > 0);
+  assert.equal(messages[0].width, 1200);
+  assert.ok(messages[0].height <= 1600);
   assert.ok(draws.some(([method]) => method === "fillText"));
   contexts.length = 0;
   await self.onmessage({ data: { type: "pdf-preview:render", data: documentBlob(true), page: 1 } });

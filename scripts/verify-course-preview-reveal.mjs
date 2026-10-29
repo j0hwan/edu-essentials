@@ -213,30 +213,35 @@ async function runScenario(reducedMotion = false) {
   const heldPdfResult = await page.evaluate(() => ({
     blobDelivered: window.__coursePreviewFixture.blobDelivered,
     readySurfaces: document.querySelectorAll(".course-preview-content.is-ready").length,
-    visibleCanvases: document.querySelectorAll(".private-pdf-preview canvas:not([hidden])").length,
+    visibleImages: document.querySelectorAll(".private-pdf-preview img:not([hidden])").length,
   }));
   assert.equal(heldPdfResult.readySurfaces, 0, "the barrier remains closed while the real worker result has not reached the component");
-  assert.equal(heldPdfResult.visibleCanvases, 0, "the PDF canvas is still hidden before the first page is painted on screen");
+  assert.equal(heldPdfResult.visibleImages, 0, "the PDF image is still hidden before the first page is decoded");
   if (!reducedMotion) await capture("02-pdf-worker-result-held.png", { animations: "disabled" });
   await page.evaluate(() => window.__releaseCoursePreviewPdfWorkerResult());
   await page.waitForFunction(() => {
-    const canvas = document.querySelector('canvas[aria-label="Course syllabus.pdf, page 1"]');
-    return Boolean(canvas && !canvas.hidden && canvas.width > 0 && canvas.height > 0);
+    const image = document.querySelector('img[aria-label="Course syllabus.pdf, page 1"]');
+    return Boolean(image && !image.hidden && image.naturalWidth > 0 && image.naturalHeight > 0);
   }, undefined, { timeout: 20_000 });
   const during = await page.evaluate(() => {
-    const canvas = document.querySelector('canvas[aria-label="Course syllabus.pdf, page 1"]');
-    const pixel = canvas?.getContext("2d")?.getImageData(0, 0, 1, 1).data;
+    const image = document.querySelector('img[aria-label="Course syllabus.pdf, page 1"]');
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(image, 0, 0);
+    const pixel = context.getImageData(0, 0, 1, 1).data;
     return {
       readySurfaces: document.querySelectorAll(".course-preview-content.is-ready").length,
-      pageOne: canvas ? { width: canvas.width, height: canvas.height, firstPixel: pixel ? [...pixel] : null } : null,
-      pageTwoCanvas: Boolean(document.querySelector('[data-page="2"] canvas')),
+      pageOne: { width: image.naturalWidth, height: image.naturalHeight, firstPixel: [...pixel] },
+      pageTwoImage: Boolean(document.querySelector('[data-page="2"] img')),
       placeholderFilters: [...document.querySelectorAll(".course-preview-placeholder")].map((image) => getComputedStyle(image).filter),
     };
   });
   assert.equal(during.readySurfaces, 0, "two ready participants remain masked while the second map is pending");
   assert.ok(during.pageOne?.width && during.pageOne.height);
   assert.ok(during.pageOne.firstPixel && during.pageOne.firstPixel[0] > 220, "the actual PDF worker painted the first page");
-  assert.equal(during.pageTwoCanvas, false, "page 2 is kept outside the viewport and is not rendered");
+  assert.equal(during.pageTwoImage, false, "page 2 is kept outside the viewport and is not rendered");
   assert.deepEqual(during.placeholderFilters, ["blur(16.5px)", "blur(16.5px)", "none"]);
   if (!reducedMotion) await capture("03-first-page-ready-still-waiting.png", { animations: "disabled" });
   console.log(`PDF page one painted; one map remains pending (${pendingMapRoutes.length} route held).`);
@@ -274,14 +279,14 @@ async function runScenario(reducedMotion = false) {
       animationNames: contents.map((element) => getComputedStyle(element).animationName),
       animationStartTimes: contents.map((element) => element.getAnimations().map((animation) => animation.startTime).filter((time) => time !== null)),
       starts: window.__coursePreviewRevealStarts,
-      pageTwoCanvas: Boolean(document.querySelector('[data-page="2"] canvas')),
+      pageTwoImage: Boolean(document.querySelector('[data-page="2"] img')),
     };
   });
   assert.deepEqual(revealed.names, ["map-one", "map-two", "syllabus"]);
   assert.ok(revealed.starts.length >= 3, JSON.stringify(revealed.starts));
   const startTimes = revealed.starts.slice(0, 3).map((start) => start.time);
   assert.ok(Math.max(...startTimes) - Math.min(...startTimes) < 8, `All surfaces should start together: ${JSON.stringify(revealed.starts)}`);
-  assert.equal(revealed.pageTwoCanvas, false, "page 2 is not required for the shared reveal");
+  assert.equal(revealed.pageTwoImage, false, "page 2 is not required for the shared reveal");
   if (!reducedMotion) {
     assert.ok(revealed.animationNames.every((name) => name === "course-image-gradient-in" || name === "course-image-fade-in"), JSON.stringify(revealed.animationNames));
     const cssStartTimes = revealed.animationStartTimes.map((times) => times[0]).filter((time) => time !== undefined);
@@ -296,8 +301,12 @@ async function runScenario(reducedMotion = false) {
     opacity: [...document.querySelectorAll(".course-preview-content")].map((element) => getComputedStyle(element).opacity),
     placeholders: [...document.querySelectorAll(".course-preview-placeholder")].map((image) => ({ filter: getComputedStyle(image).filter, loaded: image.complete && image.naturalWidth > 0 })),
     pageOnePixels: (() => {
-      const canvas = document.querySelector('canvas[aria-label="Course syllabus.pdf, page 1"]');
-      if (!canvas) return null;
+      const image = document.querySelector('img[aria-label="Course syllabus.pdf, page 1"]');
+      if (!image) return null;
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      canvas.getContext("2d", { willReadFrequently: true }).drawImage(image, 0, 0);
       const sample = (x, y) => [...canvas.getContext("2d").getImageData(Math.floor(canvas.width * x), Math.floor(canvas.height * y), 1, 1).data];
       return { white: sample(0.5, 0.5), blue: sample(0.16, 0.875), red: sample(0.75, 0.3) };
     })(),

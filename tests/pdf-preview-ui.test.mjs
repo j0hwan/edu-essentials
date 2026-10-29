@@ -10,11 +10,25 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createElement, StrictMode, act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const calls = [];
-globalThis.pdfPreviewTestRender = (data, canvas, page, signal) => new Promise((resolve, reject) => {
-  canvas.width = 900;
-  canvas.height = 1200;
+const urls = new Map(), revoked = [], decodes = [];
+let nextUrl = 0, deferDecode = false;
+URL.createObjectURL = (blob) => {
+  const url = `blob:page-${++nextUrl}`;
+  urls.set(url, blob);
+  return url;
+};
+URL.revokeObjectURL = (url) => { urls.delete(url); revoked.push(url); };
+dom.window.HTMLImageElement.prototype.decode = function () {
+  Object.defineProperty(this, "naturalWidth", { configurable: true, value: this.width });
+  Object.defineProperty(this, "naturalHeight", { configurable: true, value: this.height });
+  return new Promise((resolve, reject) => {
+    decodes.push({ image: this, resolve, reject });
+    if (!deferDecode) resolve();
+  });
+};
+globalThis.pdfPreviewTestRender = (data, page, signal) => new Promise((resolve, reject) => {
   signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
-  calls.push({ data, canvas, page, signal, resolve, reject });
+  calls.push({ data, page, signal, resolve: (pages) => resolve({ pages, width: 900, height: 1200, image: new Blob(["PNG"], { type: "image/png" }) }), reject });
 });
 const observers = new Map();
 globalThis.IntersectionObserver = class {
@@ -37,18 +51,26 @@ async function mount(data = new Blob(["pdf"]), onSettled) {
   root ??= createRoot(host);
   await act(async () => root.render(createElement(PdfPreview, { data, name: "Private.pdf", downloadUrl: "blob:private-pdf", onSettled })));
 }
-afterEach(async () => { if (root) await act(async () => root.unmount()); root = undefined; calls.length = 0; });
+afterEach(async () => {
+  if (root) await act(async () => root.unmount());
+  root = undefined;
+  assert.equal(urls.size, 0, "all page URLs must be revoked on unmount");
+  calls.length = 0;
+  decodes.length = 0;
+  revoked.length = 0;
+  deferDecode = false;
+});
 
 test("stacks lazy PDF pages in order without pagination or embedded documents", async () => {
   const settlements = [];
   await mount(new Blob(["pdf"]), () => settlements.push("settled"));
   assert.match(host.textContent, /Rendering PDF/);
   assert.deepEqual(settlements, []);
-  assert.equal(host.querySelector("iframe, object, embed"), null);
+  assert.equal(host.querySelector("iframe, object, embed, canvas"), null);
   await act(async () => calls[0].resolve(3));
   assert.deepEqual(settlements, ["settled"]);
-  assert.equal(host.querySelector("canvas").hidden, false);
-  assert.equal(host.querySelector("canvas").getAttribute("aria-label"), "Private.pdf, page 1");
+  assert.equal(host.querySelector("img").hidden, false);
+  assert.equal(host.querySelector("img").getAttribute("alt"), "Private.pdf, page 1");
   assert.deepEqual([...host.querySelectorAll(".pdf-preview-page")].map((page) => page.dataset.page), ["1", "2", "3"]);
   assert.equal(host.querySelector("button"), null);
   assert.doesNotMatch(host.textContent, /Previous page|Next page|Page \d+ of/);
@@ -56,9 +78,8 @@ test("stacks lazy PDF pages in order without pagination or embedded documents", 
   assert.equal(observers.get(2).options.root, host.querySelector(".private-pdf-preview"));
   await nearby(2);
   assert.equal(calls[1].page, 2);
-  assert.notEqual(calls[0].canvas, calls[1].canvas);
   await act(async () => calls[1].resolve(3));
-  assert.equal(host.querySelectorAll("canvas:not([hidden])").length, 2);
+  assert.equal(host.querySelectorAll("img:not([hidden])").length, 2);
   assert.deepEqual(settlements, ["settled"]);
 });
 
@@ -96,16 +117,16 @@ test("a page-specific error leaves other pages available and can be retried", as
   await nearby(2);
   await act(async () => calls[1].reject(new Error("Malformed page")));
   assert.ok(host.querySelector('[role="alert"]'));
-  assert.equal(host.querySelector('[data-page="1"] canvas').hidden, false);
+  assert.equal(host.querySelector('[data-page="1"] img').hidden, false);
   assert.equal(host.querySelectorAll(".pdf-preview-page").length, 3);
   await act(async () => host.querySelector("button").click());
   assert.equal(calls[2].page, 2);
   await act(async () => calls[2].resolve(3));
   assert.equal(host.querySelector('[role="alert"]'), null);
-  assert.equal(host.querySelectorAll("canvas:not([hidden])").length, 2);
+  assert.equal(host.querySelectorAll("img:not([hidden])").length, 2);
 });
 
-test("serializes work and releases offscreen canvases while preserving page space", async () => {
+test("serializes work and releases offscreen image URLs while preserving page space", async () => {
   await mount();
   await act(async () => calls[0].resolve(4));
   await nearby(2);
@@ -114,11 +135,12 @@ test("serializes work and releases offscreen canvases while preserving page spac
   await act(async () => calls[1].resolve(4));
   assert.equal(calls.length, 3);
   assert.equal(calls[2].page, 3);
-  const firstCanvas = calls[0].canvas;
+  const firstImage = host.querySelector('[data-page="1"] img');
+  const firstUrl = firstImage.src;
   await nearby(1, false);
-  assert.equal(firstCanvas.width, 0);
-  assert.equal(firstCanvas.height, 0);
-  assert.equal(host.querySelector('[data-page="1"] canvas'), null);
+  assert.equal(firstImage.hasAttribute("src"), false);
+  assert.ok(revoked.includes(firstUrl));
+  assert.equal(host.querySelector('[data-page="1"] img'), null);
   assert.match(host.querySelector('[data-page="1"]').style.aspectRatio, /^0\.75(?: \/ 1)?$/);
   await nearby(4);
   await nearby(3, false);
@@ -126,103 +148,137 @@ test("serializes work and releases offscreen canvases while preserving page spac
   assert.equal(calls[3].page, 4);
 });
 
-test("reentering the viewport creates a fresh canvas and ignores a late stale render", async () => {
+test("reentering the viewport creates a fresh image and ignores a late stale render", async () => {
   await mount();
   const old = calls[0];
-  const oldCanvas = old.canvas;
+  const oldImage = host.querySelector("img");
   await nearby(1, false);
   assert.equal(old.signal.aborted, true);
-  assert.equal(oldCanvas.width, 0);
-  assert.equal(oldCanvas.height, 0);
-  assert.equal(host.querySelector('[data-page="1"] canvas'), null);
+  assert.equal(oldImage.hasAttribute("src"), false);
+  assert.equal(host.querySelector('[data-page="1"] img'), null);
 
   await nearby(1, true);
   assert.equal(calls.length, 2);
   const fresh = calls[1];
   assert.equal(fresh.page, 1);
-  assert.notEqual(fresh.canvas, oldCanvas);
+  const freshImage = host.querySelector("img");
+  assert.notEqual(freshImage, oldImage);
   await act(async () => fresh.resolve(1));
-  assert.equal(fresh.canvas.hidden, false);
-  assert.equal(fresh.canvas.width, 900);
-  assert.equal(fresh.canvas.height, 1200);
+  assert.equal(freshImage.hidden, false);
+  assert.equal(freshImage.width, 900);
+  assert.equal(freshImage.height, 1200);
 
   await act(async () => old.resolve(99));
-  assert.equal(host.querySelector('[data-page="1"] canvas'), fresh.canvas);
-  assert.equal(fresh.canvas.hidden, false);
-  assert.equal(fresh.canvas.width, 900);
-  assert.equal(fresh.canvas.height, 1200);
+  assert.equal(host.querySelector('[data-page="1"] img'), freshImage);
+  assert.equal(freshImage.hidden, false);
+  assert.equal(freshImage.width, 900);
+  assert.equal(freshImage.height, 1200);
 });
 
-test("context loss during an active render aborts it and rerenders on a fresh canvas", async () => {
+test("first-page settlement waits for PNG decode, not just worker completion", async () => {
+  deferDecode = true;
   const settlements = [];
   await mount(new Blob(["pdf"]), () => settlements.push("settled"));
-  const stale = calls[0];
-
-  await act(async () => stale.canvas.dispatchEvent(new Event("contextlost")));
-
-  assert.equal(stale.signal.aborted, true);
-  assert.equal(calls.length, 2);
+  await act(async () => calls[0].resolve(2));
+  const image = host.querySelector("img");
+  assert.equal(image.hidden, true);
+  assert.ok(urls.has(image.src));
   assert.deepEqual(settlements, []);
-  const fresh = calls[1];
-  assert.notEqual(fresh.canvas, stale.canvas);
-  await act(async () => fresh.resolve(1));
-  await act(async () => stale.resolve(99));
+  assert.match(host.textContent, /Rendering PDF/);
+  await act(async () => decodes[0].resolve());
   assert.deepEqual(settlements, ["settled"]);
-  assert.equal(host.querySelector('[data-page="1"] canvas'), fresh.canvas);
-  assert.equal(fresh.canvas.hidden, false);
+  assert.equal(image.hidden, false);
+  assert.equal(urls.size, 1);
 });
 
-test("context loss on a ready page leaves another page render usable", async () => {
-  await mount();
-  const firstPage = calls[0];
-  await act(async () => firstPage.resolve(3));
-  await nearby(2);
-  const secondPage = calls[1];
-
-  await act(async () => firstPage.canvas.dispatchEvent(new Event("contextlost")));
-  assert.equal(secondPage.signal.aborted, false);
-  assert.equal(calls.length, 2);
-
-  await act(async () => secondPage.resolve(3));
-  assert.equal(calls.length, 3);
-  const recoveredFirstPage = calls[2];
-  assert.equal(recoveredFirstPage.page, 1);
-  assert.notEqual(recoveredFirstPage.canvas, firstPage.canvas);
-  assert.equal(secondPage.canvas.hidden, false);
-  await act(async () => recoveredFirstPage.resolve(3));
-  assert.equal(secondPage.canvas.hidden, false);
-  assert.equal(recoveredFirstPage.canvas.hidden, false);
+test("a source change during decode revokes stale pixels and cannot settle the new source", async () => {
+  deferDecode = true;
+  const settlements = [];
+  await mount(new Blob(["old"]), () => settlements.push("old"));
+  await act(async () => calls[0].resolve(1));
+  const oldUrl = decodes[0].image.src;
+  await mount(new Blob(["new"]), () => settlements.push("new"));
+  assert.ok(revoked.includes(oldUrl));
+  await act(async () => decodes[0].resolve());
+  assert.deepEqual(settlements, []);
+  await act(async () => calls[1].resolve(2));
+  await act(async () => decodes[1].resolve());
+  assert.deepEqual(settlements, ["new"]);
 });
 
-test("repeated context loss offers fallback and manual retry resets recovery allowance", async () => {
+test("decode failure offers retry and download rather than revealing an unusable image", async () => {
+  deferDecode = true;
   const settlements = [];
   await mount(new Blob(["pdf"]), () => settlements.push("settled"));
-  await act(async () => calls[0].canvas.dispatchEvent(new Event("contextlost")));
+  await act(async () => calls[0].resolve(1));
   assert.deepEqual(settlements, []);
-  await act(async () => calls[1].canvas.dispatchEvent(new Event("contextlost")));
-
-  assert.match(host.querySelector('[role="alert"]').textContent, /context was lost/);
+  const failedUrl = decodes[0].image.src;
+  await act(async () => decodes[0].reject(new Error("PNG decode failed")));
+  assert.match(host.querySelector('[role="alert"]').textContent, /PNG decode failed/);
+  assert.equal(host.querySelector("img").hidden, true);
   assert.deepEqual(settlements, ["settled"]);
   assert.equal(host.querySelector("a[download]").getAttribute("href"), "blob:private-pdf");
   await act(async () => host.querySelector("button").click());
-  assert.equal(calls.length, 3);
-  await act(async () => calls[2].canvas.dispatchEvent(new Event("contextlost")));
-  assert.equal(calls.length, 4);
+  assert.ok(revoked.includes(failedUrl));
+  await act(async () => calls[1].resolve(1));
+  await act(async () => decodes[1].resolve());
   assert.equal(host.querySelector('[role="alert"]'), null);
+  assert.equal(host.querySelector("img").hidden, false);
   assert.deepEqual(settlements, ["settled"]);
 });
 
-test("context loss after unmount is ignored and its listener is removed", async () => {
-  await mount();
-  const staleCanvas = calls[0].canvas;
+test("unmount during decode revokes the URL and ignores late completion", async () => {
+  deferDecode = true;
+  const settlements = [];
+  await mount(new Blob(["pdf"]), () => settlements.push("settled"));
+  await act(async () => calls[0].resolve(1));
+  const url = decodes[0].image.src;
   await act(async () => root.unmount());
   root = undefined;
-  const countAfterUnmount = calls.length;
-
-  staleCanvas.dispatchEvent(new Event("contextlost"));
-
-  assert.equal(calls.length, countAfterUnmount);
+  assert.ok(revoked.includes(url));
+  await act(async () => decodes[0].resolve());
+  assert.deepEqual(settlements, []);
   assert.equal(calls[0].signal.aborted, true);
+});
+
+test("decode timeout releases the queue, settles once, and ignores late completion", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  deferDecode = true;
+  const settlements = [];
+  await mount(new Blob(["pdf"]), () => settlements.push("settled"));
+  await act(async () => calls[0].resolve(2));
+  const failedUrl = decodes[0].image.src;
+  await act(async () => context.mock.timers.tick(20_000));
+  assert.match(host.querySelector('[role="alert"]').textContent, /decoding timed out/);
+  assert.deepEqual(settlements, ["settled"]);
+  assert.ok(revoked.includes(failedUrl));
+  await act(async () => decodes[0].resolve());
+  assert.equal(host.querySelector("img").hidden, true);
+  assert.deepEqual(settlements, ["settled"]);
+  await act(async () => host.querySelector("button").click());
+  assert.equal(calls.length, 2);
+  await act(async () => calls[1].resolve(2));
+  await act(async () => decodes[1].resolve());
+  assert.equal(host.querySelector("img").hidden, false);
+  assert.deepEqual(settlements, ["settled"]);
+});
+
+test("aborting a page with a pending decode lets the next queued page render", async () => {
+  await mount();
+  await act(async () => calls[0].resolve(3));
+  deferDecode = true;
+  await nearby(2);
+  await act(async () => calls[1].resolve(3));
+  await nearby(3);
+  assert.equal(calls.length, 2);
+  const abandonedUrl = decodes[1].image.src;
+  await nearby(2, false);
+  assert.ok(revoked.includes(abandonedUrl));
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].page, 3);
+  await act(async () => calls[2].resolve(3));
+  await act(async () => decodes[2].resolve());
+  assert.equal(host.querySelector('[data-page="3"] img').hidden, false);
 });
 
 test("StrictMode effect cleanup replay still lets the surviving render become visible", async () => {
@@ -233,10 +289,10 @@ test("StrictMode effect cleanup replay still lets the surviving render become vi
   assert.equal(calls.length, 1);
   const surviving = calls[0];
   await act(async () => surviving.resolve(1));
-  assert.equal(host.querySelector('[data-page="1"] canvas'), surviving.canvas);
-  assert.equal(surviving.canvas.hidden, false);
-  assert.equal(surviving.canvas.width, 900);
-  assert.equal(surviving.canvas.height, 1200);
+  const image = host.querySelector('[data-page="1"] img');
+  assert.equal(image.hidden, false);
+  assert.equal(image.width, 900);
+  assert.equal(image.height, 1200);
   assert.equal(surviving.signal.aborted, false);
 });
 

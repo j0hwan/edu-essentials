@@ -7,8 +7,6 @@ declare global {
     __mountPdfPreview: () => void;
     __unmountPdfPreview: () => void;
     __pdfPreviewSize: number;
-    __lostPdfCanvas?: HTMLCanvasElement;
-    __pageTwoBeforeLoss?: HTMLCanvasElement;
   }
 }
 

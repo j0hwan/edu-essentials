@@ -7,67 +7,79 @@ type PreviewProps = { data: Blob; name: string; downloadUrl?: string; onSettled?
 type DocumentProps = Omit<PreviewProps, "onSettled"> & { onDocumentSettled: (data: Blob) => void };
 type RenderQueue = { current: Promise<void> };
 
-function PdfPageCanvas({ data, name, downloadUrl, page, queueRef, onReady, onDocumentSettled }: DocumentProps & {
+function decodePageImage(image: HTMLImageElement, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      if (error) reject(error); else resolve();
+    };
+    const abort = () => finish(new Error("PDF page image decoding was aborted."));
+    const timer = setTimeout(() => finish(new Error("PDF page image decoding timed out.")), 20_000);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    else image.decode().then(() => finish(), finish);
+  });
+}
+
+function PdfPageImage({ data, name, downloadUrl, page, queueRef, onReady, onDocumentSettled }: DocumentProps & {
   page: number; queueRef: RenderQueue; onReady: (pages: number, ratio: number) => void;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{ attempt: number; error?: string } | null>(null);
-  const autoRecoveryRef = useRef(false);
   const current = result?.attempt === attempt ? result : null;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const image = imageRef.current;
+    if (!image) return;
     const controller = new AbortController();
-    let disposed = false;
-    const onContextLost = () => {
-      if (disposed || controller.signal.aborted) return;
-      controller.abort();
-      if (autoRecoveryRef.current) {
-        setResult({ attempt, error: "This PDF could not be previewed. Its canvas context was lost. Download the original file to open it." });
-        if (page === 1) onDocumentSettled(data);
-      } else {
-        autoRecoveryRef.current = true;
-        setAttempt((previous) => previous + 1);
-      }
-    };
-    canvas.addEventListener("contextlost", onContextLost);
+    let imageUrl: string | undefined;
     queueRef.current = queueRef.current.then(async () => {
       if (controller.signal.aborted) return;
       try {
-        const pages = await renderPdfPreviewPage(data, canvas, page, controller.signal);
+        const rendered = await renderPdfPreviewPage(data, page, controller.signal);
+        if (!rendered || controller.signal.aborted) return;
+        imageUrl = URL.createObjectURL(rendered.image);
+        image.width = rendered.width;
+        image.height = rendered.height;
+        image.src = imageUrl;
+        await decodePageImage(image, controller.signal);
+        if (!image.naturalWidth || !image.naturalHeight) throw new Error("PDF page image is unavailable.");
         if (!controller.signal.aborted) {
           setResult({ attempt });
-          onReady(pages, canvas.width / canvas.height);
+          onReady(rendered.pages, rendered.width / rendered.height);
           if (page === 1) onDocumentSettled(data);
         }
       } catch (cause) {
         const detail = cause instanceof Error ? ` ${cause.message}` : "";
         if (!controller.signal.aborted) {
+          image.removeAttribute("src");
+          if (imageUrl) URL.revokeObjectURL(imageUrl);
+          imageUrl = undefined;
           setResult({ attempt, error: `This PDF could not be previewed.${detail} Download the original file to open it.` });
           if (page === 1) onDocumentSettled(data);
         }
       }
     });
     return () => {
-      disposed = true;
-      canvas.removeEventListener("contextlost", onContextLost);
       controller.abort();
-      canvas.width = 0;
-      canvas.height = 0;
+      image.removeAttribute("src");
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
     };
   }, [data, page, attempt, queueRef, onReady, onDocumentSettled]);
 
   const retry = () => {
-    autoRecoveryRef.current = false;
     setAttempt((previous) => previous + 1);
   };
 
   return <>
     {!current && <p role="status">Rendering PDF preview…</p>}
     {current?.error && <p role="alert">{current.error} <button type="button" onClick={retry}>Retry PDF preview</button> {downloadUrl && <a href={downloadUrl} download={name}>Download original PDF</a>}</p>}
-    <canvas key={attempt} ref={canvasRef} hidden={!current || Boolean(current.error)} role="img" aria-label={`${name}, page ${page}`} />
+    <img key={attempt} ref={imageRef} hidden={!current || Boolean(current.error)} alt={`${name}, page ${page}`} aria-label={`${name}, page ${page}`} />
   </>;
 }
 
@@ -91,7 +103,7 @@ function PdfPage({ page, root, queueRef, onDocumentReady, ...props }: DocumentPr
   }, [root]);
 
   return <div ref={pageRef} className="pdf-preview-page" style={{ aspectRatio: ratio }} data-page={page}>
-    {nearby && <PdfPageCanvas {...props} page={page} queueRef={queueRef} onReady={onReady} />}
+    {nearby && <PdfPageImage {...props} page={page} queueRef={queueRef} onReady={onReady} />}
   </div>;
 }
 
