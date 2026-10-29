@@ -69,12 +69,9 @@ const viewports = [
   { name: "mobile", width: 390, height: 844 },
 ];
 const longPdfName = `${"Syllabus 2026 department and catalog materials ".repeat(5)}final.pdf`;
-const longTextName = `${"Required readings and course policies ".repeat(5)}revised.txt`;
-assert.ok(longPdfName.length <= 255 && longTextName.length <= 255, "long filename fixtures fit the application filename limit");
+const replacementPdfName = `${"Required readings and course policies ".repeat(5)}revised.PDF`;
+assert.ok(longPdfName.length <= 255 && replacementPdfName.length <= 255, "long filename fixtures fit the application filename limit");
 const pdfSource = makeTwoPagePdf();
-const longText = Array.from({ length: 100 }, (_, index) =>
-  `Week ${index + 1}: Required reading, lecture notes, assignment dates, and course policies. ${"This line checks that saved and uploaded text remains inside its own preview scroll area. ".repeat(2)}`,
-).join("\n");
 let browser;
 const outcomes = [];
 
@@ -113,6 +110,8 @@ function assertSameBoxes(before, after, context) {
     }
   }
   assert.equal(after.separateFilenameRows, 0, `${context}: no separate filename row remains`);
+  assert.deepEqual(after.uploadTypography, before.uploadTypography, `${context}: upload typography and line spacing remain equal`);
+  assert.equal(after.uploadTypography.fontWeight, "650", `${context}: heading is bold in both states`);
   assert.ok(Math.abs(before.preview.width / before.preview.height - 8.5 / 11) < 0.02,
     `${context}: preview is portrait letter aspect (${before.preview.width}x${before.preview.height})`);
   assert.ok(Math.abs(after.preview.width / after.preview.height - 8.5 / 11) < 0.02,
@@ -152,6 +151,22 @@ async function getGeometry(page) {
       preview: box(".class-setup-document-preview"),
       footer: box(".class-setup-actions"),
       separateFilenameRows,
+      uploadTypography: (() => {
+        const title = form.querySelector(".class-setup-syllabus-upload-title");
+        const subtitle = form.querySelector(".class-setup-syllabus-upload-surface small");
+        const upload = form.querySelector(".class-setup-syllabus-upload");
+        const titleBox = title.getBoundingClientRect();
+        const subtitleBox = subtitle.getBoundingClientRect();
+        const uploadBox = upload.getBoundingClientRect();
+        return {
+          fontWeight: getComputedStyle(title).fontWeight,
+          lineHeight: getComputedStyle(title).lineHeight,
+          subtitleLineHeight: getComputedStyle(subtitle).lineHeight,
+          gap: Math.round((subtitleBox.top - titleBox.bottom) * 10) / 10,
+          titleOffset: Math.round((titleBox.top - uploadBox.top) * 10) / 10,
+          subtitleOffset: Math.round((subtitleBox.top - uploadBox.top) * 10) / 10,
+        };
+      })(),
       formScrollHeight: form.scrollHeight,
     };
   });
@@ -203,8 +218,19 @@ async function verifyUploadsForViewport(page, viewport) {
     if (message.type() === "error" && !message.text().includes("favicon.ico")) browserErrors.push(message.text());
   });
   await enterCustomize(page);
+  assert.equal(await page.getByText("Upload a syllabus to see it before saving.", { exact: true }).count(), 0);
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByLabel("Syllabus (optional)").click();
+  await (await chooserPromise).setFiles([]);
+  assert.equal(await page.locator(".class-setup-syllabus-upload").evaluate((node) => getComputedStyle(node).outlineStyle), "none", "clicking upload does not outline the box");
+  await page.locator(".class-setup-icon-picker button").last().focus();
+  await page.keyboard.press("Tab");
+  assert.equal(await page.getByLabel("Syllabus (optional)").evaluate((node) => node === document.activeElement), true, "Tab reaches the upload input");
+  assert.equal(await page.locator(".class-setup-syllabus-upload").evaluate((node) => getComputedStyle(node).outlineStyle), "solid", "keyboard focus remains visible");
   const baseline = await getGeometry(page);
   assert.equal(baseline.separateFilenameRows, 0, `${viewport.name}: no empty filename row`);
+  assert.equal(await page.getByLabel("Syllabus (optional)").getAttribute("accept"), ".pdf,application/pdf");
+  assert.equal(await page.locator(".class-setup-syllabus-upload small").innerText(), "PDF only · Up to 25 MiB");
 
   await page.getByLabel("Syllabus (optional)").setInputFiles({ name: longPdfName, mimeType: "application/pdf", buffer: Buffer.from(pdfSource) });
   await page.getByRole("region", { name: "PDF preview" }).waitFor({ timeout: 15_000 });
@@ -243,33 +269,18 @@ async function verifyUploadsForViewport(page, viewport) {
   assert.equal(pdfScroll.window, 0, `${viewport.name}: PDF wheel does not scroll the page`);
   await page.locator(".class-setup").evaluate((form) => { form.scrollTop = 0; });
 
-  await page.getByLabel("Syllabus (optional)").setInputFiles({ name: longTextName, mimeType: "text/plain", buffer: Buffer.from(longText) });
-  await page.locator(".class-setup-document-content pre").waitFor();
-  await page.waitForFunction(() => document.querySelector(".class-setup-document-content pre")?.scrollHeight > 300);
-  const textGeometry = await compareAndAssert(page, baseline, `${viewport.name} after text replacement`);
-  const textPreview = page.locator(".class-setup-document-content pre");
-  await textPreview.scrollIntoViewIfNeeded();
-  const formBeforeTextWheel = await page.locator(".class-setup").evaluate((form) => form.scrollTop);
-  const textBox = await textPreview.boundingBox();
-  await page.mouse.move(textBox.x + 50, textBox.y + 60);
-  await page.mouse.wheel(0, 500);
-  await page.waitForFunction(() => document.querySelector(".class-setup-document-content pre")?.scrollTop > 0, undefined, { timeout: 3000 });
-  const textScroll = await page.evaluate(() => ({
-    preview: document.querySelector(".class-setup-document-content pre")?.scrollTop ?? 0,
-    form: document.querySelector(".class-setup")?.scrollTop ?? 0,
-    window: window.scrollY,
-  }));
-  assert.ok(textScroll.preview > 0, `${viewport.name}: long text scrolls inside its preview`);
-  assert.equal(textScroll.form, formBeforeTextWheel, `${viewport.name}: text wheel does not scroll the class form`);
-  assert.equal(textScroll.window, 0, `${viewport.name}: text wheel does not scroll the page`);
-  await page.locator(".class-setup").evaluate((form) => { form.scrollTop = 0; });
+  await page.getByLabel("Syllabus (optional)").setInputFiles({ name: replacementPdfName, mimeType: "application/pdf", buffer: Buffer.from(pdfSource) });
+  await page.locator(".class-setup-document-preview img[aria-label$='page 1']:visible").waitFor({ timeout: 15_000 });
+  const replacementGeometry = await compareAndAssert(page, baseline, `${viewport.name} after PDF replacement`);
+  await assertSuccessfulUploadBox(page, replacementPdfName);
+  const pdfPreview = page.locator(".private-pdf-preview");
 
   if (viewport.name === "desktop") {
-    await textPreview.evaluate((pre) => { pre.scrollTop = 0; });
+    await pdfPreview.evaluate((viewer) => { viewer.scrollTop = 0; });
     await page.screenshot({ path: "/tmp/class-syllabus-desktop.png" });
   }
   if (viewport.name === "mobile") {
-    await textPreview.evaluate((pre) => { pre.scrollTop = 0; });
+    await pdfPreview.evaluate((viewer) => { viewer.scrollTop = 0; });
     await page.locator(".class-setup-document-preview").scrollIntoViewIfNeeded();
     await page.screenshot({ path: "/tmp/class-syllabus-mobile.png", fullPage: true });
   }
@@ -284,8 +295,11 @@ async function verifyUploadsForViewport(page, viewport) {
   await settle(page);
   const removedGeometry = await compareAndAssert(page, baseline, `${viewport.name} after removing upload`);
   assert.equal(await page.locator(".class-setup-document-empty").count(), 1, `${viewport.name}: empty preview remains mounted after remove`);
+  await page.getByLabel("Syllabus (optional)").setInputFiles({ name: "outline.txt", mimeType: "text/plain", buffer: Buffer.from("Course outline") });
+  assert.match(await page.getByRole("alert").innerText(), /PDF/);
+  assert.equal(await page.locator(".class-setup-syllabus-upload-title").innerText(), "Upload your syllabus", `${viewport.name}: non-PDF cannot become a successful upload`);
   assert.equal(browserErrors.length, 0, `${viewport.name}: no browser errors (${browserErrors.join("; ")})`);
-  return { viewport: viewport.name, baseline, pdf: pdfGeometry, text: textGeometry, removed: removedGeometry, pdfScroll, textScroll };
+  return { viewport: viewport.name, baseline, pdf: pdfGeometry, replacement: replacementGeometry, removed: removedGeometry, pdfScroll };
 }
 
 async function verifySavedPreview(page, mode, viewport) {
@@ -387,7 +401,6 @@ try {
       separateFilenameRows: outcome.baseline.separateFilenameRows,
       formScrollHeight: outcome.baseline.formScrollHeight,
       pdfScroll: outcome.pdfScroll,
-      textScroll: outcome.textScroll,
     }
     : {
       viewport: outcome.viewport,

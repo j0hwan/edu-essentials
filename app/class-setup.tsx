@@ -317,6 +317,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
     if (!file) return;
     if (!file.size || file.size > MAX_FILE_BYTES) { setError("Choose a nonempty file of 25 MiB or smaller."); return; }
     if (kind === "image" && !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) { setError("Choose a PNG, JPEG, WebP, or GIF class image."); return; }
+    if (kind === "syllabus" && file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) { setError("Choose a PDF syllabus."); return; }
     const id = crypto.randomUUID();
     if (kind === "image") {
       if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
@@ -474,15 +475,15 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
                 <FileText size={24} aria-hidden="true" />
                 {hasCurrentSyllabus
                   ? <span className="class-setup-syllabus-upload-details"><strong className="class-setup-syllabus-upload-title">Upload Successful</strong><small className="class-setup-syllabus-upload-name" title={currentSyllabusName}>{currentSyllabusName}</small></span>
-                  : <span>Upload your syllabus<small>PDF, text, images, or other documents · Up to 25 MiB</small></span>}
-                <input aria-label="Syllabus (optional)" type="file" disabled={!canUpload || busy} onChange={(event) => { selectFile("syllabus", event.target.files?.[0]); event.target.value = ""; }} />
+                  : <span className="class-setup-syllabus-upload-details"><strong className="class-setup-syllabus-upload-title">Upload your syllabus</strong><small>PDF only · Up to 25 MiB</small></span>}
+                <input aria-label="Syllabus (optional)" type="file" accept=".pdf,application/pdf" disabled={!canUpload || busy} onChange={(event) => { selectFile("syllabus", event.target.files?.[0]); event.target.value = ""; }} />
               </label>
               {hasCurrentSyllabus && <button type="button" className="class-setup-syllabus-remove" aria-label="Remove syllabus" title="Remove syllabus" disabled={!canUpload || busy || attemptedSave} onClick={(event) => { event.preventDefault(); event.stopPropagation(); removeSyllabus(); }}><X size={14} aria-hidden="true" /></button>}
             </div>
             <div className="class-setup-document-preview" role="region" aria-label="Syllabus preview">
               {uploads.syllabus ? <ClassSetupDocumentPreview key={uploads.syllabus.id} file={uploads.syllabus.file} url={syllabusPreview} />
                 : !details.syllabusDeleted && (savedSyllabusPreview || details.syllabusText) ? <div className="class-setup-document-content">{savedSyllabusPreview ?? <pre>{details.syllabusText}</pre>}</div>
-                  : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>{!details.syllabusDeleted && details.syllabusFileId ? "Saved syllabus unavailable" : "Your document preview appears here"}</p><span>{!details.syllabusDeleted && details.syllabusFileId ? "Your attachment is preserved. Upload a replacement to change it." : "Upload a syllabus to see it before saving."}</span></div>}
+                  : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>{!details.syllabusDeleted && details.syllabusFileId ? "Saved syllabus unavailable" : <>Your document preview<br />appears here</>}</p>{!details.syllabusDeleted && details.syllabusFileId && <span>Your attachment is preserved. Upload a replacement to change it.</span>}</div>}
             </div>
             <p className="form-hint">Storage only. Uploading will not affect course</p>
           </fieldset>
