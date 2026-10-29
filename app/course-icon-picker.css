@@ -34,4 +34,3 @@
 }
 .course-icon-options button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--ink); }
 .course-icon-options button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.course-icon-selected { position: absolute; top: 4px; right: 4px; color: var(--ink); }

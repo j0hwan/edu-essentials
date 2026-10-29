@@ -22,14 +22,14 @@ const dashboard = { v: 2, a: "day", w: [["day", "Day", []]], d: { assignments: [
 test("the picker exposes all 24 icon choices, including the explicit no-icon choice", () => {
   assert.equal(courseIconOptions.length, 24);
   assert.deepEqual(courseIconOptions.slice(-8), [
-    { id: "brain", label: "Psychology" },
+    { id: "landmark", label: "History" },
     { id: "scale", label: "Law" },
     { id: "briefcase-business", label: "Business" },
     { id: "heart-pulse", label: "Health" },
     { id: "leaf", label: "Environmental science" },
     { id: "cog", label: "Engineering" },
     { id: "drama", label: "Theater" },
-    { id: "none", label: "No icon" },
+    { id: "brain", label: "Psychology" },
   ]);
 });
 
@@ -91,7 +91,7 @@ test("Add and Edit Class share a selectable icon picker that preserves other det
     const initial = { ...applied, details: { ...applied.details, officeHours: "Monday 10 AM", syllabusText: "Keep this syllabus" } };
     await renderEditor(initial, "edit");
     assert.equal(host.querySelector('[aria-label="Biology"]').getAttribute("aria-pressed"), "true");
-    assert.ok(host.querySelector('[aria-label="Biology"] .course-icon-selected'));
+    assert.equal(host.querySelector('[aria-label="Biology"] .course-icon-selected'), null);
     await select("Calculator");
     await save();
     assert.deepEqual(applied.details, { ...initial.details, icon: "calculator" });
