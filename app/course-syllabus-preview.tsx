@@ -6,23 +6,25 @@ import { CoursePreviewPlaceholder, useCoursePreviewReveal } from "./course-previ
 import { InlineFilePreview } from "./private-files";
 import type { FileStore } from "./use-private-files";
 
-export default function CourseSyllabusPreview({ file, text, store, previewKey }: {
+export default function CourseSyllabusPreview({ file, text, store, previewKey, pending = false }: {
   file?: PrivateFile;
   text: string;
   store: FileStore;
   previewKey: string;
+  pending?: boolean;
 }) {
-  const { revealed, settle } = useCoursePreviewReveal(previewKey);
+  const { revealed: groupRevealed, settle } = useCoursePreviewReveal(previewKey);
+  const revealed = groupRevealed && !pending;
 
   useEffect(() => {
-    if (!file) settle();
-  }, [file, settle]);
+    if (!file && !pending) settle();
+  }, [file, pending, settle]);
 
   return <div className={`course-syllabus-preview course-preview-surface${revealed ? " is-revealed" : ""}`} aria-busy={!revealed}>
     <CoursePreviewPlaceholder kind="syllabus" />
     {!revealed && <span className="course-preview-status" role="status">Loading Syllabus</span>}
     <div className={`course-preview-content private-class-image-fade${revealed ? " is-ready" : ""}`} aria-hidden={!revealed} inert={!revealed}>
-      {file
+      {pending ? null : file
         ? <InlineFilePreview file={file} store={store} loadingFallback={<></>} onPreviewSettled={settle} />
         : <pre className="syllabus-source">{text}</pre>}
     </div>

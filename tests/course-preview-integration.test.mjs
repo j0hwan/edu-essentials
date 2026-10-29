@@ -72,13 +72,13 @@ function makeFile(id = "syllabus-1") {
   };
 }
 
-function renderGroup({ revision = "one", location = "101 College Ave, Davis, California", file = makeFile(), store, participants = [`map-a-${revision}`, `map-b-${revision}`, `syllabus-${revision}`] }) {
+function renderGroup({ revision = "one", location = "101 College Ave, Davis, California", file = makeFile(), text = "", pending = false, store, participants = [`map-a-${revision}`, `map-b-${revision}`, `syllabus-${revision}`] }) {
   root ??= createRoot(rootNode);
   return act(async () => root.render(createElement(CoursePreviewRevealProvider, { key: revision, participants },
     createElement("main", { "data-revision": revision },
       createElement("div", { id: "map-a" }, createElement(MeetingLocationPreview, { location, previewKey: `map-a-${revision}` })),
       createElement("div", { id: "map-b" }, createElement(MeetingLocationPreview, { location: location.replace("101", "202"), previewKey: `map-b-${revision}` })),
-      createElement("section", { id: "syllabus-region" }, createElement(CourseSyllabusPreview, { file, text: "", store, previewKey: `syllabus-${revision}` }))))));
+      createElement("section", { id: "syllabus-region" }, createElement(CourseSyllabusPreview, { file, text, pending, store, previewKey: `syllabus-${revision}` }))))));
 }
 
 async function flush() { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); }
@@ -155,4 +155,97 @@ test("unsupported locations and a terminal PDF error settle so the group cannot 
   assert.equal(rootNode.querySelectorAll('[data-pdf-stage="terminal-error"]').length, 1, "the PDF reaches a terminal error state");
   await act(async () => rootNode.querySelector('[data-pdf-stage="error-settled"]').click());
   assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 3, "terminal failures count as settled and release the full group");
+});
+
+test("pending syllabus metadata holds the group after maps finish until an arriving file is preview-ready", async () => {
+  await unmount();
+  window.__syllabusReadinessCallbacks = [];
+  const pdfBlob = deferred();
+  const store = { blob: () => pdfBlob.promise };
+  await renderGroup({ revision: "metadata", file: null, pending: true, store });
+  await flush();
+
+  const placeholders = [...rootNode.querySelectorAll("#map-a .course-preview-placeholder, #map-b .course-preview-placeholder")];
+  assert.equal(placeholders.length, 2);
+  const sources = placeholders.map((image) => image.getAttribute("src"));
+  const mapFrames = [...rootNode.querySelectorAll("iframe[title^='Map preview']")];
+  assert.equal(mapFrames.length, 2);
+  await act(async () => {
+    mapFrames[0].dispatchEvent(new Event("load"));
+    mapFrames[1].dispatchEvent(new Event("load"));
+  });
+  assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 0, "map completion cannot settle a syllabus whose metadata is pending");
+  assert.equal(rootNode.querySelector("[data-revision='metadata'] .course-syllabus-preview")?.getAttribute("aria-busy"), "true");
+
+  await renderGroup({ revision: "metadata", file: makeFile(), pending: false, store });
+  await flush();
+  assert.equal(rootNode.querySelectorAll("#map-a .course-preview-placeholder, #map-b .course-preview-placeholder").length, 2);
+  assert.ok(placeholders.every((image, index) => image === rootNode.querySelectorAll("#map-a .course-preview-placeholder, #map-b .course-preview-placeholder")[index]), "map placeholder image nodes remain mounted across the metadata update");
+  assert.deepEqual(placeholders.map((image) => image.getAttribute("src")), sources, "placeholder sources remain stable");
+  assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 0, "a file is not ready until its first preview frame is ready");
+
+  await act(async () => pdfBlob.resolve(new Blob(["preview bytes"], { type: "application/pdf" })));
+  await flush();
+  await act(async () => rootNode.querySelector('[data-pdf-stage="page-ready"]').click());
+  assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 3, "file preview readiness releases the full group");
+});
+
+test("pending syllabus metadata can resolve to a no-file text outcome", async () => {
+  await unmount();
+  window.__syllabusReadinessCallbacks = [];
+  await renderGroup({ revision: "no-file", file: null, pending: true, text: "", store: { blob: async () => new Blob() } });
+  await flush();
+  const mapFrames = [...rootNode.querySelectorAll("iframe[title^='Map preview']")];
+  await act(async () => {
+    mapFrames[0].dispatchEvent(new Event("load"));
+    mapFrames[1].dispatchEvent(new Event("load"));
+  });
+  assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 0, "pending metadata continues to hold the barrier");
+
+  await renderGroup({ revision: "no-file", file: null, pending: false, text: "", store: { blob: async () => new Blob() } });
+  await flush();
+  assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 3, "an explicit no-file and no-text outcome settles instead of remaining stuck");
+  assert.equal(rootNode.querySelector("[data-revision='no-file'] .course-syllabus-preview")?.getAttribute("aria-busy"), "false");
+});
+
+test("an arriving PNG file releases the pending syllabus only after harness readiness", async () => {
+  await unmount();
+  window.__syllabusReadinessCallbacks = [];
+  const pngBlob = deferred();
+  const store = { blob: () => pngBlob.promise };
+  const mapPlaceholderSrc = "/fixed-png-map-placeholder.png";
+  await renderGroup({ revision: "png-metadata", file: null, pending: true, store });
+  await flush();
+  const mapFrames = [...rootNode.querySelectorAll("iframe[title^='Map preview']")];
+  await act(async () => {
+    mapFrames[0].dispatchEvent(new Event("load"));
+    mapFrames[1].dispatchEvent(new Event("load"));
+  });
+  assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 0);
+
+  const pngFile = { ...makeFile("png-syllabus"), name: "Syllabus.png", mime_type: "image/png" };
+  await renderGroup({ revision: "png-metadata", file: pngFile, pending: false, store });
+  await flush();
+  await act(async () => pngBlob.resolve(new Blob(["png bytes"], { type: "image/png" })));
+  await flush();
+  assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 0, "the blob alone does not count as preview readiness");
+  await act(async () => rootNode.querySelector('[data-pdf-stage="page-ready"]').click());
+  assert.equal(rootNode.querySelectorAll(".course-preview-content.is-ready").length, 3);
+});
+
+test("a subsequent metadata refresh cannot cover a settled syllabus placeholder with an empty ready layer", async () => {
+  const store = { blob: async () => new Blob() };
+  await renderGroup({ revision: "refresh", participants: ["syllabus-refresh"], file: null, text: "Saved syllabus text", store });
+  await flush();
+  assert.equal(rootNode.querySelector(".course-syllabus-preview").getAttribute("aria-busy"), "false");
+  await renderGroup({ revision: "refresh", participants: ["syllabus-refresh"], file: null, text: "Saved syllabus text", pending: true, store });
+  const syllabus = rootNode.querySelector(".course-syllabus-preview");
+  assert.equal(syllabus.getAttribute("aria-busy"), "true");
+  assert.equal(syllabus.classList.contains("is-revealed"), false);
+  assert.equal(syllabus.querySelector(".course-preview-content.is-ready"), null);
+  assert.ok(syllabus.querySelector(".course-preview-placeholder"));
+  await renderGroup({ revision: "refresh", participants: ["syllabus-refresh"], file: null, text: "Saved syllabus text", pending: false, store });
+  await flush();
+  assert.equal(syllabus.getAttribute("aria-busy"), "false");
+  assert.match(syllabus.textContent, /Saved syllabus text/);
 });

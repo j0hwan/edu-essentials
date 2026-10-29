@@ -81,6 +81,6 @@ export function useCourseExpansion({ profileId, page, courses, ready, persist = 
   const resetSelectedClass = useCallback(() => setSelection(null), []);
   const selectedClass = selection?.profileId === profileId && selection.page === page ? courses.find((course) => course.id === selection.course.id) ?? selection.course : null;
   const skipOpeningAnimation = selectedClass !== null && selection?.restored === true;
-  const restoringCourseOnReload = reloadProfileId === profileId && page === "dashboard" && !ready && persist;
+  const restoringCourseOnReload = reloadProfileId === profileId && page === "dashboard" && persist;
   return { selectedClass, setSelectedClass, resetSelectedClass, clearSavedCourse, openDashboardCourse, skipOpeningAnimation, restoringCourseOnReload, restorationChecked: reloadProfileId !== undefined };
 }

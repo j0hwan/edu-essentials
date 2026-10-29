@@ -151,11 +151,20 @@ with the same reduced-motion behavior. While waiting, local map samples are
 blurred in CSS; the syllabus uses a preblurred PNG, avoiding seams from a live
 blur on a large display layer.
 Add map samples to `MAP_PREVIEW_PLACEHOLDERS` in
-`app/course-preview-reveal.tsx`; each mounted map randomly chooses one sample
+`lib/course-preview-placeholders.ts`; each mounted map randomly chooses one sample
 and keeps it through rerenders. The images live in `public/preview-placeholders/`.
+The expanded-course skeleton contains no preview images. On restoration it stays
+visible until both map samples and the syllabus placeholder have loaded and
+decoded, so the actual course appears with its placeholders already available.
+The Dashboard route preloads all three public assets in server markup. Errors or
+an eight-second deadline show a retry/return-to-dashboard state, never a course
+with unprepared placeholders; no private file is read for this gate.
+An attached syllabus awaiting file-list metadata keeps its placeholder and reveal
+barrier rather than briefly displaying the empty-syllabus state. Successful or
+failed metadata resolution then follows the usual preview/fallback path.
 After building, `node scripts/verify-course-preview-reveal.mjs` verifies the
 shared animation with controlled map responses and a real PDF worker, including
-reduced motion. It accepts the same browser-tooling environment variables as
+reduced motion and the restoration-skeleton placeholder handoff. It accepts the same browser-tooling environment variables as
 the PDF pixel verifier below.
 
 ## Regression checks

@@ -21,6 +21,12 @@ window.matchMedia = (query) => ({ matches: false, media: query, addEventListener
 window.confirm = () => true;
 window.alert = () => {};
 window.scrollTo = () => {};
+window.Image = class {
+  complete = true;
+  naturalWidth = 120;
+  naturalHeight = 80;
+  decode() { return Promise.resolve(); }
+};
 
 const { createElement, act } = await import("react");
 const { createRoot, hydrateRoot } = await import("react-dom/client");
@@ -31,6 +37,7 @@ const { default: Workspace } = await import(await clientModule("app/workspace-cl
 const { default: ExpandedCourseSkeleton } = await import(await clientModule("app/expanded-course-skeleton.tsx"));
 const { default: DashboardLoadTransition } = await import(await clientModule("app/dashboard-load-transition.tsx"));
 const { useCourseExpansion } = await import(await clientModule("app/use-course-expansion.ts"));
+const { MAP_PREVIEW_PLACEHOLDERS, SYLLABUS_PREVIEW_PLACEHOLDER } = await import(await clientModule("lib/course-preview-placeholders.ts"));
 const rootNode = document.getElementById("root");
 
 const profileId = "courses-skeleton-test-profile";
@@ -151,11 +158,11 @@ function installHeldDashboardFetch({ failFiles = false, failImage = false, stall
     get imageCalls() { return imageCalls; },
     get requests() { return requests; },
     get fileSignals() { return fileSignals; },
-    releaseWorkspace() { workspaceReads.shift()?.(Response.json(successPayload())); },
-    releaseFiles() {
+    releaseWorkspace(overrides = {}) { workspaceReads.shift()?.(Response.json({ ...successPayload(), ...overrides })); },
+    releaseFiles(files = [courseImage]) {
       while (fileLists.length) {
         if (failFiles) fileLists.shift()(Response.json({ error: "Files are offline." }, { status: 503 }));
-        else fileLists.shift()(Response.json({ files: [courseImage] }));
+        else fileLists.shift()(Response.json({ files }));
       }
     },
     releaseImage() {
@@ -262,6 +269,7 @@ function assertExpandedCourseSkeleton() {
   const decoration = skeleton.querySelector(".expanded-course-skeleton__decoration");
   assert.equal(decoration?.getAttribute("aria-hidden"), "true", "the visual decoration is hidden from assistive technology");
   assert.ok(decoration?.hasAttribute("inert"), "the visual decoration subtree is inert");
+  assert.equal(skeleton.querySelectorAll("img, .course-preview-placeholder").length, 0, "the skeleton contains no preview images");
   return skeleton;
 }
 
@@ -472,6 +480,116 @@ test("a reload with a saved course shows its detail skeleton until the workspace
     if (root) await act(async () => root.unmount());
     rootNode.replaceChildren();
     window.localStorage.removeItem(`edu-dashboard-expanded-course:${profileId}`);
+    restoreNavigation();
+  }
+});
+
+test("restoration keeps an image-free skeleton until every placeholder loads and decodes", async () => {
+  rootNode.replaceChildren();
+  const restoreNavigation = stubNavigationType("reload");
+  const key = `edu-dashboard-expanded-course:${profileId}`;
+  window.localStorage.setItem(key, course.id);
+  const originalImage = window.Image;
+  const images = [];
+  window.Image = class {
+    complete = false;
+    naturalWidth = 0;
+    naturalHeight = 0;
+    decoded = deferred();
+    constructor() { images.push(this); }
+    decode() { return this.decoded.promise; }
+    load() {
+      this.complete = true;
+      this.naturalWidth = 120;
+      this.naturalHeight = 80;
+      this.onload?.();
+    }
+  };
+  const api = installHeldDashboardFetch();
+  let root;
+  try {
+    root = await mountWorkspace();
+    await waitFor(() => images.length === 3 && api.workspaceCalls === 1, "placeholder requests and workspace read");
+    assertExpandedCourseSkeleton();
+    await act(async () => { api.releaseWorkspace(); });
+    assertExpandedCourseSkeleton();
+    assert.equal(rootNode.querySelector(".class-card-expansion-dialog"), null, "workspace readiness alone cannot reveal the course");
+    await act(async () => { images.forEach((image) => image.load()); });
+    assertExpandedCourseSkeleton();
+    await act(async () => { images[0].decoded.resolve(); images[1].decoded.resolve(); });
+    assertExpandedCourseSkeleton();
+    assert.equal(rootNode.querySelector(".class-card-expansion-dialog"), null, "the final decode still blocks restoration");
+    await act(async () => { images[2].decoded.resolve(); });
+    await waitFor(() => rootNode.querySelector('.class-card-expansion-dialog[data-restored="true"]'), "decoded placeholder handoff");
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    window.Image = originalImage;
+    window.localStorage.removeItem(key);
+    restoreNavigation();
+  }
+});
+
+test("failed restoration placeholders show retry instead of revealing an unprepared course", async () => {
+  rootNode.replaceChildren();
+  const restoreNavigation = stubNavigationType("reload");
+  const key = `edu-dashboard-expanded-course:${profileId}`;
+  window.localStorage.setItem(key, course.id);
+  const originalImage = window.Image;
+  window.Image = class { complete = true; naturalWidth = 0; naturalHeight = 0; };
+  const api = installHeldDashboardFetch();
+  let root;
+  try {
+    root = await mountWorkspace();
+    await waitFor(() => api.workspaceCalls === 1, "workspace read");
+    await act(async () => { api.releaseWorkspace(); });
+    await waitFor(() => rootNode.querySelector('[role="alert"] button')?.textContent === "Retry previews", "preview retry state");
+    assert.equal(rootNode.querySelector(".class-card-expansion-dialog"), null);
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null, "failure replaces the indefinite skeleton with an actionable state");
+    window.Image = originalImage;
+    await act(async () => { rootNode.querySelector('[role="alert"] button').click(); });
+    await waitFor(() => rootNode.querySelector('.class-card-expansion-dialog[data-restored="true"]'), "successful retry");
+    assert.equal(rootNode.querySelector('[role="alert"]'), null);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    window.Image = originalImage;
+    window.localStorage.removeItem(key);
+    restoreNavigation();
+  }
+});
+
+test("a restored syllabus stays blurred while file metadata loads instead of flashing the empty state", async () => {
+  rootNode.replaceChildren();
+  const restoreNavigation = stubNavigationType("reload");
+  const key = `edu-dashboard-expanded-course:${profileId}`;
+  window.localStorage.setItem(key, course.id);
+  const api = installHeldDashboardFetch();
+  let root;
+  try {
+    root = await mountWorkspace();
+    await waitFor(() => api.workspaceCalls === 1 && api.fileListCalls > 0, "workspace and file-list reads");
+    assertExpandedCourseSkeleton();
+    const restoredDashboard = encodeWorkspaceState([{ id: "saved-home", name: "Saved Home", widgets: [] }], "saved-home", "", {
+      assignments: [], manualEvents: [], dashboardView: "cards",
+      courseDetails: { [course.id]: { meetings: [], officeHours: "", syllabusFileId: "11111111-1111-4111-8111-111111111111" } },
+    });
+    api.releaseWorkspace({ dashboard: restoredDashboard });
+    await waitFor(() => rootNode.querySelector('.class-card-expansion-dialog[data-restored="true"]'), "restored course before files arrive");
+    const preview = rootNode.querySelector(".course-syllabus-preview");
+    assert.ok(preview, "the syllabus placeholder survives the skeleton-to-course handoff");
+    assert.equal(preview.getAttribute("aria-busy"), "true");
+    assert.equal(preview.querySelector(".course-preview-placeholder").getAttribute("src"), SYLLABUS_PREVIEW_PLACEHOLDER);
+    assert.equal(rootNode.querySelector(".expanded-class-syllabus-empty"), null, "pending file metadata is not an empty syllabus");
+    assert.doesNotMatch(rootNode.querySelector('[aria-label="Course syllabus"]').textContent, /file is unavailable/);
+    api.releaseFiles([]);
+    await waitFor(() => rootNode.querySelector(".expanded-class-syllabus-empty"), "the terminal missing-file state");
+    assert.match(rootNode.querySelector('[aria-label="Course syllabus"]').textContent, /file is unavailable/);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    window.localStorage.removeItem(key);
     restoreNavigation();
   }
 });
@@ -761,6 +879,17 @@ test("Dashboard skeleton supports the reduced-motion rendering option", async ()
     if (root) await act(async () => root.unmount());
     rootNode.replaceChildren();
   }
+});
+
+test("dashboard server markup preloads every public placeholder before restoration", async () => {
+  const { default: DashboardPage } = await import(await clientModule("app/(workspace)/dashboard/page.tsx"));
+  const markup = renderToString(createElement(DashboardPage));
+  const server = new JSDOM(markup);
+  try {
+    assert.deepEqual([...server.window.document.querySelectorAll('link[rel="preload"][as="image"]')].map((link) => link.getAttribute("href")), [...MAP_PREVIEW_PLACEHOLDERS, SYLLABUS_PREVIEW_PLACEHOLDER]);
+    const loadingMarkup = renderToString(createElement(ExpandedCourseSkeleton));
+    assert.doesNotMatch(loadingMarkup, /<img|preview-placeholders/);
+  } finally { server.window.close(); }
 });
 
 test("expanded-course skeleton exposes its loading status and supports reduced motion", async () => {

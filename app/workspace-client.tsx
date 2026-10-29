@@ -48,6 +48,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
 import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
 import { useCourseExpansion } from "./use-course-expansion";
+import { useCoursePreviewPlaceholders } from "./use-course-preview-placeholders";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
 import type { ClassSetupUploads } from "./class-setup";
@@ -451,6 +452,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     ready: saveState.ready && profile.id === initialProfile.id,
     persist: !experimentalMode && !onboardingTest,
   });
+  const placeholderAssets = useCoursePreviewPlaceholders(restoringCourseOnReload || skipOpeningAnimation, initialProfile.id);
+  const restoringPlaceholderAssets = (restoringCourseOnReload || skipOpeningAnimation) && !placeholderAssets.ready;
   const persistenceStatus = saveState.status;
   const canWriteFiles = !experimentalMode && saveState.ready && !saveState.dirty && !undoBusy;
   const refreshFiles = fileStore.refresh;
@@ -1210,10 +1213,16 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         ) : (
           <section className="workspace-loading"><h1>Your workspace could not be loaded</h1><p>Your saved work will be available here when the connection is restored.</p></section>
         ))}
-        {page === "dashboard" && (saveState.ready || persistenceStatus === "loading") && <WorkspaceDashboard
+        {restoringPlaceholderAssets && placeholderAssets.failed && <section className="workspace-loading" role="alert">
+          <h1>Course previews could not be loaded</h1>
+          <p>Retry loading the preview placeholders or return to the dashboard.</p>
+          <button type="button" onClick={placeholderAssets.retry}>Retry previews</button>
+          <button type="button" onClick={() => setSelectedClass(null)}>Return to dashboard</button>
+        </section>}
+        {page === "dashboard" && !placeholderAssets.failed && (saveState.ready || persistenceStatus === "loading") && <WorkspaceDashboard
   loadKey={`dashboard-load-${reloadAttempt}-${initialProfile.id}`}
-  ready={saveState.ready && profile.id === initialProfile.id}
-  restoringCourseOnReload={restoringCourseOnReload}
+  ready={saveState.ready && profile.id === initialProfile.id && !restoringPlaceholderAssets}
+  restoringCourseOnReload={restoringCourseOnReload || restoringPlaceholderAssets}
   restorationChecked={restorationChecked}
   imagesListed={Boolean(selectedClass) || dashboardView !== "cards" || courses.length === 0 || !fileStore.loading || Boolean(fileStore.error)}
   imageKeys={!selectedClass && dashboardView === "cards" ? [...courseImages.values()].filter((file): file is PrivateFile => Boolean(file)).map(courseImageLoadKey) : []}
@@ -1287,7 +1296,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   onClose={() => setWorkspaceDialog(null)}
   onSubmit={() => workspaceDialog === "new" ? createWorkspace() : renameWorkspace()}
 />}
-      {selectedClass && <CourseEditTransitionContext.Provider value={Boolean(classSetup)}><CourseDetail
+      {selectedClass && !restoringPlaceholderAssets && <CourseEditTransitionContext.Provider value={Boolean(classSetup)}><CourseDetail
   course={selectedClass}
   assignments={assignments}
   details={extraData.courseDetails[selectedClass.id] ?? emptyCourseDetails()}

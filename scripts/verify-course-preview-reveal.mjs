@@ -321,6 +321,41 @@ async function runScenario(reducedMotion = false) {
   return { reducedMotion, before, blobDelivered, heldPdfResult, during, revealed, after, pageErrors };
 }
 
+async function runRestorationScenario() {
+  const page = await browser.newPage({ viewport: { width: 1120, height: 1280 } });
+  const errors = [];
+  const heldAssets = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/preview-placeholders/*", (route) => { heldAssets.push(route); });
+  await page.addInitScript(() => { window.__startCourseRestoration = true; });
+  await page.goto(`http://127.0.0.1:${serverAddress.port}`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => typeof window.__coursePreviewFixture?.releaseWorkspace === "function");
+  await page.waitForSelector(".expanded-course-skeleton");
+  assert.equal(await page.locator(".expanded-course-skeleton img").count(), 0, "skeleton has no preview images");
+  await page.evaluate(() => window.__coursePreviewFixture.releaseWorkspace());
+  await page.waitForFunction(() => document.querySelector(".expanded-course-skeleton") !== null);
+  assert.equal(await page.locator(".course-preview-fixture").count(), 0, "workspace readiness cannot outrun placeholder assets");
+  assert.equal(heldAssets.length, 3, "all public placeholder variants are requested");
+  const fulfillAsset = (route) => route.fulfill({ status: 200, contentType: "image/png", body: placeholderAssets.get(new URL(route.request().url()).pathname) });
+  await Promise.all(heldAssets.slice(0, 2).map(fulfillAsset));
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.locator(".course-preview-fixture").count(), 0, "one outstanding asset still holds the skeleton");
+  await fulfillAsset(heldAssets[2]);
+  await page.waitForSelector(".course-preview-fixture");
+  const restored = await page.evaluate(() => ({
+    placeholders: [...document.querySelectorAll(".course-preview-placeholder")].map((image) => ({ src: new URL(image.src).pathname, complete: image.complete, width: image.naturalWidth })),
+    readySurfaces: document.querySelectorAll(".course-preview-content.is-ready").length,
+    skeletonPresent: document.querySelector(".expanded-course-skeleton") !== null,
+  }));
+  assert.equal(restored.placeholders.length, 3);
+  assert.ok(restored.placeholders.every((image) => image.complete && image.width > 0), "actual placeholders are available at handoff");
+  assert.equal(restored.readySurfaces, 0, "placeholder handoff does not reveal pending real content");
+  assert.equal(restored.skeletonPresent, false);
+  assert.deepEqual(errors, []);
+  await page.close();
+  return { restored, errors };
+}
+
 try {
   browser = await playwright.chromium.launch((() => {
     const options = { headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] };
@@ -330,7 +365,8 @@ try {
   })());
   const standard = await runScenario(false);
   const reduced = await runScenario(true);
-  console.log(JSON.stringify({ worker: basename(workerFiles[0].path), workerBytes: workerBytes.length, standard, reduced, screenshots: screenshotDir }, null, 2));
+  const restoration = await runRestorationScenario();
+  console.log(JSON.stringify({ worker: basename(workerFiles[0].path), workerBytes: workerBytes.length, standard, reduced, restoration, screenshots: screenshotDir }, null, 2));
 } finally {
   await browser?.close();
   await new Promise((resolveClose) => server.close(resolveClose));

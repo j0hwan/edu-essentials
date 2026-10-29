@@ -80,9 +80,10 @@ export default function CourseDetail({
   };
   const items = assignments.filter((assignment) => assignment.courseId === course.id);
   const syllabusFile = store.files.find((file) => file.id === details.syllabusFileId && file.kind === "syllabus" && file.state === "ready" && !file.trashed_at);
-  const hasSyllabusPreview = Boolean(syllabusFile || details.syllabusText);
+  const syllabusPending = Boolean(details.syllabusFileId && !syllabusFile && store.loading);
+  const hasSyllabusPreview = Boolean(syllabusPending || syllabusFile || details.syllabusText);
   const meetingPreviewKey = (id: string, location: string) => JSON.stringify(["meeting", id, location]);
-  const syllabusPreviewKey = JSON.stringify(["syllabus", syllabusFile?.id, syllabusFile?.content_revision, syllabusFile?.metadata_revision, syllabusFile?.updated_at, syllabusFile?.mime_type, details.syllabusText]);
+  const syllabusPreviewKey = JSON.stringify(["syllabus", details.syllabusFileId, syllabusPending, syllabusFile?.id, syllabusFile?.content_revision, syllabusFile?.metadata_revision, syllabusFile?.updated_at, syllabusFile?.mime_type, details.syllabusText]);
   const previewParticipants = details.meetings.flatMap((meeting) => {
     const location = meeting.location || course.room;
     return location.trim() ? [meetingPreviewKey(meeting.id, location)] : [];
@@ -112,7 +113,7 @@ export default function CourseDetail({
             </div>
           </div>
           {!hasSyllabusPreview && details.syllabusFileId && <p>The attached syllabus file is unavailable. Import a replacement to preview it.</p>}
-          <CourseEditTransition revision={JSON.stringify([syllabusFile?.id, syllabusFile?.content_revision, syllabusFile ? null : details.syllabusText])}><div className="expanded-class-syllabus-preview" role="region" aria-label="Syllabus preview">{!hasSyllabusPreview ? <div className="expanded-class-syllabus-empty"><X size={36} aria-hidden="true" /><span>No Uploaded Syllabus</span></div> : <CourseSyllabusPreview file={syllabusFile} text={details.syllabusText || ""} store={store} previewKey={syllabusPreviewKey} />}</div></CourseEditTransition>
+          <CourseEditTransition revision={JSON.stringify([syllabusFile?.id, syllabusFile?.content_revision, syllabusFile ? null : details.syllabusText])}><div className="expanded-class-syllabus-preview" role="region" aria-label="Syllabus preview">{!hasSyllabusPreview ? <div className="expanded-class-syllabus-empty"><X size={36} aria-hidden="true" /><span>No Uploaded Syllabus</span></div> : <CourseSyllabusPreview file={syllabusFile} text={details.syllabusText || ""} store={store} previewKey={syllabusPreviewKey} pending={syllabusPending} />}</div></CourseEditTransition>
           <CourseEditTransition revision={JSON.stringify([Boolean(syllabusFile), details.syllabusText])}>{syllabusFile && details.syllabusText ? <details className="expanded-class-syllabus-text"><summary>Saved syllabus text</summary><pre className="syllabus-source">{details.syllabusText}</pre></details> : null}</CourseEditTransition>
         </section>
       </div></CoursePreviewRevealProvider>

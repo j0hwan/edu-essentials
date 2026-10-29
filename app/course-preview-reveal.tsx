@@ -1,6 +1,9 @@
 "use client";
 
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { MAP_PREVIEW_PLACEHOLDERS, SYLLABUS_PREVIEW_PLACEHOLDER } from "../lib/course-preview-placeholders";
+
+export { MAP_PREVIEW_PLACEHOLDERS, SYLLABUS_PREVIEW_PLACEHOLDER };
 
 type CoursePreviewRevealContextValue = {
   revealed: boolean;
@@ -9,13 +12,6 @@ type CoursePreviewRevealContextValue = {
 
 const CoursePreviewRevealContext = createContext<CoursePreviewRevealContextValue | null>(null);
 const noop = () => {};
-
-export const MAP_PREVIEW_PLACEHOLDERS = [
-  "/preview-placeholders/map-1.png",
-  "/preview-placeholders/map-2.png",
-] as const;
-
-export const SYLLABUS_PREVIEW_PLACEHOLDER = "/preview-placeholders/syllabus-blurred.png";
 
 export function CoursePreviewRevealProvider({ participants, children }: { participants: string[]; children: ReactNode }) {
   const participantSet = useMemo(() => new Set(participants), [participants]);
@@ -74,6 +70,6 @@ export function CoursePreviewPlaceholder({ kind, src }: { kind: "map" | "syllabu
 
   const placeholderSrc = kind === "map" ? src ?? localMapPlaceholder ?? MAP_PREVIEW_PLACEHOLDERS[0] : SYLLABUS_PREVIEW_PLACEHOLDER;
 
-  return <img className="course-preview-placeholder" src={placeholderSrc} alt="" aria-hidden="true" />;
+  return <img className="course-preview-placeholder" src={placeholderSrc} alt="" aria-hidden="true" loading="eager" />;
 }
 /* eslint-enable @next/next/no-img-element */

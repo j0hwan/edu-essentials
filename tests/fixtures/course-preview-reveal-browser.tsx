@@ -1,7 +1,9 @@
 import { createRoot, type Root } from "react-dom/client";
+import { useEffect, useState } from "react";
 import type { PrivateFile } from "../../lib/files";
 import type { FileStore } from "../../app/use-private-files";
 import { CoursePreviewRevealProvider as RevealProvider } from "../../app/course-preview-reveal";
+import ExpandedCourseSkeleton from "../../app/expanded-course-skeleton";
 import MeetingLocationPreview from "../../app/meeting-location-preview";
 import CourseSyllabusPreview from "../../app/course-syllabus-preview";
 
@@ -13,7 +15,9 @@ declare global {
       releaseSyllabusBlob: () => void;
       pageCount: number;
       blobDelivered: boolean;
+      releaseWorkspace?: () => void;
     };
+    __startCourseRestoration?: boolean;
     __unmountCoursePreviewFixture: () => void;
   }
 }
@@ -109,10 +113,18 @@ window.__coursePreviewFixture = {
   blobDelivered: false,
 };
 
+import { useCoursePreviewPlaceholders } from "../../app/use-course-preview-placeholders";
+
 const participants = ["map-one", "map-two", "syllabus"];
 let root: Root | undefined;
 
 function Fixture() {
+  const [loading, setLoading] = useState(window.__startCourseRestoration === true);
+  useEffect(() => {
+    window.__coursePreviewFixture.releaseWorkspace = () => setLoading(false);
+  }, []);
+  const placeholderAssets = useCoursePreviewPlaceholders(window.__startCourseRestoration === true, "fixture-restoration");
+  if (loading || !placeholderAssets.ready) return <ExpandedCourseSkeleton />;
   return <RevealProvider participants={participants}>
     <main className="course-preview-fixture">
       <header><p>COURSE PREVIEW</p><h1>Shared reveal</h1><span>Map snapshots and the course syllabus become visible together.</span></header>
