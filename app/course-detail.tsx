@@ -89,15 +89,19 @@ export default function CourseDetail({
     return location.trim() ? [meetingPreviewKey(meeting.id, location)] : [];
   });
   if (hasSyllabusPreview) previewParticipants.push(syllabusPreviewKey);
-  const previewGroupKey = JSON.stringify([profileId, course.id, sessionGeneration, previewParticipants]);
+  const imagePreviewKey = restored ? JSON.stringify(["image", image?.id, image?.content_revision, image?.updated_at, image?.state, image?.trashed_at, image?.deleted_at, image ? null : filesReady]) : undefined;
+  if (imagePreviewKey) previewParticipants.push(imagePreviewKey);
+  const previewGroupKey = JSON.stringify([profileId, course.id, sessionGeneration]);
 
   return <ClassCardExpansion key={`${profileId}:${course.id}`} courseId={course.id} skipOpeningAnimation={skipOpeningAnimation} closeControlRef={closeControlRef} onCloseStart={onCloseStart} onClose={onClose} suspended={suspended}>{(close) => <>
-    <CourseVisual course={course} details={details} image={image} profileId={profileId} store={store} filesReady={filesReady} restored={restored} cacheEnabled={cacheEnabled} close={close} />
+    {!restored && <CourseVisual course={course} details={details} image={image} profileId={profileId} store={store} filesReady={filesReady} restored={false} cacheEnabled={cacheEnabled} close={close} />}
+    <CoursePreviewRevealProvider key={previewGroupKey} participants={previewParticipants}>
+    {restored && <CourseVisual course={course} details={details} image={image} profileId={profileId} store={store} filesReady={filesReady} restored cacheEnabled={cacheEnabled} close={close} imagePreviewKey={imagePreviewKey} />}
     <div className="expanded-class-body">
       <div className="expanded-class-heading"><div className="expanded-class-title"><h2><CourseEditTransition revision={course.code}><span className="expanded-class-code">{course.code} · </span></CourseEditTransition><CourseEditTransition revision={course.name}><span data-course-morph="name">{course.name}</span></CourseEditTransition><span className="expanded-class-metadata">· <CourseEditTransition revision={course.instructor}><span data-course-morph="instructor">{course.instructor || "No instructor entered"}</span></CourseEditTransition> · <CourseEditTransition revision={String(course.credits)}><span data-course-morph="credits">{course.credits} credits</span></CourseEditTransition></span></h2></div>
       <div className="expanded-class-actions"><button className="primary-button" onClick={() => onAddAssignment(course)}><Plus size={15} />Add assignment</button><button className="secondary-button" onClick={() => onEditCourse(course, details)}>Edit class</button></div>
       </div>
-      <CoursePreviewRevealProvider key={previewGroupKey} participants={previewParticipants}><div className="expanded-class-grid">
+      <div className="expanded-class-grid">
         <section className="expanded-class-section expanded-class-details" aria-label="Course meeting notes"><h3>Meeting Notes</h3><CourseEditTransition revision={details.meetingNotes?.trim() || ""}><p>{details.meetingNotes?.trim() || "No meeting notes entered"}</p></CourseEditTransition></section>
         <section className="expanded-class-section expanded-class-schedule" aria-label="Course schedule">
           <div className={`expanded-class-meetings${details.meetings.length % 2 === 1 ? " expanded-class-meetings-odd" : ""}`}><CourseEditTransitionList>{details.meetings.length ? details.meetings.map((meeting, index) => <div className="expanded-class-meeting" key={meeting.id}><CourseEditTransition revision={meeting.name || `Meeting ${index + 1}`}><h3>{meeting.name || `Meeting ${index + 1}`}</h3></CourseEditTransition><p><CourseEditTransition revision={meetingDays(meeting.days)}><span>{meetingDays(meeting.days)}</span></CourseEditTransition><br /><CourseEditTransition revision={`${meetingTime(meeting.start)}–${meetingTime(meeting.end)}`}><span>{meetingTime(meeting.start)}–{meetingTime(meeting.end)}</span></CourseEditTransition><br /><CourseEditTransition revision={formatExpandedMeetingLocation(meeting.location || course.room)}><span>{formatExpandedMeetingLocation(meeting.location || course.room) || "No location entered"}</span></CourseEditTransition></p><CourseEditTransition revision={meeting.location || course.room}><MeetingLocationPreview location={meeting.location || course.room} previewKey={meetingPreviewKey(meeting.id, meeting.location || course.room)} /></CourseEditTransition></div>) : [<p key="empty">No recurring meetings entered.</p>]}</CourseEditTransitionList></div>
@@ -116,8 +120,8 @@ export default function CourseDetail({
           <CourseEditTransition revision={JSON.stringify([syllabusFile?.id, syllabusFile?.content_revision, syllabusFile ? null : details.syllabusText])}><div className="expanded-class-syllabus-preview" role="region" aria-label="Syllabus preview">{!hasSyllabusPreview ? <div className="expanded-class-syllabus-empty"><X size={36} aria-hidden="true" /><span>No Uploaded Syllabus</span></div> : <CourseSyllabusPreview file={syllabusFile} text={details.syllabusText || ""} store={store} previewKey={syllabusPreviewKey} pending={syllabusPending} />}</div></CourseEditTransition>
           <CourseEditTransition revision={JSON.stringify([Boolean(syllabusFile), details.syllabusText])}>{syllabusFile && details.syllabusText ? <details className="expanded-class-syllabus-text"><summary>Saved syllabus text</summary><pre className="syllabus-source">{details.syllabusText}</pre></details> : null}</CourseEditTransition>
         </section>
-      </div></CoursePreviewRevealProvider>
+      </div>
       <section className="expanded-class-section"><h3>Assignments</h3><AssignmentTable items={items} compact courseFor={getCourse} onSelectAssignment={onSelectAssignment} /></section>
     </div>
-  </>}</ClassCardExpansion>;
+  </CoursePreviewRevealProvider></>}</ClassCardExpansion>;
 }

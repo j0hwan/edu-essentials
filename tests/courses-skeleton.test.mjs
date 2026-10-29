@@ -583,8 +583,17 @@ test("a restored syllabus stays blurred while file metadata loads instead of fla
     assert.equal(preview.querySelector(".course-preview-placeholder").getAttribute("src"), SYLLABUS_PREVIEW_PLACEHOLDER);
     assert.equal(rootNode.querySelector(".expanded-class-syllabus-empty"), null, "pending file metadata is not an empty syllabus");
     assert.doesNotMatch(rootNode.querySelector('[aria-label="Course syllabus"]').textContent, /file is unavailable/);
+    const body = rootNode.querySelector(".expanded-class-body");
+    const header = rootNode.querySelector(".expanded-class-header");
+    const close = header.querySelector("button");
+    close.focus();
+    body.scrollTop = 175;
     api.releaseFiles([]);
     await waitFor(() => rootNode.querySelector(".expanded-class-syllabus-empty"), "the terminal missing-file state");
+    assert.equal(rootNode.querySelector(".expanded-class-body"), body, "metadata resolution preserves the scroller and its attached listeners");
+    assert.equal(body.scrollTop, 175);
+    assert.equal(rootNode.querySelector(".expanded-class-header"), header);
+    assert.equal(document.activeElement, close, "the close button keeps focus while previews settle");
     assert.match(rootNode.querySelector('[aria-label="Course syllabus"]').textContent, /file is unavailable/);
   } finally {
     if (root) await act(async () => root.unmount());
@@ -744,14 +753,15 @@ test("a restored expanded course bypasses the compact-image gate without losing 
     const dashboardRoot = rootNode.querySelector("main > .dashboard-reflow");
     assert.equal(dashboardRoot?.getAttribute("data-restored-course"), "true", "the restored dashboard keeps its entrance state");
     assert.equal(dashboardRoot?.getAttribute("data-images-pending"), null);
-    assert.equal(rootNode.querySelector(".class-card-expansion-content .private-class-image"), null, "the expanded fallback renders before the held metadata list");
+    assert.equal(rootNode.querySelector(".class-card-expansion-content img.private-class-image"), null, "the expanded fallback renders before the held metadata list");
+    assert.equal(rootNode.querySelector(".expanded-course-image-reveal.is-ready"), null, "the shared reveal waits for image metadata");
     assert.equal(api.imageCalls, 0, "selected-course restoration does not wait for the compact card image");
 
     api.releaseFiles();
     await waitFor(() => api.imageCalls > 0, "the expanded course image request");
     api.releaseImage();
-    await waitFor(() => rootNode.querySelector(".class-card-expansion-content .private-class-image"), "the expanded image to mount");
-    const expandedImage = rootNode.querySelector(".class-card-expansion-content .private-class-image");
+    await waitFor(() => rootNode.querySelector(".class-card-expansion-content img.private-class-image"), "the expanded image to mount");
+    const expandedImage = rootNode.querySelector(".expanded-course-image-reveal");
     assert.ok(expandedImage.classList.contains("private-class-image-fade"), "the expanded image keeps its restored blur and fade entrance");
     assert.equal(rootNode.querySelector(".courses-skeleton"), null, "loading an expanded image does not restore the full-page skeleton");
   } finally {

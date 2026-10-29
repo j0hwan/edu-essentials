@@ -5,6 +5,7 @@ import { clearCourseImageThumbnail, matchesCourseImageThumbnail, readCourseImage
 import type { PrivateFile } from "../lib/files";
 import { PrivateImage } from "./private-files";
 import type { FileStore } from "./use-private-files";
+import { useCoursePreviewReveal } from "./course-preview-reveal";
 
 type Props = {
   profileId: string;
@@ -14,6 +15,7 @@ type Props = {
   filesReady: boolean;
   restored: boolean;
   cacheEnabled?: boolean;
+  previewKey?: string;
 };
 
 type ActiveImage = {
@@ -39,10 +41,15 @@ function isReadyCourseImage(file: PrivateFile | undefined, courseId: string): fi
     && file.mime_type.startsWith("image/"));
 }
 
-export default function ExpandedCourseImage({ profileId, courseId, file, store, filesReady, restored, cacheEnabled = true }: Props) {
+export default function ExpandedCourseImage({ profileId, courseId, file, store, filesReady, restored, cacheEnabled = true, previewKey }: Props) {
+  const { revealed, settle, coordinated } = useCoursePreviewReveal(previewKey);
+  const coordinateReveal = restored && previewKey !== undefined && coordinated;
   const scope = scopeKey(profileId, courseId);
   const thumbnail = cacheEnabled ? readCourseImageThumbnail(profileId, courseId) : null;
   const readyFile = isReadyCourseImage(file, courseId) ? file : undefined;
+  useLayoutEffect(() => {
+    if (coordinateReveal && filesReady && !readyFile) settle();
+  }, [coordinateReveal, filesReady, readyFile, settle]);
   const matchesCurrentFile = Boolean(thumbnail
     && isReadyCourseImage(file, courseId)
     && matchesCourseImageThumbnail(thumbnail, file));
@@ -73,8 +80,12 @@ export default function ExpandedCourseImage({ profileId, courseId, file, store, 
     writeCourseImageThumbnail(active.profileId, active.courseId, active.file, image);
   }, []);
 
+  const fullImage = readyFile && <PrivateImage file={readyFile} store={store} fadeIn={restored && !coordinateReveal} onDecoded={cacheEnabled ? saveThumbnail : undefined} onSettled={coordinateReveal ? settle : undefined} />;
+
   return <>
     {showThumbnail && <img className="private-class-image-thumbnail" src={thumbnail!.dataUrl} alt="" aria-hidden="true" />}
-    {readyFile && <PrivateImage file={readyFile} store={store} fadeIn={restored} onDecoded={cacheEnabled ? saveThumbnail : undefined} />}
+    {coordinateReveal
+      ? <div className={`expanded-course-image-reveal private-class-image private-class-image-fade${revealed ? " is-ready" : ""}`}>{fullImage}</div>
+      : fullImage}
   </>;
 }

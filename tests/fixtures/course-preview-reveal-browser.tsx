@@ -6,6 +6,7 @@ import { CoursePreviewRevealProvider as RevealProvider } from "../../app/course-
 import ExpandedCourseSkeleton from "../../app/expanded-course-skeleton";
 import MeetingLocationPreview from "../../app/meeting-location-preview";
 import CourseSyllabusPreview from "../../app/course-syllabus-preview";
+import ExpandedCourseImage from "../../app/expanded-course-image";
 
 declare global {
   interface Window {
@@ -16,6 +17,7 @@ declare global {
       pageCount: number;
       blobDelivered: boolean;
       releaseWorkspace?: () => void;
+      releaseHeaderImage: () => void;
     };
     __startCourseRestoration?: boolean;
     __unmountCoursePreviewFixture: () => void;
@@ -87,12 +89,26 @@ const syllabus: PrivateFile = {
   original_folder_id: null,
 };
 const store = {
-  blob: () => syllabusBlob.then((blob) => {
+  blob: (file: PrivateFile) => file.kind === "class-image" ? headerBlob : syllabusBlob.then((blob) => {
     window.__coursePreviewFixture.blobDelivered = true;
     return blob;
   }),
   url: () => "/private/syllabus.pdf",
 } as unknown as FileStore;
+
+const headerImage: PrivateFile = { ...syllabus, id: "22222222-2222-4222-8222-222222222222", kind: "class-image", name: "Course image.png", mime_type: "image/png" };
+let releaseHeaderImage: () => void;
+const headerBlob = new Promise<Blob>((resolve) => {
+  releaseHeaderImage = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 48;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#5678ab";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => resolve(blob!), "image/png");
+  };
+});
 
 window.__coursePreviewFixture = {
   resolveLocation(address) {
@@ -111,6 +127,7 @@ window.__coursePreviewFixture = {
   },
   pageCount: 2,
   blobDelivered: false,
+  releaseHeaderImage: () => releaseHeaderImage(),
 };
 
 import { useCoursePreviewPlaceholders } from "../../app/use-course-preview-placeholders";
@@ -125,9 +142,14 @@ function Fixture() {
   }, []);
   const placeholderAssets = useCoursePreviewPlaceholders(window.__startCourseRestoration === true, "fixture-restoration");
   if (loading || !placeholderAssets.ready) return <ExpandedCourseSkeleton />;
-  return <RevealProvider participants={participants}>
+  return <RevealProvider participants={window.__startCourseRestoration ? [...participants, "header"] : participants}>
     <main className="course-preview-fixture">
       <header><p>COURSE PREVIEW</p><h1>Shared reveal</h1><span>Map snapshots and the course syllabus become visible together.</span></header>
+      {window.__startCourseRestoration && <div style={{ position: "relative", height: 160 }} data-preview-name="header">
+        <div className="course-image-frame" style={{ objectPosition: "25% 65%" }}>
+          <ExpandedCourseImage profileId="fixture-profile" courseId="course-preview-fixture" file={headerImage} store={store} filesReady restored cacheEnabled={false} previewKey="header" />
+        </div>
+      </div>}
       <div className="course-preview-fixture-grid">
         <section className="course-preview-fixture-card" data-preview-name="map-one">
           <h2>Weekly meeting</h2>

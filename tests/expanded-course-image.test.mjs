@@ -27,9 +27,9 @@ Object.defineProperty(HTMLImageElement.prototype, "naturalHeight", { configurabl
 Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { configurable: true, value: () => ({ drawImage() {} }) });
 Object.defineProperty(HTMLCanvasElement.prototype, "toDataURL", { configurable: true, value: () => "data:image/jpeg;base64,YQ==" });
 
-const [{ createElement, act }, { createRoot }, { default: ExpandedCourseImage }, { PrivateImage }] = await Promise.all([
+const [{ createElement, act }, { createRoot }, { default: ExpandedCourseImage }, { PrivateImage }, { CoursePreviewRevealProvider, useCoursePreviewReveal }] = await Promise.all([
   import("react"), import("react-dom/client"), import(await clientModule("app/expanded-course-image.tsx")),
-  import(await clientModule("app/private-files.tsx")),
+  import(await clientModule("app/private-files.tsx")), import(await clientModule("app/course-preview-reveal.tsx")),
 ]);
 
 const PROFILE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -87,6 +87,21 @@ function deferred() {
   let resolve;
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
+}
+
+function RevealProbe({ participant }) {
+  const { revealed, settle } = useCoursePreviewReveal(participant);
+  return createElement("button", {
+    type: "button", "data-participant": participant, "data-revealed": String(revealed),
+    onClick: settle,
+  }, participant);
+}
+
+function coordinatedImage(participants, imageProps, ...siblings) {
+  return createElement(CoursePreviewRevealProvider, { participants },
+    createElement(ExpandedCourseImage, { ...imageProps, previewKey: "header" }),
+    ...siblings,
+  );
 }
 
 function setCached(profileId = PROFILE_A, courseId = COURSE_A, currentFile = file()) {
@@ -248,4 +263,85 @@ test("PrivateImage notifies an optional observer once per URL when fadeIn is dis
     onDecoded: (source) => noticed.push(source.src),
   })));
   assert.deepEqual(noticed, [image.src], "rerendering the same source does not notify twice");
+});
+
+test("restored course image joins the shared reveal barrier in either settlement order", async () => {
+  for (const headerFirst of [true, false]) {
+    reset();
+    setCached();
+    const decoded = deferred();
+    nextDecode = decoded;
+    const currentFile = file();
+    const renderCoordinated = () => act(async () => root.render(coordinatedImage(
+      ["header", "map", "syllabus"], props({ file: currentFile, filesReady: true }),
+      createElement(RevealProbe, { key: "map", participant: "map" }),
+      createElement(RevealProbe, { key: "syllabus", participant: "syllabus" }),
+    )));
+    await renderCoordinated();
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const wrapper = rootNode.querySelector(".expanded-course-image-reveal.private-class-image-fade");
+    assert.ok(wrapper, "the restored image has a coordinated reveal wrapper");
+    assert.equal(wrapper.classList.contains("is-ready"), false);
+    assert.equal(rootNode.querySelector("img.private-class-image-fade"), null, "the inner image does not run an independent fade");
+    assert.ok(rootNode.querySelector("img.private-class-image-thumbnail"), "the cached blurred thumbnail remains below the coordinated wrapper");
+
+    const settle = async (key) => act(async () => {
+      rootNode.querySelector(`[data-participant="${key}"]`).dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+    if (headerFirst) {
+      await act(async () => { decoded.resolve(); await decoded.promise; await Promise.resolve(); });
+      assert.equal(rootNode.querySelector(".expanded-course-image-reveal").classList.contains("is-ready"), false, "header completion alone cannot release maps and syllabus");
+      await settle("map");
+      assert.equal(rootNode.querySelector(".expanded-course-image-reveal").classList.contains("is-ready"), false);
+      await settle("syllabus");
+    } else {
+      await settle("map");
+      await settle("syllabus");
+      assert.equal(rootNode.querySelector(".expanded-course-image-reveal").classList.contains("is-ready"), false, "other previews cannot reveal the header before its image settles");
+      await act(async () => { decoded.resolve(); await decoded.promise; await Promise.resolve(); });
+    }
+    assert.equal(rootNode.querySelector(".expanded-course-image-reveal").classList.contains("is-ready"), true);
+    await unmount();
+  }
+});
+
+test("a completed metadata lookup with no eligible image settles the coordinated header fallback", async () => {
+  reset();
+  const renderCoordinated = (imageProps) => act(async () => root.render(coordinatedImage(
+    ["header", "map", "syllabus"], props(imageProps),
+    createElement(RevealProbe, { key: "map", participant: "map" }),
+    createElement(RevealProbe, { key: "syllabus", participant: "syllabus" }),
+  )));
+  await renderCoordinated({ file: undefined, filesReady: false });
+  assert.equal(rootNode.querySelector(".expanded-course-image-reveal").classList.contains("is-ready"), false, "pending metadata cannot settle the header participant");
+  await renderCoordinated({ file: undefined, filesReady: true });
+  assert.equal(rootNode.querySelector(".expanded-course-image-reveal").classList.contains("is-ready"), false, "the empty state settles the header but remains gated by other participants");
+  const map = rootNode.querySelector('[data-participant="map"]');
+  const syllabus = rootNode.querySelector('[data-participant="syllabus"]');
+  assert.equal(map.getAttribute("data-revealed"), "false", "the fallback only settles the header participant");
+  await act(async () => map.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  assert.equal(rootNode.querySelector('[data-participant="map"]').getAttribute("data-revealed"), "false");
+  await act(async () => syllabus.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  assert.equal(rootNode.querySelector('[data-participant="map"]').getAttribute("data-revealed"), "true", "the completed no-image fallback lets the other participants release the group");
+});
+
+test("a coordinated image error settles its header participant", async () => {
+  reset();
+  const currentFile = file();
+  const store = { blob: async () => new Blob(["broken image"], { type: "image/png" }) };
+  await act(async () => root.render(coordinatedImage(
+    ["header", "map"], props({ file: currentFile, filesReady: true, store }),
+    createElement(RevealProbe, { key: "map", participant: "map" }),
+  )));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  const wrapper = rootNode.querySelector(".expanded-course-image-reveal.private-class-image-fade");
+  assert.ok(wrapper);
+  assert.equal(wrapper.classList.contains("is-ready"), false);
+  const image = rootNode.querySelector("img.private-class-image");
+  assert.ok(image);
+  Object.defineProperty(image, "complete", { configurable: true, value: false });
+  await act(async () => image.dispatchEvent(new dom.window.Event("error")));
+  assert.equal(rootNode.querySelector(".expanded-course-image-reveal.private-class-image-fade").classList.contains("is-ready"), false, "the error settles only the header; the map still blocks the shared barrier");
+  await act(async () => rootNode.querySelector('[data-participant="map"]').dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  assert.equal(rootNode.querySelector(".expanded-course-image-reveal.private-class-image-fade").classList.contains("is-ready"), true);
 });

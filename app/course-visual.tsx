@@ -22,6 +22,7 @@ export type CourseVisualProps = {
   cacheEnabled: boolean;
   close?: () => void;
   onImageSettled?: (key: string) => void;
+  imagePreviewKey?: string;
 };
 
 export default function CourseVisual({
@@ -35,10 +36,11 @@ export default function CourseVisual({
   cacheEnabled,
   close,
   onImageSettled,
+  imagePreviewKey,
 }: CourseVisualProps) {
   return <div className={`class-card-visual${close ? " expanded-class-header" : ""}`}>
     <CourseEditTransition revision={JSON.stringify([course.soft, course.color, image?.id, image?.content_revision, details?.imageFraming])}><div className="class-card-media" data-course-morph="visual" aria-hidden="true" style={{ background: `linear-gradient(135deg, ${course.soft}, color-mix(in srgb, ${course.color} 18%, white))` }}>
-      <CourseImageFrame framing={details?.imageFraming} fileId={image?.id} courseId={course.id} expanded={Boolean(close)}>{close ? <ExpandedCourseImage profileId={profileId} courseId={course.id} file={image} store={store} filesReady={filesReady} restored={restored} cacheEnabled={cacheEnabled} /> : image ? <PrivateImage key={image.id} file={image} store={store} onSettled={onImageSettled ? () => onImageSettled(courseImageLoadKey(image)) : undefined} /> : null}</CourseImageFrame>
+      <CourseImageFrame framing={details?.imageFraming} fileId={image?.id} courseId={course.id} expanded={Boolean(close)}>{close ? <ExpandedCourseImage profileId={profileId} courseId={course.id} file={image} store={store} filesReady={filesReady} restored={restored} cacheEnabled={cacheEnabled} previewKey={imagePreviewKey} /> : image ? <PrivateImage key={image.id} file={image} store={store} onSettled={onImageSettled ? () => onImageSettled(courseImageLoadKey(image)) : undefined} /> : null}</CourseImageFrame>
     </div></CourseEditTransition>
     <CourseEditTransition revision={course.initials}><span className="course-watermark" data-course-morph="watermark" aria-hidden="true">{course.initials}</span></CourseEditTransition><CourseEditTransition revision={JSON.stringify([course.code, course.color])}><span className="course-pill" data-course-morph="code" style={{ color: course.color }}>{course.code}</span></CourseEditTransition><CourseEditTransition revision={JSON.stringify([details?.icon, course.color])}><CourseIcon icon={details?.icon} data-course-morph="icon" size={close ? 44 : 34} style={{ color: course.color }} aria-hidden="true" /></CourseEditTransition>
     {close && <button className="secondary-button" onClick={close}>Close class <X size={15} /></button>}

@@ -321,11 +321,14 @@ async function runScenario(reducedMotion = false) {
   return { reducedMotion, before, blobDelivered, heldPdfResult, during, revealed, after, pageErrors };
 }
 
-async function runRestorationScenario() {
+async function runRestorationScenario(imageLast = true, reducedMotion = false) {
   const page = await browser.newPage({ viewport: { width: 1120, height: 1280 } });
   const errors = [];
   const heldAssets = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const mapRoutes = [];
+  await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
+  await page.route("https://maps.google.com/**", (route) => { mapRoutes.push(route); });
   await page.route("**/preview-placeholders/*", (route) => { heldAssets.push(route); });
   await page.addInitScript(() => { window.__startCourseRestoration = true; });
   await page.goto(`http://127.0.0.1:${serverAddress.port}`, { waitUntil: "domcontentloaded" });
@@ -351,9 +354,44 @@ async function runRestorationScenario() {
   assert.ok(restored.placeholders.every((image) => image.complete && image.width > 0), "actual placeholders are available at handoff");
   assert.equal(restored.readySurfaces, 0, "placeholder handoff does not reveal pending real content");
   assert.equal(restored.skeletonPresent, false);
+  await page.evaluate(() => {
+    window.__restoredRevealStarts = [];
+    new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.target instanceof HTMLElement && record.target.matches(".course-preview-content.is-ready, .expanded-course-image-reveal.is-ready")) {
+          window.__restoredRevealStarts.push(performance.now());
+        }
+      }
+    }).observe(document.getElementById("root"), { subtree: true, attributes: true, attributeFilter: ["class"] });
+  });
+  if (!imageLast) {
+    await page.evaluate(() => window.__coursePreviewFixture.releaseHeaderImage());
+    await page.waitForFunction(() => document.querySelector(".expanded-course-image-reveal img")?.naturalWidth > 0);
+    assert.equal(await page.locator(".expanded-course-image-reveal.is-ready").count(), 0, "a loaded header waits for maps and syllabus");
+  }
+  await page.waitForFunction(() => window.__coursePreviewFixture.locationRequests.length === 2);
+  await page.evaluate(() => {
+    window.__coursePreviewFixture.resolveLocation("101 College Ave, Davis, California");
+    window.__coursePreviewFixture.resolveLocation("202 College Ave, Davis, California");
+    window.__coursePreviewFixture.releaseSyllabusBlob();
+  });
+  await waitUntil(() => mapRoutes.length === 2, "Restored maps should request frames");
+  await Promise.all(mapRoutes.map((route) => route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><p>Course map</p>" })));
+  await page.waitForFunction(() => window.__coursePreviewPdfWorkerResultAvailable === true, undefined, { timeout: 20_000 });
+  await page.evaluate(() => window.__releaseCoursePreviewPdfWorkerResult());
+  await page.waitForFunction(() => document.querySelector('.private-pdf-preview [data-page="1"] img')?.naturalWidth > 0);
+  if (imageLast) {
+    assert.equal(await page.locator(".course-preview-content.is-ready").count(), 0, "maps and syllabus wait for the header");
+    await page.evaluate(() => window.__coursePreviewFixture.releaseHeaderImage());
+  }
+  await page.waitForFunction(() => document.querySelectorAll(".course-preview-content.is-ready, .expanded-course-image-reveal.is-ready").length === 4);
+  const starts = await page.evaluate(() => window.__restoredRevealStarts);
+  assert.equal(starts.length, 4, "every restored media surface joins the shared reveal");
+  assert.ok(Math.max(...starts) - Math.min(...starts) < 16, "header, maps, and syllabus start revealing in the same frame");
+  assert.equal(await page.locator(".expanded-course-image-reveal img").evaluate((image) => getComputedStyle(image).objectPosition), "25% 65%", "the coordinated wrapper preserves the saved image framing");
   assert.deepEqual(errors, []);
   await page.close();
-  return { restored, errors };
+  return { imageLast, reducedMotion, restored, starts, errors };
 }
 
 try {
@@ -366,7 +404,9 @@ try {
   const standard = await runScenario(false);
   const reduced = await runScenario(true);
   const restoration = await runRestorationScenario();
-  console.log(JSON.stringify({ worker: basename(workerFiles[0].path), workerBytes: workerBytes.length, standard, reduced, restoration, screenshots: screenshotDir }, null, 2));
+  const restorationImageFirst = await runRestorationScenario(false);
+  const restorationReduced = await runRestorationScenario(true, true);
+  console.log(JSON.stringify({ worker: basename(workerFiles[0].path), workerBytes: workerBytes.length, standard, reduced, restoration, restorationImageFirst, restorationReduced, screenshots: screenshotDir }, null, 2));
 } finally {
   await browser?.close();
   await new Promise((resolveClose) => server.close(resolveClose));

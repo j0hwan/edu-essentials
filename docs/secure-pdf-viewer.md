@@ -141,10 +141,17 @@ fallback. Avoid adding nested scroll containers when embedding the viewer.
 
 The expanded course coordinates its syllabus and meeting previews with
 `CoursePreviewRevealProvider`. Each current source has a participant key; a
-source, course, profile, or session change creates a fresh group. Maps report
+source change updates the readiness group without remounting the header or body;
+course, profile, and session changes create a fresh group. Maps report
 their iframe load or terminal fallback. `InlineFilePreview.onPreviewSettled`
 waits for image decode, text, a terminal failure, or `PdfPreview.onSettled` after
 the first PDF page's PNG decodes. Later lazy PDF pages do not block the group.
+On a restored expansion, the top course image also participates: its full-size
+image must decode or reach its existing terminal fallback before any of these
+surfaces reveal. A ready top image likewise stays masked while maps or the
+syllabus are pending. Cached blurred thumbnails remain underneath it. Missing
+images settle only after file discovery completes; ordinary card opens retain
+their existing image transition.
 
 All surfaces reveal together using the header image's gradient-mask animation,
 with the same reduced-motion behavior. While waiting, local map samples are
@@ -164,7 +171,8 @@ barrier rather than briefly displaying the empty-syllabus state. Successful or
 failed metadata resolution then follows the usual preview/fallback path.
 After building, `node scripts/verify-course-preview-reveal.mjs` verifies the
 shared animation with controlled map responses and a real PDF worker, including
-reduced motion and the restoration-skeleton placeholder handoff. It accepts the same browser-tooling environment variables as
+reduced motion, the restoration-skeleton placeholder handoff, and both header-first
+and header-last restored-media loading orders. It accepts the same browser-tooling environment variables as
 the PDF pixel verifier below.
 
 ## Regression checks

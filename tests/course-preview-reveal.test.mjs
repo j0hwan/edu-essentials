@@ -13,9 +13,11 @@ test("course preview reveal waits for every listed participant and ignores stale
   const { CoursePreviewPlaceholder, CoursePreviewRevealProvider, MAP_PREVIEW_PLACEHOLDERS, SYLLABUS_PREVIEW_PLACEHOLDER, useCoursePreviewReveal } = revealModule;
   const rootNode = document.getElementById("root");
   const root = createRoot(rootNode);
+  const callbacks = new Map();
 
   function Probe({ participantKey }) {
     const { revealed, settle, coordinated } = useCoursePreviewReveal(participantKey);
+    callbacks.set(participantKey, settle);
     const firstSettle = useRef(settle);
     return createElement("div", {
       "data-participant": participantKey ?? "observer",
@@ -72,6 +74,26 @@ test("course preview reveal waits for every listed participant and ignores stale
   assert.equal(revealFor("alpha"), "false");
   await render(["alpha"], ["alpha"], "third");
   assert.equal(revealFor("alpha"), "true", "removing a blocked participant releases the remaining settled participants");
+
+  await render(["alpha", "beta"], ["alpha", "beta"], "stable-dom");
+  await act(async () => { settleFor("alpha"); settleFor("beta"); });
+  const oldBeta = callbacks.get("beta");
+  const section = rootNode.querySelector("section");
+  const focused = rootNode.querySelector('[data-participant="alpha"] button');
+  focused.focus();
+  section.scrollTop = 123;
+  await render(["alpha", "gamma"], ["alpha", "gamma"], "stable-dom");
+  assert.equal(rootNode.querySelector("section"), section, "changing sources preserves the scroll container");
+  assert.equal(section.scrollTop, 123);
+  assert.equal(document.activeElement, focused, "changing sources preserves focus on unchanged controls");
+  assert.equal(revealFor("alpha"), "false", "a replacement source blocks the retained ready participant");
+  await act(async () => settleFor("gamma"));
+  assert.equal(revealFor("alpha"), "true");
+  await render(["alpha", "beta"], ["alpha", "beta"], "stable-dom");
+  await act(async () => oldBeta());
+  assert.equal(revealFor("alpha"), "false", "a removed source cannot reuse settlement or a callback from its previous group");
+  await act(async () => settleFor("beta"));
+  assert.equal(revealFor("alpha"), "true");
 
   await render([], [], "fourth");
   assert.equal(revealFor("removed-participant"), "true", "an empty explicit participant list is immediately ready");

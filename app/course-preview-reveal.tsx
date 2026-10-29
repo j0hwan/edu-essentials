@@ -14,22 +14,24 @@ const CoursePreviewRevealContext = createContext<CoursePreviewRevealContextValue
 const noop = () => {};
 
 export function CoursePreviewRevealProvider({ participants, children }: { participants: string[]; children: ReactNode }) {
-  const participantSet = useMemo(() => new Set(participants), [participants]);
-  const participantSetRef = useRef(participantSet);
-  useLayoutEffect(() => { participantSetRef.current = participantSet; }, [participantSet]);
-  const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
+  const participantVersion = JSON.stringify([...new Set(participants)].sort());
+  const group = useMemo(() => ({ participants: new Set(JSON.parse(participantVersion) as string[]) }), [participantVersion]);
+  const [state, setState] = useState<{ group: typeof group; settled: ReadonlySet<string> }>(() => ({ group, settled: new Set() }));
+  if (state.group !== group) {
+    setState({ group, settled: new Set([...state.settled].filter((key) => group.participants.has(key))) });
+  }
 
   const settle = useCallback((participantKey: string) => {
-    if (!participantSetRef.current.has(participantKey)) return;
-    setSettled((current) => {
-      if (current.has(participantKey)) return current;
-      const next = new Set(current);
+    if (!group.participants.has(participantKey)) return;
+    setState((current) => {
+      if (current.group !== group || current.settled.has(participantKey)) return current;
+      const next = new Set(current.settled);
       next.add(participantKey);
-      return next;
+      return { group, settled: next };
     });
-  }, []);
+  }, [group]);
 
-  const revealed = [...participantSet].every((participantKey) => settled.has(participantKey));
+  const revealed = [...group.participants].every((participantKey) => state.settled.has(participantKey));
   const value = useMemo(() => ({ revealed, settle }), [revealed, settle]);
 
   return <CoursePreviewRevealContext.Provider value={value}>{children}</CoursePreviewRevealContext.Provider>;
