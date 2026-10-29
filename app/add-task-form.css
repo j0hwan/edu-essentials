@@ -1,0 +1,95 @@
+.add-task-backdrop {
+  z-index: 220;
+}
+
+.add-class-modal.add-task-form {
+  width: min(760px, 100%);
+  max-height: min(88dvh, calc(100dvh - 44px));
+  padding: 24px;
+}
+
+.add-task-form-header {
+  align-items: center;
+  gap: 12px;
+}
+
+.add-task-form-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+
+.add-task-course-context {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.add-task-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-top: 16px;
+}
+
+.add-task-form .add-task-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.add-task-field-wide {
+  grid-column: 1 / -1;
+}
+
+.add-task-form .add-task-field input,
+.add-task-form .add-task-field select,
+.add-task-form .add-task-field textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.add-task-form .add-task-field select:disabled {
+  cursor: not-allowed;
+  opacity: .64;
+}
+
+.add-task-error {
+  margin: 12px 0 0;
+}
+
+.add-task-actions {
+  justify-content: space-between;
+  padding-top: 18px;
+}
+
+.add-task-form button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+@media (max-width: 560px) {
+  .add-task-form-header h2 {
+    font-size: clamp(12px, 3.5vw, 16px);
+  }
+
+  .add-task-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .add-task-field-wide {
+    grid-column: auto;
+  }
+
+  .add-task-actions > button {
+    flex: 1;
+  }
+}

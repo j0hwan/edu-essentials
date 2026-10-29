@@ -2008,7 +2008,7 @@ test("class cards enlarge in place with all class tools and retain nested assign
     assert.equal(expanded.querySelector('.expanded-class-heading [data-course-morph="instructor"]').textContent, sampleCourse.instructor);
     for (const label of ["Lecture", "Meeting 2", "Assignments", "Syllabus"]) assert.ok(expanded.textContent.includes(label), label);
     const classActions = [...expanded.querySelectorAll(".expanded-class-heading .expanded-class-actions button")];
-    assert.deepEqual(classActions.map((button) => button.textContent.trim()), ["Add assignment", "Edit class"]);
+    assert.deepEqual(classActions.map((button) => button.textContent.trim()), ["Add Task", "Edit class"]);
     assert.ok(classActions[0].classList.contains("primary-button"));
     assert.ok(classActions[1].classList.contains("secondary-button"));
     assert.equal(classActions[1].querySelector("svg"), null);
@@ -2181,6 +2181,69 @@ test("dashboard class header keeps class and view controls and assignments can b
     assert.equal(server.dashboard.d.assignments.length, 1);
     assert.equal(server.dashboard.d.assignments[0].title, "Tasks-created essay");
     assert.equal(server.dashboard.d.assignments[0].courseId, sampleCourse.id);
+  } finally { if (root) await unmount(); }
+});
+
+test("expanded-course Add Task binds the course, requires due time, and saves task fields", async () => {
+  reset();
+  const otherCourse = { ...sampleCourse, id: "science", code: "SCI 101", name: "Science" };
+  const server = installWorkspaceServer(savedDashboard, [sampleCourse, otherCourse]);
+  try {
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${otherCourse.id}"]`).click());
+    await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Add Task");
+    const dialog = rootNode.querySelector('.add-task-form[role="dialog"]');
+    assert.ok(dialog, "the expanded course opens the dedicated task form");
+    assert.ok(dialog.textContent.includes(otherCourse.code));
+    assert.equal([...dialog.querySelectorAll("label")].some((label) => label.textContent.startsWith("Class")), false, "the class is bound without a selector");
+    assert.deepEqual([...dialog.querySelectorAll("label")].map((label) => label.firstChild.textContent.trim()), ["Task Title", "Task Description", "Due Date", "Due Time", "Type", "Weight Category"]);
+    assert.equal(field("Weight Category").disabled, true);
+    assert.equal(field("Due Time").required, true);
+    assert.equal(field("Due Time").value, "23:59", "new tasks default to 11:59 PM");
+    assert.equal(field("Due Date").required, true);
+    await edit("Task Title", "Lab report");
+    await edit("Task Description", "Explain the experiment results.");
+    await edit("Due Date", "2026-11-15");
+    await edit("Type", "Project");
+    await edit("Due Time", "");
+    await clickIn(dialog, "Add Task");
+    assert.equal(server.writes, 0, "a missing time cannot create a task");
+    assert.equal(dialog.checkValidity(), false);
+    await act(async () => dialog.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(server.writes, 0, "submit validation also rejects a missing time");
+    assert.ok(rootNode.contains(dialog));
+    await edit("Due Time", "23:59");
+    assert.equal(dialog.checkValidity(), true);
+    await clickIn(dialog, "Add Task");
+    await waitForWorkspaceSave(server);
+    assert.equal(rootNode.querySelector(".add-task-form"), null);
+    assert.equal(server.dashboard.d.assignments.length, 1);
+    const saved = server.dashboard.d.assignments[0];
+    assert.equal(saved.title, "Lab report");
+    assert.equal(saved.description, "Explain the experiment results.");
+    assert.equal(saved.courseId, otherCourse.id);
+    assert.equal(saved.dateKey, "2026-11-15");
+    assert.equal(saved.dueTime, "23:59");
+    assert.equal(saved.type, "Project");
+    assert.equal(saved.progress, 0);
+    assert.equal(saved.weight, "");
+    await click("Close class");
+    await waitUntil(() => !rootNode.querySelector('[aria-label="Class details"]'), "course closes before reload");
+    await saveAndReload();
+    assert.equal(server.dashboard.d.assignments[0].courseId, otherCourse.id);
+    await click("Dashboard");
+    await waitUntil(() => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`), "course cards after reload");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
+    await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Add Task");
+    await edit("Task Title", "Unsaved task");
+    window.confirm = () => false;
+    await clickIn(rootNode.querySelector(".add-task-form"), "Cancel");
+    assert.ok(rootNode.querySelector(".add-task-form"), "declining discard retains the draft");
+    window.confirm = () => true;
+    await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    assert.equal(rootNode.querySelector(".add-task-form"), null);
+    assert.equal(server.dashboard.d.assignments.length, 1, "canceling a task creates no record");
   } finally { if (root) await unmount(); }
 });
 

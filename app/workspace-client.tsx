@@ -362,7 +362,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const addClassChoiceRef = useRef<HTMLElement>(null);
   const transitionClassChoice = useClassSetupMotion(addClassChoiceRef, addClassOpen);
   const [classSetup, setClassSetup] = useState<{ course: Course; details?: CourseDetails; editing?: boolean; profileId: string; generation: number; initialBounds?: ClassSetupBounds } | null>(null);
-  const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent } | null>(null);
+  const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent; taskCourse?: Course } | null>(null);
   const [syllabusDraft, setSyllabusDraft] = useState<SyllabusDraft | null>(null);
   const [syllabusAttachment, setSyllabusAttachment] = useState<{ courseId: string; folderId: string | null; simple?: boolean; session?: { profileId: string; generation: number } } | null>(null);
   const [syllabusTextCourseId, setSyllabusTextCourseId] = useState<string | null>(null);
@@ -1033,7 +1033,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     if (value.course) accepted = commitAcademic([...courses.filter((c) => c.id !== value.course!.id), value.course], { courseDetails: { ...extraData.courseDetails, [value.course.id]: value.details ?? emptyCourseDetails() } });
     if (value.assignment) accepted = commitAcademic(courses, { assignments: [...storedAssignments.filter((a) => a.id !== value.assignment!.id), value.assignment] });
     if (value.event) accepted = commitAcademic(courses, { manualEvents: [...manualEvents.filter((e) => e.id !== value.event!.id), value.event] });
-    if (accepted) { setEditor(null); setSelectedAssignment(null); setSelectedClass(null); }
+    if (accepted) { setEditor(null); setSelectedAssignment(null); if (!value.taskCourse) setSelectedClass(null); }
     return accepted;
   };
   const persistClassSetup = async (course: Course, details: CourseDetails, generation: number) => {
@@ -1318,8 +1318,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   onClose={() => setSelectedClass(null)}
   onSelectAssignment={setSelectedAssignment}
   onAddAssignment={(course) => {
-    setSelectedClass(null);
-    setEditor({ assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: today, type: "Assignment", status: "later", progress: 0, description: "", weight: "" } });
+    setEditor({ taskCourse: course, assignment: { id: uid("assignment"), title: "", courseId: course.id, due: "", dateKey: "", dueTime: "23:59", type: "Assignment", status: "later", progress: 0, description: "", weight: "", notes: "", checklist: [false, false, false] } });
   }}
   onEditCourse={(course, details) => setClassSetup({ course, details, editing: true, profileId: profile.id, generation: workspaceLoadGeneration.current })}
   onViewSchedule={(courseId) => { setCalendarFilter(courseId); navigate("calendar"); }}
