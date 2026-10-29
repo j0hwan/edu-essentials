@@ -23,10 +23,14 @@ window.alert = () => {};
 window.scrollTo = () => {};
 
 const { createElement, act } = await import("react");
-const { createRoot } = await import("react-dom/client");
+const { createRoot, hydrateRoot } = await import("react-dom/client");
+const { renderToString } = await import("react-dom/server");
 const { validateProfile } = await import(await clientModule("lib/profile.ts"));
 const { encodeWorkspaceState } = await import(await clientModule("lib/workspace-codec.ts"));
 const { default: Workspace } = await import(await clientModule("app/workspace-client.tsx"));
+const { default: ExpandedCourseSkeleton } = await import(await clientModule("app/expanded-course-skeleton.tsx"));
+const { default: DashboardLoadTransition } = await import(await clientModule("app/dashboard-load-transition.tsx"));
+const { useCourseExpansion } = await import(await clientModule("app/use-course-expansion.ts"));
 const rootNode = document.getElementById("root");
 
 const profileId = "courses-skeleton-test-profile";
@@ -237,6 +241,48 @@ function assertCoursesSkeleton() {
   return skeleton;
 }
 
+function stubNavigationType(type) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.performance, "getEntriesByType");
+  Object.defineProperty(window.performance, "getEntriesByType", {
+    configurable: true,
+    value(entryType) { return entryType === "navigation" ? [{ type }] : []; },
+  });
+  return () => {
+    if (descriptor) Object.defineProperty(window.performance, "getEntriesByType", descriptor);
+    else delete window.performance.getEntriesByType;
+  };
+}
+
+function assertExpandedCourseSkeleton() {
+  const skeleton = rootNode.querySelector('.expanded-course-skeleton[role="status"][aria-label="Loading expanded course"]');
+  assert.ok(skeleton, "a saved-course reload exposes the dedicated expanded-course loading view");
+  assert.equal(skeleton.getAttribute("aria-busy"), "true");
+  assert.equal(rootNode.querySelector(".courses-skeleton"), null, "the dashboard grid skeleton is replaced while a saved expansion reloads");
+  assert.equal(skeleton.querySelectorAll("button, a, input, select, textarea, [tabindex]:not([tabindex='-1'])").length, 0, "the loading decoration has no actionable or focusable controls");
+  const decoration = skeleton.querySelector(".expanded-course-skeleton__decoration");
+  assert.equal(decoration?.getAttribute("aria-hidden"), "true", "the visual decoration is hidden from assistive technology");
+  assert.ok(decoration?.hasAttribute("inert"), "the visual decoration subtree is inert");
+  return skeleton;
+}
+
+function CourseExpansionTransitionHarness({ ready, courses = [] }) {
+  const expansion = useCourseExpansion({ profileId, page: "dashboard", courses, ready, persist: true });
+  return createElement(DashboardLoadTransition, {
+    ready,
+    restorationChecked: expansion.restorationChecked,
+    restoringCourseOnReload: expansion.restoringCourseOnReload,
+    imagesListed: true,
+    imageKeys: [],
+    children: () => expansion.selectedClass
+      ? createElement("section", {
+        className: "test-restored-course",
+        role: "dialog",
+        "data-restored": expansion.skipOpeningAnimation ? "true" : undefined,
+      }, expansion.selectedClass.name)
+      : createElement("main", { className: "test-regular-dashboard" }, "Regular Dashboard"),
+  });
+}
+
 test("Dashboard shows a dedicated skeleton during a held workspace read, then reveals saved classes", async () => {
   rootNode.replaceChildren();
   const api = installWorkspaceFetch();
@@ -404,6 +450,166 @@ test("a stalled private-file listing times out and releases the Dashboard skelet
   }
 });
 
+test("a reload with a saved course shows its detail skeleton until the workspace restores that course", async () => {
+  rootNode.replaceChildren();
+  const restoreNavigation = stubNavigationType("reload");
+  window.localStorage.setItem(`edu-dashboard-expanded-course:${profileId}`, course.id);
+  const api = installHeldDashboardFetch();
+  let root;
+  try {
+    root = await mountWorkspace();
+    await waitFor(() => api.workspaceCalls === 1 && api.fileListCalls > 0, "the held workspace and file-list reads");
+
+    assertExpandedCourseSkeleton();
+    assert.equal(rootNode.querySelector(".class-card-expansion-dialog"), null, "course details wait for authoritative workspace data");
+
+    api.releaseWorkspace();
+    await waitFor(() => rootNode.querySelector('.class-card-expansion-dialog[data-restored="true"]'), "the saved course detail");
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null, "hydration replaces the reload skeleton with the restored detail");
+    assert.equal(rootNode.querySelector(".courses-skeleton"), null, "the restored detail does not flash the compact dashboard grid");
+    assert.match(rootNode.querySelector(".class-card-expansion-dialog").textContent, /World History/);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    window.localStorage.removeItem(`edu-dashboard-expanded-course:${profileId}`);
+    restoreNavigation();
+  }
+});
+
+test("a reload whose saved course is missing falls back to the regular Dashboard", async () => {
+  rootNode.replaceChildren();
+  const restoreNavigation = stubNavigationType("reload");
+  const key = `edu-dashboard-expanded-course:${profileId}`;
+  window.localStorage.setItem(key, "deleted-course");
+  const api = installWorkspaceFetch();
+  let root;
+  try {
+    root = await mountWorkspace();
+    await waitFor(() => api.getCalls === 1, "the held workspace read");
+    assertExpandedCourseSkeleton();
+
+    api.releaseNext();
+    await waitFor(() => rootNode.querySelector('[data-course-card-id="course-loading-test"]'), "the regular Dashboard course card");
+    await waitFor(() => rootNode.querySelector(".courses-skeleton") === null, "the regular Dashboard to finish its empty image-list gate");
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null, "a deleted course does not leave a detail skeleton behind");
+    assert.equal(rootNode.querySelector(".class-card-expansion-dialog"), null, "a deleted course does not open unrelated details");
+    assert.equal(window.localStorage.getItem(key), null, "the stale saved selection is cleared");
+    assert.match(rootNode.querySelector('[data-course-card-id="course-loading-test"]').textContent, /World History/);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    window.localStorage.removeItem(key);
+    restoreNavigation();
+  }
+});
+
+test("ordinary navigation keeps the Dashboard grid skeleton while a saved course is loading", async () => {
+  rootNode.replaceChildren();
+  const restoreNavigation = stubNavigationType("navigate");
+  window.localStorage.setItem(`edu-dashboard-expanded-course:${profileId}`, course.id);
+  const api = installHeldDashboardFetch();
+  let root;
+  try {
+    root = await mountWorkspace();
+    await waitFor(() => api.workspaceCalls === 1 && api.fileListCalls > 0, "the held workspace and file-list reads");
+    assertCoursesSkeleton();
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null, "ordinary navigation does not use the reload-only detail skeleton");
+
+    api.releaseWorkspace();
+    await waitFor(() => rootNode.querySelector('.class-card-expansion-dialog[data-restored="true"]'), "the saved course detail after hydration");
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    window.localStorage.removeItem(`edu-dashboard-expanded-course:${profileId}`);
+    restoreNavigation();
+  }
+});
+
+test("navigating away removes the expanded-course skeleton during a held reload", async () => {
+  rootNode.replaceChildren();
+  const restoreNavigation = stubNavigationType("reload");
+  window.localStorage.setItem(`edu-dashboard-expanded-course:${profileId}`, course.id);
+  const api = installHeldDashboardFetch();
+  let root;
+  try {
+    root = await mountWorkspace();
+    await waitFor(() => api.workspaceCalls === 1, "the held workspace read");
+    assertExpandedCourseSkeleton();
+
+    await clickLink("/home");
+    await waitFor(() => window.location.pathname === "/home", "navigation to Home");
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null, "the reload detail skeleton leaves when Dashboard is no longer active");
+    assert.equal(rootNode.querySelector(".courses-skeleton"), null, "neither Dashboard skeleton leaks into Home");
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    window.localStorage.removeItem(`edu-dashboard-expanded-course:${profileId}`);
+    restoreNavigation();
+  }
+});
+
+test("SSR waits for the reload decision, then hydration chooses the expanded skeleton without a mismatch", async () => {
+  rootNode.replaceChildren();
+  const key = `edu-dashboard-expanded-course:${profileId}`;
+  window.localStorage.setItem(key, course.id);
+  const element = createElement(CourseExpansionTransitionHarness, { ready: false, courses: [] });
+  const serverMarkup = renderToString(element);
+  assert.equal(serverMarkup, "", "the server does not guess between the grid and expanded-course skeletons");
+  rootNode.innerHTML = serverMarkup;
+
+  // Keep the server output mounted for a short interval to model delayed client hydration.
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(rootNode.querySelector(".courses-skeleton"), null, "the grid skeleton is absent before the reload decision");
+  assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null, "the detail skeleton is also absent before the reload decision");
+
+  const restoreNavigation = stubNavigationType("reload");
+  const recoverableErrors = [];
+  let root;
+  try {
+    await act(async () => {
+      root = hydrateRoot(rootNode, element, { onRecoverableError: (error) => recoverableErrors.push(error) });
+    });
+    assertExpandedCourseSkeleton();
+    assert.deepEqual(recoverableErrors, [], "server and first-client renders match; restoration happens after hydration starts");
+
+    await act(async () => root.render(createElement(CourseExpansionTransitionHarness, { ready: true, courses: [course] })));
+    const detail = rootNode.querySelector('.test-restored-course[role="dialog"][data-restored="true"]');
+    assert.ok(detail, "ready workspace data replaces the loading view with restored course detail");
+    assert.match(detail.textContent, /World History/);
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null);
+    assert.equal(rootNode.querySelector(".courses-skeleton"), null);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    window.localStorage.removeItem(key);
+    restoreNavigation();
+  }
+});
+
+test("ordinary hydration still reveals the regular Dashboard skeleton after the decision", async () => {
+  rootNode.replaceChildren();
+  const serverMarkup = renderToString(createElement(CourseExpansionTransitionHarness, { ready: false, courses: [] }));
+  rootNode.innerHTML = serverMarkup;
+  const restoreNavigation = stubNavigationType("navigate");
+  const recoverableErrors = [];
+  let root;
+  try {
+    await act(async () => {
+      root = hydrateRoot(rootNode, createElement(CourseExpansionTransitionHarness, { ready: false, courses: [] }), {
+        onRecoverableError: (error) => recoverableErrors.push(error),
+      });
+    });
+    assertCoursesSkeleton();
+    assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null, "ordinary navigation remains on the compact Dashboard loading view");
+    assert.deepEqual(recoverableErrors, []);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+    restoreNavigation();
+  }
+});
+
 test("a restored expanded course bypasses the compact-image gate without losing its image entrance", async () => {
   rootNode.replaceChildren();
   window.localStorage.setItem(`edu-dashboard-expanded-course:${profileId}`, course.id);
@@ -551,6 +757,26 @@ test("Dashboard skeleton supports the reduced-motion rendering option", async ()
     const skeleton = rootNode.querySelector('.courses-skeleton[role="status"]');
     assert.ok(skeleton, "reduced-motion rendering retains the accessible skeleton");
     assert.ok(skeleton.classList.contains("courses-skeleton--reduced"), "reducedMotion applies the non-animated rendering modifier");
+  } finally {
+    if (root) await act(async () => root.unmount());
+    rootNode.replaceChildren();
+  }
+});
+
+test("expanded-course skeleton exposes its loading status and supports reduced motion", async () => {
+  rootNode.replaceChildren();
+  let root;
+  try {
+    root = createRoot(rootNode);
+    await act(async () => root.render(createElement(ExpandedCourseSkeleton, { reducedMotion: true })));
+    const skeleton = rootNode.querySelector('.expanded-course-skeleton[role="status"][aria-label="Loading expanded course"]');
+    assert.ok(skeleton, "the expanded-course loading view has an accessible status name");
+    assert.equal(skeleton.getAttribute("aria-busy"), "true");
+    assert.ok(skeleton.classList.contains("expanded-course-skeleton--reduced"), "reducedMotion applies the non-animated modifier");
+    assert.equal(skeleton.querySelectorAll("button, a, input, select, textarea, [tabindex]:not([tabindex='-1'])").length, 0);
+    const decoration = skeleton.querySelector(".expanded-course-skeleton__decoration");
+    assert.equal(decoration?.getAttribute("aria-hidden"), "true");
+    assert.ok(decoration?.hasAttribute("inert"));
   } finally {
     if (root) await act(async () => root.unmount());
     rootNode.replaceChildren();

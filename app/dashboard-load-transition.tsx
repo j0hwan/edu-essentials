@@ -3,9 +3,12 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PrivateFile } from "../lib/files";
 import CoursesSkeleton from "./courses-skeleton";
+import ExpandedCourseSkeleton from "./expanded-course-skeleton";
 
 type DashboardLoadTransitionProps = {
   ready: boolean;
+  restoringCourseOnReload?: boolean;
+  restorationChecked?: boolean;
   imagesListed: boolean;
   imageKeys: string[];
   reducedMotion?: boolean;
@@ -18,6 +21,8 @@ export function courseImageLoadKey(file: Pick<PrivateFile, "id" | "content_revis
 
 export function DashboardLoadTransition({
   ready,
+  restoringCourseOnReload = false,
+  restorationChecked = true,
   imagesListed,
   imageKeys,
   reducedMotion = false,
@@ -62,7 +67,11 @@ export function DashboardLoadTransition({
     }
   }, [pendingImages, ready, revealedOnce]);
 
-  if (!ready) return <CoursesSkeleton reducedMotion={reducedMotion} />;
+  // Browser storage determines the loading shape. Avoid sending the wrong grid in server HTML.
+  if (!ready && !restorationChecked) return null;
+  if (!ready) return restoringCourseOnReload
+    ? <ExpandedCourseSkeleton reducedMotion={reducedMotion} />
+    : <CoursesSkeleton reducedMotion={reducedMotion} />;
 
   // The callback reads refs only when a later image event invokes it.
   // eslint-disable-next-line react-hooks/refs

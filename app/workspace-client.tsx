@@ -444,7 +444,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return result.revision;
   }));
   const saveState = useSyncExternalStore(autosave.subscribe, autosave.getSnapshot, autosave.getSnapshot);
-  const { selectedClass, setSelectedClass, resetSelectedClass, clearSavedCourse, openDashboardCourse, skipOpeningAnimation } = useCourseExpansion({
+  const { selectedClass, setSelectedClass, resetSelectedClass, clearSavedCourse, openDashboardCourse, skipOpeningAnimation, restoringCourseOnReload, restorationChecked } = useCourseExpansion({
     profileId: initialProfile.id,
     page,
     courses,
@@ -1213,6 +1213,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         {page === "dashboard" && (saveState.ready || persistenceStatus === "loading") && <WorkspaceDashboard
   loadKey={`dashboard-load-${reloadAttempt}-${initialProfile.id}`}
   ready={saveState.ready && profile.id === initialProfile.id}
+  restoringCourseOnReload={restoringCourseOnReload}
+  restorationChecked={restorationChecked}
   imagesListed={Boolean(selectedClass) || dashboardView !== "cards" || courses.length === 0 || !fileStore.loading || Boolean(fileStore.error)}
   imageKeys={!selectedClass && dashboardView === "cards" ? [...courseImages.values()].filter((file): file is PrivateFile => Boolean(file)).map(courseImageLoadKey) : []}
   reducedMotion={profile.preferences.reducedMotion}

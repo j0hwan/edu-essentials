@@ -13,12 +13,26 @@ export function useCourseExpansion({ profileId, page, courses, ready, persist = 
 }) {
   const storageKey = courseExpansionStorageKey(profileId);
   const [selection, setSelection] = useState<{ profileId: string; page: string; course: Course; restored: boolean } | null>(null);
+  const [reloadProfileId, setReloadProfileId] = useState<string | null | undefined>(undefined);
   const previousContext = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     const context = JSON.stringify([profileId, page, ready, persist]);
     // Course edits must not reopen a course that the user explicitly closed.
     if (previousContext.current === context) return;
+    if (previousContext.current === null) {
+      let pendingProfileId: string | null = null;
+      if (!ready && page === "dashboard" && persist) {
+        try {
+          const navigation = window.performance.getEntriesByType?.("navigation")[0] as PerformanceNavigationTiming | undefined;
+          if (navigation?.type === "reload" && window.localStorage.getItem(storageKey)) pendingProfileId = profileId;
+        } catch { /* Use the regular dashboard loader when browser storage is unavailable. */ }
+      }
+      // Resolve browser-only restoration before paint; the server cannot choose a skeleton yet.
+      setReloadProfileId(pendingProfileId);
+    } else if (ready || page !== "dashboard" || !persist) {
+      setReloadProfileId(null);
+    }
     previousContext.current = context;
     let nextSelection = ready && selection?.profileId === profileId && selection.page === page ? selection : null;
     if (!nextSelection && page === "dashboard" && ready && persist) {
@@ -67,5 +81,6 @@ export function useCourseExpansion({ profileId, page, courses, ready, persist = 
   const resetSelectedClass = useCallback(() => setSelection(null), []);
   const selectedClass = selection?.profileId === profileId && selection.page === page ? courses.find((course) => course.id === selection.course.id) ?? selection.course : null;
   const skipOpeningAnimation = selectedClass !== null && selection?.restored === true;
-  return { selectedClass, setSelectedClass, resetSelectedClass, clearSavedCourse, openDashboardCourse, skipOpeningAnimation };
+  const restoringCourseOnReload = reloadProfileId === profileId && page === "dashboard" && !ready && persist;
+  return { selectedClass, setSelectedClass, resetSelectedClass, clearSavedCourse, openDashboardCourse, skipOpeningAnimation, restoringCourseOnReload, restorationChecked: reloadProfileId !== undefined };
 }

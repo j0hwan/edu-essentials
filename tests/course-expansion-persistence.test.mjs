@@ -44,6 +44,20 @@ async function unmount() {
   rootNode.replaceChildren();
 }
 
+async function withNavigationType(type, callback) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.performance, "getEntriesByType");
+  Object.defineProperty(window.performance, "getEntriesByType", {
+    configurable: true,
+    value(entryType) { return entryType === "navigation" ? [{ type }] : []; },
+  });
+  try {
+    await callback();
+  } finally {
+    if (descriptor) Object.defineProperty(window.performance, "getEntriesByType", descriptor);
+    else delete window.performance.getEntriesByType;
+  }
+}
+
 afterEach(async () => {
   await unmount();
   window.localStorage.clear();
@@ -113,6 +127,96 @@ test("remount waits for hydrated courses before restoring the saved course", asy
   await render({ courses: [courseA, courseB], ready: true });
   assert.equal(latest.selectedClass?.id, courseA.id, "hydrated course data unlocks restoration");
   assert.equal(latest.skipOpeningAnimation, true, "hydration restoration skips the entrance animation");
+});
+
+test("a reload with a saved course exposes the expanded-course loading state until hydration", async () => {
+  await withNavigationType("reload", async () => {
+    window.localStorage.setItem(storageKey("profile-one"), courseA.id);
+    await mount({ courses: [], ready: false });
+    assert.equal(latest.selectedClass, null, "course data is not read from an unloaded course list");
+    assert.equal(latest.restoringCourseOnReload, true, "the reload skeleton can replace the compact dashboard skeleton before paint");
+
+    await render({ courses: [courseA, courseB], ready: true });
+    assert.equal(latest.selectedClass?.id, courseA.id, "hydration restores the saved course");
+    assert.equal(latest.skipOpeningAnimation, true, "the restored course keeps its no-entrance state");
+    assert.equal(latest.restoringCourseOnReload, false, "the reload-only loading state ends as soon as workspace data is ready");
+  });
+});
+
+test("the reload-only loading state clears on navigation away and does not return in the same mount", async () => {
+  await withNavigationType("reload", async () => {
+    window.localStorage.setItem(storageKey("profile-one"), courseA.id);
+    await mount({ courses: [], ready: false });
+    assert.equal(latest.restoringCourseOnReload, true);
+
+    await render({ page: "home", courses: [], ready: false });
+    assert.equal(latest.restoringCourseOnReload, false, "leaving Dashboard clears the expanded skeleton state");
+    await render({ page: "dashboard", courses: [], ready: false });
+    assert.equal(latest.restoringCourseOnReload, false, "returning to Dashboard is a client navigation, not the initial reload");
+  });
+});
+
+test("only an initial reload with a saved ID for the active persistent profile enables the loading state", async () => {
+  await withNavigationType("navigate", async () => {
+    window.localStorage.setItem(storageKey("profile-one"), courseA.id);
+    await mount({ courses: [], ready: false });
+    assert.equal(latest.restoringCourseOnReload, false, "ordinary navigation uses the regular dashboard skeleton");
+  });
+  await unmount();
+  window.localStorage.clear();
+
+  await withNavigationType("reload", async () => {
+    window.localStorage.setItem(storageKey("profile-one"), courseA.id);
+    await mount({ courses: [], ready: false });
+    assert.equal(latest.restoringCourseOnReload, true, "a saved course for the active profile enables reload restoration");
+  });
+  await unmount();
+  window.localStorage.clear();
+
+  await withNavigationType("reload", async () => {
+    await mount({ courses: [], ready: false });
+    assert.equal(latest.restoringCourseOnReload, false, "a reload without a saved ID uses the regular dashboard skeleton");
+  });
+  await unmount();
+  window.localStorage.clear();
+
+  await withNavigationType("reload", async () => {
+    window.localStorage.setItem(storageKey("profile-one"), courseA.id);
+    await mount({ profileId: "profile-two", courses: [], ready: false });
+    assert.equal(latest.restoringCourseOnReload, false, "another profile cannot inherit a saved ID");
+  });
+  await unmount();
+  window.localStorage.clear();
+
+  await withNavigationType("reload", async () => {
+    window.localStorage.setItem(storageKey("profile-one"), courseA.id);
+    await mount({ courses: [], ready: false, persist: false });
+    assert.equal(latest.restoringCourseOnReload, false, "disabled persistence uses the regular dashboard skeleton");
+  });
+});
+
+test("a missing saved course falls back to the dashboard after the reload data arrives", async () => {
+  await withNavigationType("reload", async () => {
+    window.localStorage.setItem(storageKey("profile-one"), "deleted-course");
+    await mount({ courses: [], ready: false });
+    assert.equal(latest.restoringCourseOnReload, true, "the course cannot be checked until the course list is ready");
+
+    await render({ courses: [courseB], ready: true });
+    assert.equal(latest.restoringCourseOnReload, false);
+    assert.equal(latest.selectedClass, null, "a stale saved ID does not open an unrelated course");
+    assert.equal(window.localStorage.getItem(storageKey("profile-one")), null, "the stale saved ID is cleared");
+  });
+});
+
+test("manual course opens keep the regular entrance and never set the reload loading state", async () => {
+  await withNavigationType("reload", async () => {
+    await mount({ courses: [courseA], ready: true });
+    assert.equal(latest.restoringCourseOnReload, false, "a ready dashboard does not have a loading skeleton");
+    await act(async () => latest.setSelectedClass(courseA));
+    assert.equal(latest.selectedClass?.id, courseA.id);
+    assert.equal(latest.skipOpeningAnimation, false, "an explicit open keeps its normal entrance animation");
+    assert.equal(latest.restoringCourseOnReload, false, "a manual open never turns into the reload-only skeleton state");
+  });
 });
 
 test("expanded-course storage is scoped to the profile", async () => {

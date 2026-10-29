@@ -18,6 +18,8 @@ type StudyBriefProps = ComponentProps<typeof DashboardStudyBrief>;
 export type WorkspaceDashboardProps = {
   loadKey: string;
   ready: boolean;
+  restoringCourseOnReload?: boolean;
+  restorationChecked?: boolean;
   imagesListed: boolean;
   imageKeys: string[];
   reducedMotion: boolean;
@@ -54,6 +56,8 @@ export type WorkspaceDashboardProps = {
 export default function WorkspaceDashboard({
   loadKey,
   ready,
+  restoringCourseOnReload = false,
+  restorationChecked = true,
   imagesListed,
   imageKeys,
   reducedMotion,
@@ -86,7 +90,7 @@ export default function WorkspaceDashboard({
   onToggleView,
   onShowAllAssignments,
 }: WorkspaceDashboardProps) {
-  return <DashboardLoadTransition key={loadKey} ready={ready} imagesListed={imagesListed} imageKeys={imageKeys} reducedMotion={reducedMotion}>{(onImageSettled, imagesPending) => <AnimatedDashboard reflowKey={reflowKey} reducedMotion={reducedMotion} restoredCourse={skipOpeningAnimation} imagesPending={imagesPending}>
+  return <DashboardLoadTransition key={loadKey} ready={ready} restoringCourseOnReload={restoringCourseOnReload} restorationChecked={restorationChecked} imagesListed={imagesListed} imageKeys={imageKeys} reducedMotion={reducedMotion}>{(onImageSettled, imagesPending) => <AnimatedDashboard reflowKey={reflowKey} reducedMotion={reducedMotion} restoredCourse={skipOpeningAnimation} imagesPending={imagesPending}>
     <DashboardStudyBrief
       reflowKey={reflowKey}
       key={profileId}
