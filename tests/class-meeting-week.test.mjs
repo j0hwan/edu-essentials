@@ -44,6 +44,9 @@ async function renderInteractiveWeek(today, meetings) {
   return {
     dom,
     rootNode,
+    async update(today, meetings) {
+      await act(async () => root.render(createElement(ClassMeetingWeek, { meetings, today })));
+    },
     async close() {
       await act(async () => root.unmount());
       dom.window.close();
@@ -71,6 +74,30 @@ test("renders the current Sunday through Saturday, with matching meetings in ord
   ]);
   for (const day of days) assert.ok(day.querySelector("time"), "each tile exposes its ISO date through time[datetime]");
   dom.window.close();
+});
+
+test("marks exactly today's tile, including empty days and month or year boundaries", () => {
+  for (const today of ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2027-01-01", "2028-02-29"]) {
+    const { dom, root } = renderWeek(today, []);
+    const highlighted = root.querySelectorAll('li[aria-current="date"]');
+    assert.equal(highlighted.length, 1, `exactly one day is highlighted for ${today}`);
+    assert.equal(highlighted[0].querySelector("time").getAttribute("datetime"), today);
+    assert.equal(root.querySelectorAll("li:not([aria-current])").length, 6);
+    dom.window.close();
+  }
+});
+
+test("moves the current-day highlight when the local date changes", async () => {
+  const view = await renderInteractiveWeek("2026-11-04", []);
+  try {
+    const previous = view.rootNode.querySelector('li[aria-current="date"]');
+    await view.update("2026-11-05", []);
+    assert.equal(previous.hasAttribute("aria-current"), false);
+    assert.equal(view.rootNode.querySelectorAll('li[aria-current="date"]').length, 1);
+    assert.equal(view.rootNode.querySelector('li[aria-current="date"] time').getAttribute("datetime"), "2026-11-05");
+  } finally {
+    await view.close();
+  }
 });
 
 test("shows multiple meetings per day, truncates by Unicode codepoint, and labels full names", () => {

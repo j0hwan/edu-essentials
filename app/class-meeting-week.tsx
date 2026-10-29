@@ -23,7 +23,7 @@ export default function ClassMeetingWeek({ meetings, today }: { meetings: Meetin
         const name = meeting.name?.trim() || `Meeting ${meetingIndex + 1}`;
         return [{ id: meeting.id, name, label: Array.from(name.replace(/^Meeting (\d+)$/, "Meet$1")).slice(0, 5).join("") }];
       });
-      return <li key={date}>
+      return <li key={date} aria-current={date === today ? "date" : undefined}>
         <time dateTime={date} title={dateLabel(date, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}>{dateLabel(date, { weekday: "short" })}</time>
         <div className="expanded-class-weekday-meetings">
           <CourseEditTransitionList revisions={Object.fromEntries(scheduledMeetings.map((meeting) => [meeting.id, JSON.stringify([meeting.name, meeting.label])]))}>{scheduledMeetings.map((meeting) => <MeetingLabel key={meeting.id} name={meeting.name} label={meeting.label} />)}</CourseEditTransitionList>
