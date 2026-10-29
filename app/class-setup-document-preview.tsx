@@ -23,7 +23,7 @@ export default function ClassSetupDocumentPreview({ file, url }: { file: File; u
     };
   }, [file, plainText]);
 
-  return <div className="class-setup-document-preview" aria-label="Syllabus preview">
+  return <div className="class-setup-document-content">
     {pdf && url ? <PdfPreview key={url} data={file} name={file.name} downloadUrl={url} />
       : image && url ? <div role="img" aria-label={file.name} className="class-setup-document-image" style={{ backgroundImage: `url(${url})` }} />
         : plainText && !failed ? text === null ? <p role="status">Loading preview…</p> : <pre>{text}</pre>

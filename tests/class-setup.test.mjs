@@ -894,12 +894,18 @@ test("syllabus and image stay local until final save; syllabus is storage-only a
   const syllabus = new window.File(["Exam 2026-11-05"], "syllabus.txt", { type: "text/plain" });
   const image = new window.File(["image"], "biology.png", { type: "image/png" });
   await file("syllabus", syllabus); await file("image", image);
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-title").textContent, "Upload Successful");
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-name").textContent, "syllabus.txt");
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-name").title, "syllabus.txt");
+  assert.equal(host.querySelector(".class-setup-file, .class-setup-syllabus-file"), null);
   assert.equal(attempts, 0);
   assert.match(host.querySelector('[aria-label="Selected class cover"]').style.backgroundImage, /blob:class-cover/);
   await submit();
   assert.match(host.querySelector('[role="alert"]').textContent, /Upload failed/);
   assert.equal(button("Remove image").matches(":disabled"), true);
   assert.equal(button("Remove syllabus").matches(":disabled"), true);
+  await click("Remove syllabus");
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-name").textContent, "syllabus.txt", "a locked retry keeps the selected syllabus unchanged");
   await submit();
   assert.equal(attempts, 2);
   assert.equal(payloads[0][2].syllabus.id, payloads[1][2].syllabus.id);
@@ -1056,6 +1062,7 @@ test("syllabus PDF preview replaces and removes local object URLs without upload
     await mount(); await appearance();
     assert.ok(host.querySelector(".class-setup-document-empty"));
     await file("syllabus", new window.File(["pdf"], "syllabus.pdf", { type: "application/pdf" }));
+    assert.equal(host.querySelector(".class-setup-syllabus-upload-name").textContent, "syllabus.pdf");
     assert.equal(host.querySelector(".private-pdf-preview img").getAttribute("aria-label"), "syllabus.pdf, page 1");
     assert.equal(host.querySelector("iframe, embed, object"), null);
     assert.equal(calls, 0);
@@ -1065,7 +1072,12 @@ test("syllabus PDF preview replaces and removes local object URLs without upload
     await click("Remove syllabus");
     assert.equal(host.querySelector("iframe"), null);
     assert.ok(host.querySelector(".class-setup-document-empty"));
+    assert.equal(host.querySelector(".class-setup-syllabus-upload-title"), null);
+    assert.equal(calls, 0, "removing a syllabus does not submit the form");
     assert.equal(revoked.length, 2);
+    await submit();
+    assert.equal(calls, 1);
+    assert.equal(saved[1].syllabusDeleted, undefined, "removing a new unsaved upload does not persist a deletion marker");
   } finally { URL.revokeObjectURL = () => {}; }
 });
 
@@ -1103,6 +1115,10 @@ test("Escape in the syllabus preview uses the setup discard guard and stays lock
 
 test("invalid files are rejected and unavailable uploads do not block class creation", async () => {
   await mount(); await appearance();
+  await file("syllabus", new window.File([], "empty.txt", { type: "text/plain" }));
+  assert.match(host.querySelector('[role="alert"]').textContent, /nonempty file/);
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-title"), null);
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-surface").textContent.includes("Upload your syllabus"), true);
   await file("image", new window.File(["bad"], "image.svg", { type: "image/svg+xml" }));
   assert.match(host.querySelector('[role="alert"]').textContent, /PNG, JPEG/);
   await submit(); assert.equal(saved[2].image, undefined);
@@ -1110,6 +1126,28 @@ test("invalid files are rejected and unavailable uploads do not block class crea
   await mount({ canUpload: false }); await appearance();
   assert.ok([...host.querySelectorAll('input[type="file"]')].every((node) => node.disabled));
   await submit(); assert.equal(calls, 1);
+});
+
+test("saved syllabus shows its name and success state, and removal clears the saved preview", async () => {
+  const initialDetails = {
+    officeHours: "", meetings: [], syllabusText: "Saved syllabus text", syllabusName: "saved-outline.txt",
+    syllabusFileId: "79797979-7979-4979-8979-797979797979",
+  };
+  await mount({ editing: true, initialDetails, savedSyllabusPreview: createElement("p", null, "Saved syllabus preview") });
+  await submit(); await submit();
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-title").textContent, "Upload Successful");
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-name").textContent, "saved-outline.txt");
+  assert.equal(host.querySelector(".class-setup-document-preview").textContent.includes("Saved syllabus preview"), true);
+  await click("Remove syllabus");
+  assert.equal(host.querySelector(".class-setup-syllabus-upload-title"), null);
+  assert.equal(host.querySelector(".class-setup-document-preview").textContent.includes("Saved syllabus preview"), false);
+  assert.ok(host.querySelector(".class-setup-document-empty"));
+  assert.equal(calls, 0, "removing a saved syllabus does not submit the form");
+  await submit();
+  assert.equal(saved[1].syllabusDeleted, true);
+  assert.equal(saved[1].syllabusText, undefined);
+  assert.equal(saved[1].syllabusName, undefined);
+  assert.equal(saved[1].syllabusFileId, undefined);
 });
 
 test("editing hydrates the saved course details and saves the untouched class intact", async () => {

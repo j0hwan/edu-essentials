@@ -156,6 +156,9 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
   const imageUrlRef = useRef("");
   const [syllabusPreview, setSyllabusPreview] = useState("");
   const syllabusUrlRef = useRef("");
+  const hasSavedSyllabus = !details.syllabusDeleted && Boolean(savedSyllabusPreview || details.syllabusFileId || details.syllabusText || details.syllabusName);
+  const hasCurrentSyllabus = Boolean(uploads.syllabus || hasSavedSyllabus);
+  const currentSyllabusName = uploads.syllabus?.file.name ?? (details.syllabusDeleted ? undefined : details.syllabusName ?? (hasSavedSyllabus ? "Saved syllabus" : undefined));
   const imageInputRef = useRef<HTMLInputElement>(null);
   const skipDatePickerRef = useRef<HTMLInputElement>(null);
   const skipDateFocusRef = useRef<{ meetingId: string; index: number | null } | null>(null);
@@ -328,6 +331,16 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
     }
     setUploads((current) => ({ ...current, [kind]: { file, id } }));
   };
+  const removeSyllabus = () => {
+    if (!canUpload || busy || attemptedSave) return;
+    if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current);
+    syllabusUrlRef.current = "";
+    setSyllabusPreview("");
+    setUploads((current) => ({ ...current, syllabus: undefined }));
+    if (hasSavedSyllabus || details.syllabusDeleted) {
+      setDetails((current) => ({ ...current, syllabusDeleted: true, syllabusText: undefined, syllabusName: undefined, syllabusFileId: undefined }));
+    }
+  };
   const submit = async () => {
     if (saving.current || formRef.current?.closest("[data-modal-exiting]")) return;
     setError("");
@@ -456,12 +469,22 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
           </section>
           <fieldset className="class-setup-syllabus" disabled={attemptedSave}>
             <legend>Syllabus <span>(optional)</span></legend>
-            <label className={`class-setup-syllabus-upload${uploads.syllabus ? " has-file" : ""}`}>
-              <FileText size={24} aria-hidden="true" /><span>{uploads.syllabus || details.syllabusFileId || details.syllabusText ? "Replace syllabus" : "Upload your syllabus"}<small>PDF, text, images, or other documents · Up to 25 MiB</small></span>
-              <input aria-label="Syllabus (optional)" type="file" disabled={!canUpload || busy} onChange={(event) => { selectFile("syllabus", event.target.files?.[0]); event.target.value = ""; }} />
-            </label>
-            {uploads.syllabus ? <><div className="class-setup-file"><span>{uploads.syllabus.file.name}</span><button type="button" className="text-button" onClick={() => { if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current); syllabusUrlRef.current = ""; setSyllabusPreview(""); setUploads((current) => ({ ...current, syllabus: undefined })); }}>Remove syllabus</button></div><ClassSetupDocumentPreview key={uploads.syllabus.id} file={uploads.syllabus.file} url={syllabusPreview} /></> : savedSyllabusPreview || details.syllabusText ? <>{details.syllabusName && <div className="class-setup-file"><span>{details.syllabusName}</span></div>}<div className="class-setup-document-preview">{savedSyllabusPreview ?? <pre>{details.syllabusText}</pre>}</div></> : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>{details.syllabusFileId ? "Saved syllabus unavailable" : "Your document preview appears here"}</p><span>{details.syllabusFileId ? "Your attachment is preserved. Upload a replacement to change it." : "Upload a syllabus to see it before saving."}</span></div>}
-            <p className="form-hint">Storage only. Uploading will not change your course, schedule, or assignments.</p>
+            <div className={`class-setup-syllabus-upload${hasCurrentSyllabus ? " has-file" : ""}`}>
+              <label className="class-setup-syllabus-upload-surface">
+                <FileText size={24} aria-hidden="true" />
+                {hasCurrentSyllabus
+                  ? <span className="class-setup-syllabus-upload-details"><strong className="class-setup-syllabus-upload-title">Upload Successful</strong><small className="class-setup-syllabus-upload-name" title={currentSyllabusName}>{currentSyllabusName}</small></span>
+                  : <span>Upload your syllabus<small>PDF, text, images, or other documents · Up to 25 MiB</small></span>}
+                <input aria-label="Syllabus (optional)" type="file" disabled={!canUpload || busy} onChange={(event) => { selectFile("syllabus", event.target.files?.[0]); event.target.value = ""; }} />
+              </label>
+              {hasCurrentSyllabus && <button type="button" className="class-setup-syllabus-remove" aria-label="Remove syllabus" title="Remove syllabus" disabled={!canUpload || busy || attemptedSave} onClick={(event) => { event.preventDefault(); event.stopPropagation(); removeSyllabus(); }}><X size={14} aria-hidden="true" /></button>}
+            </div>
+            <div className="class-setup-document-preview" role="region" aria-label="Syllabus preview">
+              {uploads.syllabus ? <ClassSetupDocumentPreview key={uploads.syllabus.id} file={uploads.syllabus.file} url={syllabusPreview} />
+                : !details.syllabusDeleted && (savedSyllabusPreview || details.syllabusText) ? <div className="class-setup-document-content">{savedSyllabusPreview ?? <pre>{details.syllabusText}</pre>}</div>
+                  : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>{!details.syllabusDeleted && details.syllabusFileId ? "Saved syllabus unavailable" : "Your document preview appears here"}</p><span>{!details.syllabusDeleted && details.syllabusFileId ? "Your attachment is preserved. Upload a replacement to change it." : "Upload a syllabus to see it before saving."}</span></div>}
+            </div>
+            <p className="form-hint">Storage only. Uploading will not affect course</p>
           </fieldset>
         </div>
         {!canUpload && <p className="form-hint">File uploads are unavailable until your workspace is saved. You can still {editing ? "save" : "create"} this class and attach files later.</p>}

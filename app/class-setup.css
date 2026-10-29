@@ -87,11 +87,11 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-schedule-empty { padding: 48px 26px; text-align: center; color: var(--muted); align-self: center; }
 .class-setup-schedule-empty h3 { color: var(--ink); }
 .class-setup-schedule-empty p { line-height: 1.6; }
-.class-setup.class-setup-customize-step { width: min(1000px, 100%); max-height: calc(100dvh - 44px); }
-.class-setup-customize { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; }
+.class-setup.class-setup-customize-step { width: min(900px, 100%); max-height: calc(100dvh - 44px); }
+.class-setup-customize { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 280px); gap: 28px; }
 .class-setup-appearance { min-width: 0; }
 .class-setup-panel-title, .class-setup-syllabus legend { margin: 0 0 14px; padding: 0; font-size: 14px; font-weight: 600; }
-.class-setup-card-controls { display: grid; grid-template-columns: minmax(0, 1fr) 144px; align-items: start; gap: 20px; }
+.class-setup-card-controls { display: grid; grid-template-columns: minmax(0, 1fr) 144px; align-items: start; gap: 28px; }
 .class-setup-card-column { min-width: 0; }
 .class-setup .class-setup-card { width: 100%; padding: 0; }
 .class-setup .class-setup-card:hover { transform: none; border-color: var(--border); box-shadow: var(--shadow-sm); }
@@ -125,23 +125,32 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-syllabus { display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 0 0 0 28px; border: 0; border-left: 1px solid var(--border); }
 .class-setup-syllabus legend { float: left; width: 100%; }
 .class-setup-syllabus legend span { color: var(--muted); font-size: 12px; font-weight: 400; }
-.class-setup .class-setup-syllabus-upload { position: relative; display: flex; flex-direction: row; align-items: center; gap: 12px; min-height: 76px; margin: 0; padding: 12px; border: 1px dashed var(--border-strong); border-radius: 10px; cursor: pointer; font-size: 12px; }
-.class-setup-syllabus-upload > svg { flex-shrink: 0; color: var(--muted); }
-.class-setup-syllabus-upload small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
-.class-setup .class-setup-syllabus-upload input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.class-setup .class-setup-syllabus-upload { position: relative; box-sizing: border-box; width: 100%; height: 76px; min-height: 76px; margin: 0; border: 1px dashed var(--border-strong); border-radius: 10px; }
+.class-setup .class-setup-syllabus-upload-surface { position: absolute; inset: 0; display: flex; flex-direction: row; align-items: center; gap: 12px; min-width: 0; margin: 0; padding: 12px; border: 0; color: inherit; cursor: pointer; font-size: 12px; font-weight: 400; }
+.class-setup .class-setup-syllabus-upload.has-file .class-setup-syllabus-upload-surface { padding-right: 40px; }
+.class-setup-syllabus-upload-surface > svg { flex: 0 0 24px; color: var(--muted); }
+.class-setup-syllabus-upload-surface > span { display: block; flex: 1; min-width: 0; }
+.class-setup-syllabus-upload-surface small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.15; }
+.class-setup-syllabus-upload-title { display: block; overflow: hidden; color: var(--green); font-size: 12px; font-weight: 650; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.class-setup-syllabus-upload-name { display: block; min-width: 0; margin-top: 4px; overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.class-setup .class-setup-syllabus-upload-surface input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; opacity: 0; cursor: pointer; }
 .class-setup-syllabus-upload:focus-within { outline: 2px solid var(--brand); outline-offset: 3px; }
-.class-setup-file { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; overflow-wrap: anywhere; font-size: 11px; }
-.class-setup-file > span { min-width: 0; }
-.class-setup-file button { flex-shrink: 0; }
-.class-setup-document-preview, .class-setup-document-empty { flex: 1; min-height: 200px; height: clamp(200px, 32dvh, 300px); margin-top: 12px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.class-setup .class-setup-syllabus-remove { position: absolute; z-index: 1; top: 4px; right: 4px; display: grid; place-items: center; width: 24px; height: 24px; min-height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.class-setup .class-setup-syllabus-remove:hover:not(:disabled) { color: var(--red); background: var(--surface-2); }
+.class-setup-document-preview { position: relative; flex: none; width: 100%; aspect-ratio: 8.5 / 11; min-width: 0; min-height: 0; margin-top: 12px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.class-setup-document-content, .class-setup-document-empty { position: absolute; inset: 0; min-width: 0; min-height: 0; }
 .class-setup-document-empty, .class-setup-document-fallback { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px; text-align: center; color: var(--muted); }
+.class-setup-document-empty { overflow: auto; }
 .class-setup-document-empty p { margin: 0; font-size: 12px; }
 .class-setup-document-empty > span, .class-setup-document-fallback { font-size: 11px; }
-.class-setup-document-preview .private-pdf-preview { height: 100%; border: 0; }
-.class-setup-document-preview .inline-file-preview { height: 100%; min-height: 0; overflow: auto; }
-.class-setup-document-preview pre { height: 100%; margin: 0; padding: 16px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; }
+.class-setup-document-content .private-pdf-preview { width: 100%; height: 100%; min-height: 0; max-height: 100%; overflow: auto; overscroll-behavior: contain; border: 0; }
+.class-setup-document-content > .inline-file-preview { width: 100%; height: 100%; max-height: none; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.class-setup-document-content .private-preview-image { display: block; width: 100%; height: 100%; max-width: 100%; max-height: none; min-height: 0; margin: 0; object-fit: contain; }
+.class-setup-document-content pre { box-sizing: border-box; width: 100%; height: 100%; max-height: none; min-height: 0; margin: 0; padding: 16px; overflow: auto; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; }
+.class-setup-document-content > p[role="status"] { display: grid; height: 100%; margin: 0; place-items: center; color: var(--muted); font-size: 12px; }
 .class-setup-document-image { width: 100%; height: 100%; background-position: center; background-repeat: no-repeat; background-size: contain; }
-.class-setup-document-fallback { height: 100%; overflow: auto; overflow-wrap: anywhere; }
+.class-setup-document-fallback { box-sizing: border-box; height: 100%; overflow: auto; overflow-wrap: anywhere; overscroll-behavior: contain; }
+.class-setup-document-fallback strong { overflow-wrap: anywhere; }
 .class-setup-document-fallback p { margin: 0; }
 .class-setup-syllabus > .form-hint { margin: 10px 0 0; font-size: 10px; }
 .class-setup-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 18px; }
