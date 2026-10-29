@@ -19,6 +19,20 @@ const { decodeWorkspaceState } = await import(await clientModule("lib/workspace-
 const course = { ...emptyCourse("biology"), code: "BIO 101", name: "Biology", initials: "BI" };
 const dashboard = { v: 2, a: "day", w: [["day", "Day", []]], d: { assignments: [], manualEvents: [], dashboardView: "cards", calendarView: "month" } };
 
+test("the picker exposes all 24 icon choices, including the explicit no-icon choice", () => {
+  assert.equal(courseIconOptions.length, 24);
+  assert.deepEqual(courseIconOptions.slice(-8), [
+    { id: "brain", label: "Psychology" },
+    { id: "scale", label: "Law" },
+    { id: "briefcase-business", label: "Business" },
+    { id: "heart-pulse", label: "Health" },
+    { id: "leaf", label: "Environmental science" },
+    { id: "cog", label: "Engineering" },
+    { id: "drama", label: "Theater" },
+    { id: "none", label: "No icon" },
+  ]);
+});
+
 test("class icons survive snapshot storage without changing course initials or legacy details", () => {
   assert.deepEqual(validateCourseDetails(emptyCourseDetails()), emptyCourseDetails());
   for (const { id } of courseIconOptions) {
@@ -32,16 +46,20 @@ test("class icons survive snapshot storage without changing course initials or l
   }
 });
 
-test("every selectable icon renders and missing or unknown selections fall back to the book", () => {
+test("every selectable icon renders except none, and missing or unknown selections fall back to the book", () => {
   const book = renderToStaticMarkup(createElement(CourseIcon));
   assert.match(book, /lucide-book-open/);
   assert.equal(renderToStaticMarkup(createElement(CourseIcon, { icon: "unknown" })), book);
   for (const { id } of courseIconOptions) {
     const markup = renderToStaticMarkup(createElement(CourseIcon, { icon: id, size: 44, "data-course-morph": "icon", "aria-hidden": true }));
-    assert.match(markup, new RegExp(`lucide-${id}`));
-    assert.match(markup, /width="44"/);
-    assert.match(markup, /data-course-morph="icon"/);
-    assert.match(markup, /aria-hidden="true"/);
+    if (id === "none") {
+      assert.equal(markup, "");
+    } else {
+      assert.match(markup, new RegExp(`lucide-${id}`));
+      assert.match(markup, /width="44"/);
+      assert.match(markup, /data-course-morph="icon"/);
+      assert.match(markup, /aria-hidden="true"/);
+    }
   }
 });
 
@@ -56,10 +74,12 @@ test("Add and Edit Class share a selectable icon picker that preserves other det
   const save = async () => act(async () => host.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
   try {
     await renderEditor({ course }, "add");
+    assert.equal(host.querySelectorAll(".course-icon-options button").length, 24);
     for (const button of host.querySelectorAll(".course-icon-options button")) {
-      assert.equal(button.textContent, "", "icon choices have no visible description text");
       assert.ok(button.getAttribute("aria-label"), "icon choices retain accessible names");
     }
+    assert.equal(host.querySelector('[aria-label="No icon"]').textContent, "", "the empty choice remains icon-only");
+    assert.ok(host.querySelector('[aria-label="No icon"] .lucide-slash'), "a slash identifies the no-icon choice");
     assert.equal(host.querySelectorAll('.course-icon-options button[aria-pressed="true"]').length, 1);
     assert.equal(host.querySelector('[aria-label="Book"]').getAttribute("aria-pressed"), "true");
     await select("Biology");
@@ -82,6 +102,15 @@ test("Add and Edit Class share a selectable icon picker that preserves other det
     await select("Book");
     await save();
     assert.equal(applied.details.icon, "book-open");
+    const preserved = { ...applied, details: { ...applied.details, officeHours: "Tuesday 2 PM", syllabusText: "Preserve this" } };
+    await renderEditor(preserved, "none");
+    await select("No icon");
+    await save();
+    assert.deepEqual(applied.details, { ...preserved.details, icon: "none" });
+    await renderEditor(applied, "none-reopen");
+    assert.equal(host.querySelector('[aria-label="No icon"]').getAttribute("aria-pressed"), "true");
+    await save();
+    assert.deepEqual(applied.details, { ...preserved.details, icon: "none" });
   } finally {
     await act(async () => root.unmount());
   }

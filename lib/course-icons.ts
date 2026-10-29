@@ -15,6 +15,14 @@ export const courseIconOptions = [
   { id: "pencil", label: "Writing" },
   { id: "chart-no-axes-combined", label: "Chart" },
   { id: "dumbbell", label: "Fitness" },
+  { id: "brain", label: "Psychology" },
+  { id: "scale", label: "Law" },
+  { id: "briefcase-business", label: "Business" },
+  { id: "heart-pulse", label: "Health" },
+  { id: "leaf", label: "Environmental science" },
+  { id: "cog", label: "Engineering" },
+  { id: "drama", label: "Theater" },
+  { id: "none", label: "No icon" },
 ] as const;
 
 export type CourseIconId = typeof courseIconOptions[number]["id"];

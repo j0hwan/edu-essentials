@@ -918,7 +918,7 @@ test("customization previews the dashboard card and updates its color, icon, and
   assert.equal(card.querySelector(".course-pill").textContent, "BIO 101");
   assert.equal(card.querySelector(".course-watermark").textContent, "BI");
   assert.deepEqual([...card.querySelectorAll(".class-statuses > span")].map((node) => node.textContent), ["0overdue", "0today", "0later"]);
-  assert.equal(host.querySelectorAll(".class-setup-icon-picker button").length, 16);
+  assert.equal(host.querySelectorAll(".class-setup-icon-picker button").length, 24);
   const icon = host.querySelectorAll(".class-setup-icon-picker button")[2];
   await act(async () => icon.click());
   assert.equal(icon.getAttribute("aria-pressed"), "true");
@@ -940,6 +940,50 @@ test("customization previews the dashboard card and updates its color, icon, and
   assert.equal(saved[0].color, "#ff0000");
   assert.equal(saved[2].image, undefined);
 });
+
+test("the icon picker fits three desktop columns and four mobile columns without implicit overflow", async () => {
+  const styles = await readFile(new URL("../app/class-setup.css", import.meta.url), "utf8");
+  const layout = new JSDOM(`<style>${styles}</style>`);
+  try {
+    const rules = [...layout.window.document.styleSheets[0].cssRules];
+    const picker = rules.find((rule) => rule.selectorText === ".class-setup-icon-picker .course-icon-options");
+    assert.equal(picker.style.getPropertyValue("grid-template-columns"), "repeat(3, minmax(0, 1fr))");
+    assert.equal(picker.style.getPropertyValue("grid-template-rows"), "repeat(8, 44px)");
+    const controls = rules.find((rule) => rule.selectorText === ".class-setup-card-controls");
+    assert.equal(controls.style.getPropertyValue("grid-template-columns"), "minmax(0, 1fr) 144px");
+    const panels = rules.find((rule) => rule.selectorText === ".class-setup-customize");
+    const syllabus = rules.find((rule) => rule.selectorText === ".class-setup-syllabus");
+    assert.equal(panels.style.getPropertyValue("gap"), "28px");
+    assert.equal(syllabus.style.getPropertyValue("padding-left"), "28px", "the divider has equal spacing on both sides");
+    const button = rules.find((rule) => rule.selectorText === ".class-setup-icon-picker .course-icon-options button");
+    assert.equal(button.style.getPropertyValue("aspect-ratio"), "1 / 1");
+    const mobile = rules.flatMap((rule) => [...(rule.cssRules ?? [])]).find((rule) => rule.selectorText === ".class-setup-icon-picker .course-icon-options");
+    assert.equal(mobile.style.getPropertyValue("grid-template-columns"), "repeat(4, minmax(0, 1fr))");
+    assert.equal(mobile.style.getPropertyValue("grid-template-rows"), "repeat(6, auto)");
+  } finally { layout.window.close(); }
+});
+
+for (const editing of [false, true]) {
+  test(`${editing ? "editing" : "adding"} a course supports no icon in customization and saved details`, async () => {
+    await mount({ editing, initialDetails: { officeHours: "Tuesday afternoons", meetings: [{ id: "icon-meeting", days: [1], start: "09:00", end: "10:00", from: "2026-10-26", until: "2027-03-01", location: "Room 1" }], ...(editing ? { icon: "none" } : {}) } });
+    await submit(); await submit();
+    const card = host.querySelector('[aria-label="Class card preview"]');
+    if (editing) {
+      assert.equal(button("No icon").getAttribute("aria-pressed"), "true");
+      assert.equal(card.querySelector(".class-card-visual > svg"), null);
+    }
+    await click("Psychology");
+    assert.ok(card.querySelector(".lucide-brain"));
+    await click("No icon");
+    assert.ok(button("No icon").querySelector(".lucide-slash"));
+    assert.equal(button("No icon").getAttribute("aria-pressed"), "true");
+    assert.equal(card.querySelector(".class-card-visual > svg"), null);
+    assert.equal(host.querySelectorAll('.class-setup-icon-picker button[aria-pressed="true"]').length, 1);
+    await submit();
+    assert.equal(saved[1].icon, "none");
+    assert.equal(saved[1].officeHours, "Tuesday afternoons");
+  });
+}
 
 test("cover drag, zoom and keyboard positioning persist and reset for replacement images", async () => {
   const OriginalImage = window.Image;

@@ -1,4 +1,4 @@
-import { Atom, BookOpen, Calculator, ChartNoAxesCombined, Code, Dna, Dumbbell, FlaskConical, Globe, GraduationCap, Landmark, Languages, Microscope, Music, Palette, Pencil, type LucideProps } from "lucide-react";
+import { Atom, BookOpen, Brain, BriefcaseBusiness, Calculator, ChartNoAxesCombined, Code, Cog, Dna, Drama, Dumbbell, FlaskConical, Globe, GraduationCap, HeartPulse, Landmark, Languages, Leaf, Microscope, Music, Palette, Pencil, Scale, type LucideProps } from "lucide-react";
 import { DEFAULT_COURSE_ICON, isCourseIconId, type CourseIconId } from "../lib/course-icons";
 
 const courseIcons = {
@@ -18,9 +18,18 @@ const courseIcons = {
   pencil: Pencil,
   "chart-no-axes-combined": ChartNoAxesCombined,
   dumbbell: Dumbbell,
-} satisfies Record<CourseIconId, typeof BookOpen>;
+  brain: Brain,
+  scale: Scale,
+  "briefcase-business": BriefcaseBusiness,
+  "heart-pulse": HeartPulse,
+  leaf: Leaf,
+  cog: Cog,
+  drama: Drama,
+} satisfies Record<Exclude<CourseIconId, "none">, typeof BookOpen>;
 
 export default function CourseIcon({ icon, ...props }: LucideProps & { icon?: string }) {
-  const Icon = courseIcons[isCourseIconId(icon) ? icon : DEFAULT_COURSE_ICON];
+  const iconId = isCourseIconId(icon) ? icon : DEFAULT_COURSE_ICON;
+  if (iconId === "none") return null;
+  const Icon = courseIcons[iconId];
   return <Icon {...props} />;
 }

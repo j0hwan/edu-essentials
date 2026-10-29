@@ -91,7 +91,7 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-customize { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; }
 .class-setup-appearance { min-width: 0; }
 .class-setup-panel-title, .class-setup-syllabus legend { margin: 0 0 14px; padding: 0; font-size: 14px; font-weight: 600; }
-.class-setup-card-controls { display: grid; grid-template-columns: minmax(0, 300px) 112px; align-items: start; gap: 20px; }
+.class-setup-card-controls { display: grid; grid-template-columns: minmax(0, 1fr) 144px; align-items: start; gap: 20px; }
 .class-setup-card-column { min-width: 0; }
 .class-setup .class-setup-card { width: 100%; padding: 0; }
 .class-setup .class-setup-card:hover { transform: none; border-color: var(--border); box-shadow: var(--shadow-sm); }
@@ -120,8 +120,8 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-zoom > .text-button { margin-top: 4px; padding: 0; font-size: 11px; }
 .class-setup .class-setup-icon-picker { min-width: 0; margin: 0; padding: 0; border: 0; }
 .class-setup-icon-picker legend { margin-bottom: 10px; padding: 0; font-size: 11px; }
-.class-setup-icon-picker .course-icon-options { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: column; grid-template-rows: repeat(8, 44px); gap: 6px; }
-.class-setup-icon-picker .course-icon-options button { min-height: 44px; padding: 0; border-radius: 7px; }
+.class-setup-icon-picker .course-icon-options { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-flow: column; grid-template-rows: repeat(8, 44px); gap: 6px; }
+.class-setup-icon-picker .course-icon-options button { width: 100%; min-width: 0; min-height: 44px; aspect-ratio: 1; padding: 0; border-radius: 7px; }
 .class-setup-icon-picker .course-icon-selected { top: 2px; right: 2px; }
 .class-setup-syllabus { display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 0 0 0 28px; border: 0; border-left: 1px solid var(--border); }
 .class-setup-syllabus legend { float: left; width: 100%; }
@@ -161,7 +161,7 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 }
 @media (max-width: 560px) {
   .class-setup-card-controls { grid-template-columns: minmax(0, 1fr); }
-  .class-setup-icon-picker .course-icon-options { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(4, 44px); }
+  .class-setup-icon-picker .course-icon-options { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(6, auto); }
   .class-setup-color-row { flex-wrap: wrap; }
   .class-setup .class-setup-header { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
   .class-setup-progress { gap: 6px; }

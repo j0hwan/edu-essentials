@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Slash, Trash2, X } from "lucide-react";
 import { addDays, dateLabel, emptyCourseDetails, isDate, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { courseImageFramingStyle, DEFAULT_COURSE_IMAGE_FRAMING, moveCourseImage, type CourseImageFraming } from "../lib/course-image-framing";
@@ -451,7 +451,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
                   </div>
                 </div>
               </div>
-              <fieldset className="course-icon-picker class-setup-icon-picker"><legend>Class icon</legend><div className="course-icon-options">{courseIconOptions.map((option) => <button key={option.id} type="button" title={option.label} aria-label={option.label} aria-pressed={(details.icon ?? DEFAULT_COURSE_ICON) === option.id} onClick={() => setDetails((current) => ({ ...current, icon: option.id }))}><CourseIcon icon={option.id} size={24} style={{ color: course.color }} />{(details.icon ?? DEFAULT_COURSE_ICON) === option.id && <Check className="course-icon-selected" size={11} />}</button>)}</div></fieldset>
+              <fieldset className="course-icon-picker class-setup-icon-picker"><legend>Class icon</legend><div className="course-icon-options">{courseIconOptions.map((option) => <button key={option.id} type="button" title={option.label} aria-label={option.label} aria-pressed={(details.icon ?? DEFAULT_COURSE_ICON) === option.id} onClick={() => setDetails((current) => ({ ...current, icon: option.id }))}>{option.id === "none" ? <Slash size={24} style={{ color: course.color }} aria-hidden="true" /> : <CourseIcon icon={option.id} size={24} style={{ color: course.color }} aria-hidden="true" />}{(details.icon ?? DEFAULT_COURSE_ICON) === option.id && <Check className="course-icon-selected" size={11} />}</button>)}</div></fieldset>
             </div>
           </section>
           <fieldset className="class-setup-syllabus" disabled={attemptedSave}>
