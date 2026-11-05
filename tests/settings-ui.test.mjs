@@ -1900,7 +1900,8 @@ test("expanded class weekday tiles show only scheduled meeting abbreviations", a
     assert.equal(heading.querySelector(".expanded-class-code").textContent, `${sampleCourse.code} · `);
     assert.equal(heading.querySelector('[data-course-morph="name"]').textContent, sampleCourse.name);
     assert.equal(heading.querySelector('[data-course-morph="instructor"]').textContent, sampleCourse.instructor || "No instructor entered");
-    assert.equal(heading.querySelector('[data-course-morph="credits"]').textContent, `${sampleCourse.credits} credits`);
+    assert.match(heading.textContent, /\|\s*[^|]+$/);
+    assert.equal(heading.querySelector('[data-course-morph="credits"]'), null, "credits are not shown in the expanded heading");
     assert.equal(weekdays.children.length, 7);
     assert.deepEqual([...weekdays.querySelectorAll("time")].map((day) => day.textContent), ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
     assert.deepEqual([...weekdays.querySelectorAll("time")].map((day) => day.getAttribute("datetime")), dates);
