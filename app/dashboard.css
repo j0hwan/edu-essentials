@@ -171,6 +171,8 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 }
 .dashboard-page .dashboard-upcoming { margin-top: 44px; }
 .dashboard-page button:focus-visible, .dashboard-page summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+.dashboard-page .class-card:focus-visible { outline: none; }
+.dashboard-page .class-card:focus-visible .class-card-body h3 { text-decoration: underline; text-decoration-color: var(--brand); text-underline-offset: 4px; }
 .expanded-class-header { flex: 0 0 auto; height: 150px; padding: 20px; }
 .expanded-class-header > svg { position: relative; z-index: 1; }
 .class-card-visual > [data-course-morph="icon"] { position: relative; z-index: 1; }
