@@ -529,7 +529,7 @@ html:has(.add-class-choice-modal, .class-setup) body {
   gap: 20px;
 }
 
-.modal-header h2 { margin: 0; font-size: 22px; letter-spacing: -0.04em; }
+.modal-header h2 { margin: 0; font-family: inherit; font-size: 18px; font-weight: 600; line-height: 1.4; letter-spacing: normal; }
 .modal-header > div > p:last-child { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
 
 .widget-picker-modal,
