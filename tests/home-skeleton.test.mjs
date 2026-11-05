@@ -373,6 +373,10 @@ test("malformed JSON falls back safely, survives a failed read, and is repaired 
     const app = await renderWorkspace(Workspace, profile);
     root = app.root;
     await waitFor(() => app.rootNode.textContent.includes("could not be loaded"), "the failed initial read");
+    const loadError = app.rootNode.querySelector(".workspace-loading.is-error");
+    assert.match(loadError.textContent, /Your workspace could not be loaded/);
+    assert.match(loadError.textContent, /Retrying in 5 seconds/);
+    assert.equal(loadError.querySelector("button").textContent, "Click here to retry");
     assert.equal(window.localStorage.getItem(key), "{malformed", "a failed read does not overwrite malformed cache data");
     const retry = [...app.rootNode.querySelectorAll("button")].find((button) => button.textContent.trim() === "Retry loading");
     assert.ok(retry);

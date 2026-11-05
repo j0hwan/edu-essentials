@@ -544,13 +544,11 @@ test("failed restoration placeholders show retry instead of revealing an unprepa
     root = await mountWorkspace();
     await waitFor(() => api.workspaceCalls === 1, "workspace read");
     await act(async () => { api.releaseWorkspace(); });
-    await waitFor(() => rootNode.querySelector('[role="alert"] button')?.textContent === "Retry previews", "preview retry state");
+    await waitFor(() => rootNode.querySelector('.workspace-loading.is-error button')?.textContent === "Click here to retry", "preview retry state");
+    assert.match(rootNode.querySelector(".workspace-loading.is-error").textContent, /Course previews could not be loaded/);
+    assert.match(rootNode.querySelector(".workspace-loading.is-error").textContent, /Retrying in 5 seconds/);
     assert.equal(rootNode.querySelector(".class-card-expansion-dialog"), null);
     assert.equal(rootNode.querySelector(".expanded-course-skeleton"), null, "failure replaces the indefinite skeleton with an actionable state");
-    window.Image = originalImage;
-    await act(async () => { rootNode.querySelector('[role="alert"] button').click(); });
-    await waitFor(() => rootNode.querySelector('.class-card-expansion-dialog[data-restored="true"]'), "successful retry");
-    assert.equal(rootNode.querySelector('[role="alert"]'), null);
   } finally {
     if (root) await act(async () => root.unmount());
     rootNode.replaceChildren();

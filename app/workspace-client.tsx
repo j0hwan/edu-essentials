@@ -67,6 +67,7 @@ import { InlineFilePreview } from "./private-files";
 import { type PrivateFile, type FileMetadata } from "../lib/files";
 import WidgetCustomization from "./widget-customization";
 import HomeLoadTransition from "./home-load-transition";
+import WorkspaceLoadError from "./workspace-load-error";
 import type { HomeSkeletonGreeting } from "./home-skeleton";
 import { cacheLayoutsMatch, createHomeSkeletonLayout, DEFAULT_HOME_SKELETON_LAYOUT, layoutsMatch, readHomeSkeletonLayout, writeHomeSkeletonLayout, type HomeSkeletonGeometry, type HomeSkeletonLayout } from "../lib/home-skeleton";
 import { resolveWidgetAppearance, type WidgetAppearanceState } from "../lib/widget-appearance";
@@ -1211,14 +1212,12 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
             </section>
           )
         ) : (
-          <section className="workspace-loading"><h1>Your workspace could not be loaded</h1><p>Your saved work will be available here when the connection is restored.</p></section>
+          <WorkspaceLoadError title="Your workspace could not be loaded" onRetry={() => window.location.reload()} />
         ))}
-        {restoringPlaceholderAssets && placeholderAssets.failed && <section className="workspace-loading" role="alert">
-          <h1>Course previews could not be loaded</h1>
-          <p>Retry loading the preview placeholders or return to the dashboard.</p>
-          <button type="button" onClick={placeholderAssets.retry}>Retry previews</button>
-          <button type="button" onClick={() => setSelectedClass(null)}>Return to dashboard</button>
-        </section>}
+        {saveState.ready && restoringPlaceholderAssets && placeholderAssets.failed && <WorkspaceLoadError
+          title="Course previews could not be loaded"
+          onRetry={() => window.location.reload()}
+        />}
         {page === "dashboard" && !placeholderAssets.failed && (saveState.ready || persistenceStatus === "loading") && <WorkspaceDashboard
   loadKey={`dashboard-load-${reloadAttempt}-${initialProfile.id}`}
   ready={saveState.ready && profile.id === initialProfile.id && !restoringPlaceholderAssets}
