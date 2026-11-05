@@ -191,6 +191,7 @@ html[data-motion="reduced"] .dashboard-page[data-restored-course="true"],
 .expanded-class-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 20px; overscroll-behavior: contain; }
 .expanded-class-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
 .expanded-class-actions button { gap: 7px; }
+.expanded-class-heading > .expanded-class-actions > .primary-button:hover { transform: none; }
 .expanded-class-header > button, .expanded-class-body button { font-size: 12px; }
 .expanded-class-section { min-width: 0; margin-bottom: 18px; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--surface-2) 75%, transparent); }
 .expanded-class-section h3 { margin: 0 0 10px; color: var(--ink); font-size: 13px; font-weight: 700; }
