@@ -16,7 +16,7 @@ type Props = { initial: Value; courses: Course[]; today: string; onApply: (value
 export default function AcademicEditor(props: Props) {
   const { initial, onApply, onClose } = props;
   if (initial.taskCourse && initial.assignment) {
-    return <AddTaskForm initial={initial.assignment} course={initial.taskCourse} today={props.today} onApply={(value) => onApply({ ...value, taskCourse: initial.taskCourse })} onClose={onClose} />;
+    return <AddTaskForm initial={initial.assignment} today={props.today} onApply={(value) => onApply({ ...value, taskCourse: initial.taskCourse })} onClose={onClose} />;
   }
   return <ExistingAcademicEditor {...props} />;
 }

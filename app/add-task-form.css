@@ -8,7 +8,7 @@
   padding: 24px;
 }
 
-.add-task-form-header {
+.modal-header.add-task-form-header {
   align-items: center;
   gap: 12px;
 }
@@ -23,19 +23,14 @@
   letter-spacing: normal;
 }
 
-.add-task-course-context {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .add-task-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 14px;
-  margin-top: 16px;
+  margin-top: 20px;
 }
+
+.add-task-form .add-task-fields { padding-top: 0; }
 
 .add-task-form .add-task-field {
   display: flex;

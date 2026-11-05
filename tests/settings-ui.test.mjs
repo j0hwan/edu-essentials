@@ -2196,7 +2196,8 @@ test("expanded-course Add Task binds the course, requires due time, and saves ta
     await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Add Task");
     const dialog = rootNode.querySelector('.add-task-form[role="dialog"]');
     assert.ok(dialog, "the expanded course opens the dedicated task form");
-    assert.ok(dialog.textContent.includes(otherCourse.code));
+    assert.equal(dialog.textContent.includes(otherCourse.code), false, "the course code is hidden");
+    assert.equal(dialog.textContent.includes(otherCourse.name), false, "the course name is hidden");
     assert.equal([...dialog.querySelectorAll("label")].some((label) => label.textContent.startsWith("Class")), false, "the class is bound without a selector");
     assert.deepEqual([...dialog.querySelectorAll("label")].map((label) => label.firstChild.textContent.trim()), ["Task Title", "Task Description", "Due Date", "Due Time", "Type", "Weight Category"]);
     assert.equal(field("Weight Category").disabled, true);

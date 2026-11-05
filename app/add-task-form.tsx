@@ -2,14 +2,13 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { assignmentStatus, assignmentTypes, dateLabel, isDate, isTime, type Course } from "../lib/academics";
+import { assignmentStatus, assignmentTypes, dateLabel, isDate, isTime } from "../lib/academics";
 import type { SavedAssignment } from "../lib/workspace-codec";
 import { useSaveProtection } from "./use-save-protection";
 import "./add-task-form.css";
 
-export default function AddTaskForm({ initial, course, today, onApply, onClose }: {
+export default function AddTaskForm({ initial, today, onApply, onClose }: {
   initial: SavedAssignment;
-  course: Course;
   today: string;
   onApply: (value: { assignment: SavedAssignment }) => boolean;
   onClose: () => void;
@@ -110,10 +109,7 @@ export default function AddTaskForm({ initial, course, today, onApply, onClose }
 
   return <div className="modal-backdrop add-task-backdrop"><form ref={formRef} className="add-class-modal academic-editor add-task-form" role="dialog" aria-modal="true" aria-labelledby={`${titleId}-heading`} onSubmit={submit}>
     <div className="modal-header add-task-form-header">
-      <div>
-        <h2 id={`${titleId}-heading`}>Add Task</h2>
-        <p className="add-task-course-context">{course.code} · {course.name}</p>
-      </div>
+      <h2 id={`${titleId}-heading`}>Add Task</h2>
       <button type="button" className="secondary-button" aria-label="Close Add Task" onClick={close}><X size={18} aria-hidden="true" /></button>
     </div>
 
