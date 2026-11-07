@@ -1,0 +1,67 @@
+.class-coursework { display: grid; grid-template-columns: minmax(220px, 29%) minmax(0, 1fr); min-width: 0; color: var(--ink); }
+.class-coursework button, .class-coursework input, .class-coursework select, .class-coursework textarea { font: inherit; }
+.class-coursework button { cursor: pointer; }
+.class-coursework button:disabled, .class-coursework input:disabled, .class-coursework select:disabled { cursor: not-allowed; opacity: .58; }
+.class-coursework-rail { position: relative; min-width: 0; padding: 24px 18px; }
+.class-coursework-rail::after { content: ""; position: absolute; top: 24px; bottom: 24px; right: 0; width: 1px; background: var(--border); pointer-events: none; }
+.class-coursework-category-list { display: grid; gap: 10px; min-width: 0; max-height: min(48dvh, 480px); padding: 3px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.class-coursework-filter, .class-coursework-category { min-width: 0; border: 1px solid var(--border); border-radius: 11px; background: transparent; color: var(--ink); }
+.class-coursework-filter { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 46px; padding: 12px 18px; text-align: left; }
+.class-coursework-filter span { flex-shrink: 0; color: var(--muted); font-size: 12px; }
+.class-coursework-category { position: relative; }
+.class-coursework-filter.is-selected, .class-coursework-category.is-selected { border-color: var(--brand); background: var(--brand-soft); box-shadow: inset 0 0 0 1px var(--brand); }
+.class-coursework-category-select { display: grid; gap: 6px; width: 100%; min-height: 82px; padding: 18px 44px 18px 18px; border: 0; border-radius: inherit; background: transparent; color: var(--ink); text-align: left; }
+.class-coursework-category-select strong { min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
+.class-coursework-category-select span { color: var(--muted); font-size: 13px; }
+.class-setup .class-coursework-icon-button { display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
+.class-setup .class-coursework-icon-button:hover { background: var(--surface-2); color: var(--ink); }
+.class-setup .class-coursework-category-delete { position: absolute; bottom: 8px; right: 8px; }
+.class-setup .class-coursework-category-delete:hover { color: var(--red); }
+.class-setup .class-coursework-add { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 46px; margin-top: 16px; font-size: 14px; }
+.class-coursework-allocation { display: block; margin-top: 12px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.class-coursework-allocation span { color: var(--red); }
+.class-coursework-main { min-width: 0; padding: 26px; }
+.class-coursework-main-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; min-height: 36px; margin-bottom: 24px; }
+.class-coursework-main-heading h3 { min-width: 0; margin: 0; font-size: 23px; overflow-wrap: anywhere; }
+.class-coursework-category-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, .4fr); gap: 16px; margin-bottom: 24px; }
+.class-coursework-category-editor > button { grid-column: 1 / -1; justify-self: end; }
+.class-coursework-category-removal { display: grid; gap: 12px; margin-bottom: 24px; padding: 16px; border: 1px solid var(--border); border-radius: 9px; }
+.class-coursework-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.class-setup .class-coursework label { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; color: var(--muted); font-size: 14px; font-weight: 600; }
+.class-setup .class-coursework input:not([type="checkbox"]), .class-setup .class-coursework select, .class-setup .class-coursework textarea { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 44px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 15px; }
+.class-setup .class-coursework textarea { min-height: 80px; max-height: min(240px, 35dvh); resize: vertical; }
+.class-coursework [aria-invalid="true"] { border-color: var(--red) !important; }
+.class-coursework-empty { margin: 0; padding: 16px 0; color: var(--muted); font-size: 14px; }
+.class-coursework-task-list { display: grid; gap: 10px; min-width: 0; }
+.class-coursework-task { min-width: 0; border: 1px solid var(--border); border-radius: 11px; }
+.class-coursework-task-summary { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 16px 18px; }
+.class-coursework-task-title { display: grid; flex: 1; gap: 5px; min-width: 0; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
+.class-coursework-task-title strong { font-size: 15px; }
+.class-coursework-task-title span { color: var(--muted); font-size: 12px; }
+.class-coursework-complete { flex-shrink: 0; color: var(--green); }
+.class-coursework-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; min-width: 0; padding: 18px; border-top: 1px solid var(--border); }
+.class-coursework-wide { grid-column: 1 / -1; }
+.class-coursework-completion { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.class-setup .class-coursework .class-coursework-done, .class-setup .class-coursework .class-coursework-grade-check { flex-direction: row; align-items: center; gap: 8px; min-height: 36px; color: var(--ink); }
+.class-coursework input[type="checkbox"] { flex: 0 0 16px; width: 16px; height: 16px; margin: 0; accent-color: var(--brand); }
+.class-coursework-editor-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.class-coursework-editor-actions button { min-height: 36px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--ink); }
+.class-coursework-editor-actions span { color: var(--muted); font-size: 13px; }
+.class-coursework-warning, .class-coursework-error { grid-column: 1 / -1; margin: 0; color: var(--red); font-size: 13px; overflow-wrap: anywhere; }
+.class-coursework-error { margin-top: 12px; }
+.class-coursework input:focus-visible, .class-coursework select:focus-visible, .class-coursework textarea:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .class-coursework { grid-template-columns: minmax(0, 1fr); }
+  .class-coursework-rail { padding: 18px; border-bottom: 1px solid var(--border); }
+  .class-coursework-rail::after { display: none; }
+  .class-coursework-category-list { max-height: 260px; padding: 3px; overflow-y: auto; overscroll-behavior: contain; }
+}
+@media (max-width: 560px) {
+  .class-coursework-main { padding: 18px 12px; }
+  .class-coursework-editor, .class-coursework-category-editor { grid-template-columns: minmax(0, 1fr); }
+  .class-coursework-editor { padding: 14px; }
+  .class-setup .class-coursework input:not([type="checkbox"]), .class-setup .class-coursework select, .class-setup .class-coursework textarea { font-size: 16px; }
+  .class-setup .class-coursework-icon-button { flex-basis: 44px; width: 44px; height: 44px; min-height: 44px; }
+  .class-coursework-category-select { padding-right: 60px; }
+  .class-coursework-editor-actions button, .class-coursework-confirm-actions button, .class-coursework-category-editor > button { min-height: 44px; }
+}

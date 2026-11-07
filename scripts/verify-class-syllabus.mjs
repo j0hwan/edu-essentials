@@ -180,6 +180,9 @@ async function enterCustomize(page) {
   await page.getByRole("heading", { name: "Class schedule" }).waitFor();
   await settle(page);
   await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("heading", { name: "Categories & tasks" }).waitFor();
+  await settle(page);
+  await page.getByRole("button", { name: /Continue/ }).click();
   await page.getByRole("heading", { name: "Make it yours" }).waitFor();
   await settle(page);
 }
@@ -313,6 +316,9 @@ async function verifySavedPreview(page, mode, viewport) {
   await page.getByRole("dialog", { name: "Course information" }).waitFor();
   await page.getByRole("button", { name: /Continue/ }).click();
   await page.getByRole("heading", { name: "Class schedule" }).waitFor();
+  await settle(page);
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("heading", { name: "Categories & tasks" }).waitFor();
   await settle(page);
   await page.getByRole("button", { name: /Continue/ }).click();
   await page.getByRole("heading", { name: "Make it yours" }).waitFor();

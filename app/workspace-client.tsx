@@ -75,6 +75,7 @@ import StudyPanel from "./study-panel";
 import { useStudyStats } from "./use-study-stats";
 import { emptyStudy, settleTimer, timerAction, goalPercent, completedInWeek, detachStudyCourse, type StudyData, type TimerKind } from "../lib/study";
 import { academicSnapshot, validateAcademicEdit } from "../lib/academic-snapshot";
+import { mergeCourseworkAssignments } from "../lib/coursework";
 import { dayKey, dateLabel, assignmentStatus, legacyEventTime, emptyCourse, emptyCourseDetails, type Course, type CourseDetails, type SyllabusDraft } from "../lib/academics";
 import { experimentalData, type ExperimentalDensity } from "../lib/experimental-data";
 import OnboardingFlow from "./onboarding-flow";
@@ -1037,13 +1038,14 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     if (accepted) { setEditor(null); setSelectedAssignment(null); if (!value.taskCourse) setSelectedClass(null); }
     return accepted;
   };
-  const persistClassSetup = async (course: Course, details: CourseDetails, generation: number) => {
+  const persistClassSetup = async (course: Course, details: CourseDetails, generation: number, coursework: SavedAssignment[]) => {
     if (generation !== workspaceLoadGeneration.current) throw new Error("The workspace changed. Reopen class setup in the original workspace.");
     const nextCourses = [...courses.filter((current) => current.id !== course.id), course];
     const courseDetails = { ...extraData.courseDetails, [course.id]: details };
-    const dashboard = encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments: storedAssignments, manualEvents, dashboardView, calendarFilter, ...extraData, courseDetails });
+    const assignments = mergeCourseworkAssignments(storedAssignments, course.id, coursework);
+    const dashboard = encodeWorkspaceState(workspaces, activeWorkspaceId, notes, { assignments, manualEvents, dashboardView, calendarFilter, ...extraData, courseDetails });
     const snapshot = canonicalJson(academicSnapshot(nextCourses, dashboard));
-    if (!commitAcademic(nextCourses, { courseDetails })) throw new Error("Could not save this class. Check the workspace message and retry.");
+    if (!commitAcademic(nextCourses, { courseDetails, assignments })) throw new Error("Could not save this class. Check the workspace message and retry.");
     if (!experimentalMode) {
       autosave.change(snapshot);
       await autosave.flushLatest(true);
@@ -1054,18 +1056,18 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   };
   const persistClassSetupRef = useRef(persistClassSetup);
   useLayoutEffect(() => { persistClassSetupRef.current = persistClassSetup; });
-  const saveClassSetup = async (course: Course, details: CourseDetails, uploads: ClassSetupUploads) => {
+  const saveClassSetup = async (course: Course, details: CourseDetails, uploads: ClassSetupUploads, coursework: SavedAssignment[]) => {
     if (!classSetup || classSetup.course.id !== course.id || classSetup.profileId !== initialProfile.id || classSetup.profileId !== profile.id || classSetup.generation !== workspaceLoadGeneration.current) throw new Error("This class setup belongs to an earlier workspace session. Close it and start again.");
     if (profilePending || (!experimentalMode && !autosave.getSnapshot().ready)) throw new Error("Wait for your workspace to finish loading, then retry.");
     if (experimentalMode && (uploads.image || uploads.syllabus)) throw new Error("File uploads are unavailable in this workspace.");
     const generation = classSetup.generation;
-    await persistClassSetupRef.current(course, details, generation);
+    await persistClassSetupRef.current(course, details, generation, coursework);
     try {
       if (uploads.image) await fileStore.upload(uploads.image.file, { name: uploads.image.file.name, courseId: course.id, assignmentId: "", kind: "class-image" }, uploads.image.id);
       if (generation !== workspaceLoadGeneration.current) throw new Error("The workspace changed during upload.");
       if (uploads.syllabus) {
         const file = await fileStore.upload(uploads.syllabus.file, { name: uploads.syllabus.file.name, courseId: course.id, assignmentId: "", kind: "syllabus" }, uploads.syllabus.id);
-        await persistClassSetupRef.current(course, { ...details, syllabusDeleted: false, syllabusText: classSetup.editing ? "" : details.syllabusText, syllabusName: file.name, syllabusFileId: file.id }, generation);
+        await persistClassSetupRef.current(course, { ...details, syllabusDeleted: false, syllabusText: classSetup.editing ? "" : details.syllabusText, syllabusName: file.name, syllabusFileId: file.id }, generation, coursework);
       }
     } catch (failure) {
       throw new Error(`The class was saved, but attachments may be incomplete. Retry to finish without creating another class. ${failure instanceof Error ? failure.message : "Upload failed."}`);
@@ -1089,7 +1091,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   };
   const toggleAssignmentComplete = (id: string) => {
     const a = storedAssignments.find((a) => a.id === id); if (!a) return;
-    const changed: Assignment = a.status === "done" ? { ...a, status: "later", completedAt: null, progress: a.progressBeforeCompletion ?? 0 } : { ...a, status: "done", completedAt: new Date().toISOString(), progressBeforeCompletion: a.progress, progress: 100 };
+    if (a.status === "done" && a.pointsEarned != null && !window.confirm("Mark this task incomplete and clear its recorded score? Points possible will be kept.")) return;
+    const changed: Assignment = a.status === "done" ? { ...a, status: "later", completedAt: null, progress: a.progressBeforeCompletion ?? 0, pointsEarned: null } : { ...a, status: "done", completedAt: new Date().toISOString(), progressBeforeCompletion: a.progress, progress: 100 };
     if (commitAcademic(courses, { assignments: storedAssignments.map((item) => item.id === id ? changed : item) })) setSelectedAssignment(changed);
   };
 
@@ -1732,6 +1735,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return { key: `${classSetup.profileId}:${classSetup.generation}:${classSetup.course.id}`, props: {
           initial: classSetup.course,
           initialDetails: classSetup.details,
+          initialAssignments: storedAssignments.filter((assignment) => assignment.courseId === classSetup.course.id),
           editing: classSetup.editing,
           savedImageId: image?.id,
           savedImageUrl: image ? fileStore.url(image) : undefined,

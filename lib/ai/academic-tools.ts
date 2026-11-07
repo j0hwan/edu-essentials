@@ -94,7 +94,7 @@ export function buildProposal(context: AcademicContext, operations: Operation[],
       const index = data.assignments.findIndex((a) => a.id === op.id); if (index < 0) throw new Error("Assignment not found in this account.");
       const before = data.assignments[index]; let after: SavedAssignment;
       if (op.kind === "mark_assignment_complete") after = before.status === "done" ? { ...before } : { ...before, progressBeforeCompletion: before.progress, progress: 100, status: "done", completedAt: context.now.toISOString() };
-      else { const { kind: _kind, ...fields } = op; void _kind; after = { ...before, ...fields }; after.due = dateLabel(after.dateKey); after.status = assignmentStatus(after, today); }
+      else { const { kind: _kind, ...fields } = op; void _kind; after = { ...before, ...fields, ...(op.courseId !== undefined && op.courseId !== before.courseId ? { categoryId: undefined } : {}) }; after.due = dateLabel(after.dateKey); after.status = assignmentStatus(after, today); }
       data.assignments[index] = after; changes.push({ kind: op.kind, before, after });
     } else {
       const index = op.kind === "move_calendar_event" ? data.manualEvents.findIndex((e) => e.id === op.id) : -1;

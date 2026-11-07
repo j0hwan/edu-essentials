@@ -31,7 +31,7 @@ function buildSnapshot(courses: unknown, dashboard: unknown, unchanged?: Workspa
       owned(a.courseId);
       if (unchanged && JSON.stringify(a) === JSON.stringify(unchanged.assignments.find((old) => old.id === a.id))) continue;
       if (!a.title.trim()) throw new Error("Enter an assignment title.");
-      if (!isDate(a.dateKey) || (a.dueTime !== undefined && (typeof a.dueTime !== "string" || (a.dueTime !== "" && !isTime(a.dueTime))))) throw new Error(`Set a valid due date and time for ${a.title}.`);
+      if ((a.dateKey !== "" && !isDate(a.dateKey)) || (a.dueTime !== undefined && (typeof a.dueTime !== "string" || (a.dueTime !== "" && (!a.dateKey || !isTime(a.dueTime)))))) throw new Error(`Set a valid due date and time for ${a.title}, or leave both blank.`);
       if (a.type !== undefined && !assignmentTypes.includes(a.type)) throw new Error("Invalid assignment type.");
       if (a.completedAt != null && (typeof a.completedAt !== "string" || !Number.isFinite(Date.parse(a.completedAt)) || !/^\d{4}-\d\d-\d\dT/.test(a.completedAt))) throw new Error("Invalid completion timestamp.");
       if (a.progressBeforeCompletion !== undefined && (!Number.isFinite(a.progressBeforeCompletion) || a.progressBeforeCompletion < 0 || a.progressBeforeCompletion > 100)) throw new Error("Invalid previous progress.");

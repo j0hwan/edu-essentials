@@ -4,6 +4,7 @@ import { validateWidgetAppearanceState, type WidgetAppearanceState } from "./wid
 import { widgetSizes, type WidgetResizePriority, type WidgetSize } from "./widget-layout";
 import { validateTodaySections, type TodaySectionId } from "./today-sections";
 import type { FilesBrowserPreferences } from "./files-browser";
+import { validateAssignmentGrading } from "./coursework";
 export { widgetSizes };
 export type { WidgetSize };
 
@@ -68,6 +69,7 @@ export type SavedAssignment = {
   id: string; title: string; courseId: string; due: string; dateKey: string;
   status: "overdue" | "today" | "later" | "done"; progress: number; description: string; weight: string;
   notes?: string; checklist?: boolean[];
+  categoryId?: string; pointsPossible?: number | null; pointsEarned?: number | null;
   type?: "Assignment" | "Exam" | "Project"; dueTime?: string; completedAt?: string | null; progressBeforeCompletion?: number;
 };
 export type SavedEvent = { id: string; title: string; courseId: string; dateKey: string; time: string; type: string; description?: string; durationMinutes?: number };
@@ -339,6 +341,7 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
     bounded(item, "description", 20000);
     if (item.notes !== undefined) bounded(item, "notes", 20000);
     if (!item.id || !item.title || !["overdue", "today", "later", "done"].includes(item.status as string) || typeof item.progress !== "number" || !Number.isFinite(item.progress) || item.progress < 0 || item.progress > 100) throw new Error("Invalid assignment progress.");
+    validateAssignmentGrading(item);
     if (item.checklist !== undefined && (!Array.isArray(item.checklist) || item.checklist.length !== 3 || item.checklist.some((item) => typeof item !== "boolean"))) throw new Error("Invalid assignment checklist.");
   }
   for (const item of value.manualEvents) {
@@ -369,7 +372,16 @@ function validateWorkspaceData(value: unknown): WorkspaceData {
         (preferences.fileType !== undefined && (typeof preferences.fileType !== "string" || !["all", "text", "pdf", "image", "other"].includes(preferences.fileType))) ||
         (preferences.includeArchived !== undefined && typeof preferences.includeArchived !== "boolean")) throw new Error("Invalid file preferences.");
   }
-  if (value.courseDetails !== undefined) { if (!isRecord(value.courseDetails) || Object.keys(value.courseDetails).length > 100) throw new Error("Invalid class details."); Object.values(value.courseDetails).forEach(validateCourseDetails); }
+  if (value.courseDetails !== undefined) {
+    if (!isRecord(value.courseDetails) || Object.keys(value.courseDetails).length > 100) throw new Error("Invalid class details.");
+    Object.values(value.courseDetails).forEach(validateCourseDetails);
+  }
+  for (const item of value.assignments) {
+    if (typeof item.categoryId !== "string" || !item.categoryId) continue;
+    const details = isRecord(value.courseDetails) ? value.courseDetails[item.courseId] : undefined;
+    const categories = isRecord(details) ? validateCourseDetails(details).gradingCategories ?? [] : [];
+    if (!categories.some((category) => category.id === item.categoryId)) throw new Error("Assignment references an unknown grading category.");
+  }
   return { ...normalized, ...(value.widgetAppearance !== undefined ? { widgetAppearance: validateWidgetAppearanceState(value.widgetAppearance) } : {}) } as WorkspaceData;
 }
 

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Slash, Trash2, X } from "lucide-react";
-import { addDays, dateLabel, emptyCourseDetails, isDate, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
+import { addDays, assignmentTypes, dateLabel, emptyCourseDetails, isDate, isTime, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
+import { mergeCourseworkAssignments, validateAssignmentGrading, validateGradingCategories } from "../lib/coursework";
+import type { SavedAssignment } from "../lib/workspace-codec";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { courseImageFramingStyle, DEFAULT_COURSE_IMAGE_FRAMING, moveCourseImage, type CourseImageFraming } from "../lib/course-image-framing";
 import { MAX_FILE_BYTES } from "../lib/files";
@@ -10,6 +12,7 @@ import CourseIcon from "./course-icon";
 import LocationInput from "./location-input";
 import ClassCardBody from "./class-card-body";
 import ClassSetupDocumentPreview from "./class-setup-document-preview";
+import ClassCoursework from "./class-coursework";
 import { useSaveProtection } from "./use-save-protection";
 import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
 import "./course-icon-picker.css";
@@ -17,8 +20,9 @@ import "./class-setup.css";
 
 export type ClassSetupUpload = { file: File; id: string };
 export type ClassSetupUploads = { image?: ClassSetupUpload; syllabus?: ClassSetupUpload };
-const steps = ["Course information", "Class schedule", "Make it yours"];
-const stepLabels = ["Info", "Schedule", "Customize"];
+const steps = ["Course information", "Class schedule", "Categories & tasks", "Make it yours"];
+const stepLabels = ["Info", "Schedule", "Coursework", "Customize"];
+const assignmentDraftJson = (assignments: SavedAssignment[]) => JSON.stringify(assignments, (_key, value: unknown) => typeof value === "number" && !Number.isFinite(value) ? "invalid-number" : value);
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const formatMeetingTime = (time: string) => {
   if (!time) return "Set time";
@@ -127,14 +131,15 @@ function MeetingTitle({ title, onRename }: { title: string; onRename: (name: str
   </div>;
 }
 
-export default function ClassSetup({ initial, initialDetails: savedDetails, editing = false, savedImageId, savedImageUrl, savedSyllabusPreview, today, canUpload, onSave, onClose, onDelete, initialBounds }: {
+export default function ClassSetup({ initial, initialDetails: savedDetails, initialAssignments = [], editing = false, savedImageId, savedImageUrl, savedSyllabusPreview, today, canUpload, onSave, onClose, onDelete, initialBounds }: {
   initial: Course; today: string; canUpload: boolean;
   initialDetails?: CourseDetails;
+  initialAssignments?: SavedAssignment[];
   editing?: boolean;
   savedImageId?: string;
   savedImageUrl?: string;
   savedSyllabusPreview?: ReactNode;
-  onSave: (course: Course, details: CourseDetails, uploads: ClassSetupUploads) => Promise<void>;
+  onSave: (course: Course, details: CourseDetails, uploads: ClassSetupUploads, assignments: SavedAssignment[]) => Promise<void>;
   onClose: () => void;
   onDelete?: () => void;
   initialBounds?: ClassSetupBounds;
@@ -144,6 +149,8 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
   const [course, setCourse] = useState(initial);
   const [initialDetails] = useState<CourseDetails>(() => savedDetails ?? ({ ...emptyCourseDetails(), meetings: [{ id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: initial.room }] }));
   const [details, setDetails] = useState<CourseDetails>(initialDetails);
+  const [originalAssignments] = useState(() => initialAssignments.filter((assignment) => assignment.courseId === initial.id));
+  const [assignments, setAssignments] = useState(originalAssignments);
   const [selectedMeetingId, setSelectedMeetingId] = useState(initialDetails.meetings[0]?.id ?? "");
   const [skipDatePickerFallback, setSkipDatePickerFallback] = useState(false);
   const [step, setStep] = useState(0);
@@ -168,6 +175,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
   const suppressImageClickRef = useRef(false);
   const [error, setError] = useState("");
   const [checkedSteps, setCheckedSteps] = useState<number[]>([]);
+  const [courseworkValidationAttempt, setCourseworkValidationAttempt] = useState(0);
   const focusMissingRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [attemptedSave, setAttemptedSave] = useState(false);
@@ -177,7 +185,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
   const meetingFocusRef = useRef<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const closeRef = useRef<() => void>(() => {});
-  const dirty = JSON.stringify(course) !== JSON.stringify(initial) || JSON.stringify(details) !== JSON.stringify(initialDetails) || Boolean(uploads.image || uploads.syllabus);
+  const dirty = JSON.stringify(course) !== JSON.stringify(initial) || JSON.stringify(details) !== JSON.stringify(initialDetails) || assignmentDraftJson(assignments) !== assignmentDraftJson(originalAssignments) || Boolean(uploads.image || uploads.syllabus);
   useSaveProtection(dirty || busy);
   const close = () => { if (!formRef.current?.closest("[data-modal-exiting]") && !saving.current && (!dirty || window.confirm("Discard this class setup? Selected files have not been uploaded unless you already tried saving."))) onClose(); };
   useEffect(() => { closeRef.current = close; });
@@ -187,10 +195,11 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
       if (event.key !== "Tab") return;
-      const controls = [...(formRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not(.class-setup-hidden-input), textarea:not(:disabled), iframe, a[href], [tabindex="0"]') ?? [])];
+      const controls = [...(formRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not(.class-setup-hidden-input), select:not(:disabled), textarea:not(:disabled), iframe, a[href], [tabindex="0"]') ?? [])];
       const first = controls[0], last = controls[controls.length - 1];
       if (!first) { event.preventDefault(); formRef.current?.focus(); return; }
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === headingRef.current)) { event.preventDefault(); last?.focus(); }
+      if (!formRef.current?.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
+      else if (event.shiftKey && (document.activeElement === first || document.activeElement === headingRef.current)) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     };
     document.addEventListener("keydown", keydown);
@@ -201,7 +210,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
     if (!focusMissingRef.current) return;
     focusMissingRef.current = false;
     const invalid = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
-    (invalid?.matches("input") ? invalid : invalid?.querySelector<HTMLElement>("button"))?.focus();
+    (invalid?.matches("input, select, textarea") ? invalid : invalid?.querySelector<HTMLElement>("button"))?.focus();
   });
   useEffect(() => {
     if (meetingFocusRef.current === null) return;
@@ -354,7 +363,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
     }
     try {
       const validated = validateCourse({ ...course, initials: editing && course.code === initial.code ? initial.initials : course.code.slice(0, 2).toUpperCase(), soft: editing && course.color === initial.color ? initial.soft : `${course.color}18` });
-      if (step === 1 || step === 2) {
+      if (step >= 1) {
         const missingMeeting = details.meetings.find(hasMissingMeetingFields);
         const invalidMeeting = missingMeeting ?? details.meetings.find((meeting) => !isMeetingComplete(meeting));
         if (invalidMeeting) {
@@ -366,25 +375,51 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
           focusMissingRef.current = true;
           return;
         }
-        validateCourseDetails(details);
+        validateCourseDetails({ ...details, gradingCategories: undefined });
       }
-      if (step < 2) { transition(() => setStep(step + 1)); return; }
+      let validatedDetails = details;
+      if (step >= 2) {
+        setCourseworkValidationAttempt((current) => current + 1);
+        try {
+          const categories = validateGradingCategories(details.gradingCategories ?? []);
+          const categoryIds = new Set(categories.map((category) => category.id));
+          for (const assignment of assignments) {
+            if (!assignment.title.trim() || assignment.title.length > 500) throw new Error("Enter a task title of up to 500 characters.");
+            if (assignment.description.length > 20000) throw new Error(`Shorten the description for ${assignment.title}.`);
+            if ((assignment.dateKey && !isDate(assignment.dateKey)) || (assignment.dueTime && (!assignment.dateKey || !isTime(assignment.dueTime)))) throw new Error(`Set a valid due date and time for ${assignment.title}, or leave both blank.`);
+            if (assignment.type !== undefined && !assignmentTypes.includes(assignment.type)) throw new Error(`Choose a task type for ${assignment.title}.`);
+            if (assignment.categoryId && !categoryIds.has(assignment.categoryId)) throw new Error(`Choose a category for ${assignment.title}, or leave it uncategorized.`);
+            if (assignment.status === "done" && assignment.progress !== 100) throw new Error(`Completed tasks must have 100% progress: ${assignment.title}.`);
+            validateAssignmentGrading(assignment);
+          }
+          mergeCourseworkAssignments([], course.id, assignments);
+          validatedDetails = { ...details, ...(details.gradingCategories !== undefined ? { gradingCategories: categories } : {}) };
+        } catch (failure) {
+          setCheckedSteps((current) => current.includes(2) ? current : [...current, 2]);
+          setStep(2);
+          focusMissingRef.current = true;
+          throw failure;
+        }
+      }
+      if (step < steps.length - 1) { transition(() => setStep(step + 1)); return; }
       saving.current = true; setBusy(true); setAttemptedSave(true);
       const preview = formRef.current?.querySelector<HTMLElement>(".class-setup-image-button");
       const bounds = preview?.getBoundingClientRect();
       const imageFraming = details.imageFraming && imageSize && bounds && bounds.width > 0 && bounds.height > 0
         ? { ...details.imageFraming, imageAspectRatio: imageSize.width / imageSize.height, frameAspectRatio: bounds.width / bounds.height } : details.imageFraming;
-      await onSave(validated, { ...details, imageFraming }, uploads);
+      await onSave(validated, { ...validatedDetails, imageFraming }, uploads, assignments);
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not save this class. Your setup is still here; please retry."); }
     finally { saving.current = false; setBusy(false); }
   };
 
-  return <div className="modal-backdrop"><form ref={formRef} noValidate data-morphing-entry={initialBounds ? true : undefined} className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : step === 2 ? " class-setup-customize-step" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+  return <div className="modal-backdrop"><form ref={formRef} noValidate data-morphing-entry={initialBounds ? true : undefined} className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : step === 2 ? " class-setup-coursework-step" : step === 3 ? " class-setup-customize-step" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <h2 className="class-setup-accessible-title" id="class-setup-title" ref={headingRef} tabIndex={-1}>{steps[step]}</h2>
     <div className="modal-header class-setup-header">
       <ol className="class-setup-progress" aria-label="Class setup progress">{steps.map((label, index) => <li key={label} aria-label={`${label}${index < step ? ", completed" : ""}`} aria-current={step === index ? "step" : undefined} className={index < step ? "is-complete" : undefined}>
-        {index < step ? <CircleCheck className="class-setup-step-indicator" size={18} aria-hidden="true" /> : <Circle className="class-setup-step-indicator" size={18} aria-hidden="true" />}
-        <span>{stepLabels[index]}</span>
+        <button type="button" className="class-setup-step-button" aria-label={`Go to ${stepLabels[index]}`} disabled={busy || (!editing && index > step)} onClick={() => { if (index !== step) transition(() => { setStep(index); setError(""); }); }}>
+          {index < step ? <CircleCheck className="class-setup-step-indicator" size={18} aria-hidden="true" /> : <Circle className="class-setup-step-indicator" size={18} aria-hidden="true" />}
+          <span className="class-setup-step-label">{stepLabels[index]}</span>
+        </button>
         {index < steps.length - 1 && <ChevronRight className="class-setup-step-separator" size={18} aria-hidden="true" />}
       </li>)}</ol>
       <button type="button" className="secondary-button" disabled={busy} aria-label="Close class setup" onClick={close}><X size={18} /></button>
@@ -438,7 +473,8 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
           </div>
         </section> : <section className="class-setup-schedule-empty" id="class-setup-meeting-editor"><CalendarDays size={32} aria-hidden="true" /><h3>No scheduled meetings</h3><p>Add a meeting for live classes, or continue without one for an asynchronous course.</p></section>}
       </div>}
-      {step === 2 && <>
+      {step === 2 && <ClassCoursework courseId={course.id} today={today} categories={details.gradingCategories ?? []} assignments={assignments} onCategoriesChange={(gradingCategories) => setDetails((current) => ({ ...current, gradingCategories }))} onAssignmentsChange={setAssignments} disabled={busy} showErrors={checkedSteps.includes(2)} validationAttempt={courseworkValidationAttempt} />}
+      {step === 3 && <>
         <div className="class-setup-customize">
           <section className="class-setup-appearance" aria-label="Class appearance">
             <p className="class-setup-panel-title">Live card preview</p>
@@ -493,6 +529,6 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, edit
     </fieldset>
     {error && <p role="alert" className="auth-error">{error}</p>}
     {attemptedSave && !busy && error && <p className="form-hint">Selected files are locked for safe retries because some attachments may already be saved. Retry to finish, or close setup and manage saved attachments from the class files.</p>}
-    <div className="modal-actions class-setup-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { if (step) { transition(() => { setStep(step - 1); setError(""); }); } else close(); }}>{step ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button>{onDelete ? <button type="button" className="secondary-button" aria-label="Delete class" title="Delete class" disabled={busy || attemptedSave} onClick={onDelete}><Trash2 size={18} aria-hidden="true" /></button> : <span>{step + 1} / 3</span>}<button className="primary-button" disabled={busy}>{busy ? "Saving class…" : step === 2 ? editing ? "Save class" : "Create class" : <>Continue<ArrowRight size={16} /></>}</button></div>
+    <div className="modal-actions class-setup-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { if (step) { transition(() => { setStep(step - 1); setError(""); }); } else close(); }}>{step ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button><span className="class-setup-step-count">{step + 1} / {steps.length}</span>{onDelete && <button type="button" className="secondary-button" aria-label="Delete class" title="Delete class" disabled={busy || attemptedSave} onClick={onDelete}><Trash2 size={18} aria-hidden="true" /></button>}<button className="primary-button" disabled={busy}>{busy ? "Saving class…" : step === steps.length - 1 ? editing ? "Save class" : "Create class" : <>Continue<ArrowRight size={16} /></>}</button></div>
   </form></div>;
 }

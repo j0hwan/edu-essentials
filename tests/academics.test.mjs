@@ -87,3 +87,36 @@ test("explicit syllabus deletion marker must be boolean and contain no syllabus 
     assert.throws(() => validateCourseDetails({ ...deleted, ...patch }));
   }
 });
+
+test("grading categories persist and assignment category references are checked", () => {
+  const details = { officeHours: "", meetings: [], gradingCategories: [{ id: "hw", name: "Homework", weight: 40 }] };
+  const task = { ...assignment, status: "done", progress: 100, categoryId: "hw", pointsPossible: 10, pointsEarned: 0 };
+  const snapshot = academicSnapshot([course], { ...base, d: { ...base.d, assignments: [task], courseDetails: { c: details } } });
+  const decoded = decodeWorkspaceState(JSON.parse(JSON.stringify(snapshot.dashboard)));
+  assert.deepEqual(decoded.data.courseDetails.c.gradingCategories, details.gradingCategories);
+  assert.equal(decoded.data.assignments[0].pointsEarned, 0);
+  assert.throws(() => decodeWorkspaceState({ ...snapshot.dashboard, d: { ...snapshot.dashboard.d, assignments: [{ ...task, categoryId: "missing" }] } }), /unknown grading category/);
+  const legacy = { ...assignment, weight: "Midterm — 30%" };
+  const legacySnapshot = academicSnapshot([course], { ...base, d: { ...base.d, assignments: [legacy] } });
+  assert.equal(decodeWorkspaceState(JSON.parse(JSON.stringify(legacySnapshot.dashboard))).data.assignments[0].weight, legacy.weight);
+});
+
+test("categorized tasks require categories on their owning course even without details", () => {
+  const otherCourse = { ...course, id: "other" };
+  const task = { ...assignment, categoryId: "other-only" };
+  const otherDetails = { officeHours: "", meetings: [], gradingCategories: [{ id: "other-only", name: "Labs", weight: 100 }] };
+  for (const courseDetails of [undefined, {}, { other: otherDetails }, { c: { officeHours: "", meetings: [] }, other: otherDetails }]) {
+    const payload = { ...base, d: { ...base.d, assignments: [task], courseDetails } };
+    assert.throws(() => decodeWorkspaceState(payload), /unknown grading category/);
+    assert.throws(() => academicSnapshot([course, otherCourse], payload), /unknown grading category/);
+    assert.doesNotThrow(() => academicSnapshot([course, otherCourse], { ...payload, d: { ...payload.d, assignments: [assignment] } }));
+  }
+});
+
+test("undated coursework round-trips without allowing an orphan time or undated event", () => {
+  const task = { ...assignment, dateKey: "", due: "", dueTime: "", pointsPossible: 25 };
+  const snapshot = academicSnapshot([course], { ...base, d: { ...base.d, assignments: [task] } });
+  assert.deepEqual(decodeWorkspaceState(JSON.parse(JSON.stringify(snapshot.dashboard))).data.assignments[0], task);
+  assert.throws(() => academicSnapshot([course], { ...base, d: { ...base.d, assignments: [{ ...task, dueTime: "14:00" }] } }), /valid due date and time/);
+  assert.throws(() => academicSnapshot([course], { ...base, d: { ...base.d, manualEvents: [{ id: "event", title: "Lecture", courseId: "c", dateKey: "", time: "", type: "Class" }] } }), /valid event details/);
+});

@@ -1,9 +1,10 @@
 import { isCourseIconId, type CourseIconId } from "./course-icons";
 import type { CourseImageFraming } from "./course-image-framing";
+import { validateGradingCategories, type GradingCategory } from "./coursework";
 
 export type Course = { id: string; code: string; name: string; credits: number; instructor: string; room: string; color: string; soft: string; initials: string };
 export type Meeting = { id: string; name?: string; days: number[]; start: string; end: string; from: string; until: string; location: string; excludedDates?: string[] };
-export type CourseDetails = { officeHours: string; meetingNotes?: string; meetings: Meeting[]; icon?: CourseIconId; imageFraming?: CourseImageFraming; syllabusText?: string; syllabusName?: string; syllabusFileId?: string; syllabusDeleted?: boolean };
+export type CourseDetails = { officeHours: string; meetingNotes?: string; meetings: Meeting[]; icon?: CourseIconId; imageFraming?: CourseImageFraming; syllabusText?: string; syllabusName?: string; syllabusFileId?: string; syllabusDeleted?: boolean; gradingCategories?: GradingCategory[] };
 export type ReviewItem = { id: string; title: string; date: string; type: "Assignment" | "Exam" | "Project"; description: string; weight: string };
 export type SyllabusDraft = { id: string; sourceText: string; sourceName: string; sourceFileId?: string; course: Course; items: ReviewItem[] };
 export const assignmentTypes = ["Assignment", "Exam", "Project"] as const;
@@ -33,6 +34,7 @@ export function validateCourse(value: unknown, draft = false): Course {
 }
 export function validateCourseDetails(value: unknown): CourseDetails {
   const d = record(value); text(d.officeHours, "office hours", 2000);
+  if (d.gradingCategories !== undefined) validateGradingCategories(d.gradingCategories);
   if (d.meetingNotes !== undefined) text(d.meetingNotes, "meeting notes", 2000);
   if (d.icon !== undefined && !isCourseIconId(d.icon)) throw new Error("Invalid class icon.");
   if (d.imageFraming !== undefined) {

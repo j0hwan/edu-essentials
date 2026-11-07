@@ -1,0 +1,90 @@
+<style>
+#class-concepts { --ed-surface: var(--card); --ed-text: var(--foreground); --ed-quiet: var(--muted-foreground, var(--foreground)); --ed-line: var(--border); --ed-field: var(--background); --ed-focus: var(--accent); font-family: var(--font-sans); color: var(--ed-text); }
+#class-concepts * { box-sizing: border-box; }
+#class-concepts h2, #class-concepts h3, #class-concepts p { margin: 0; }
+#class-concepts h2 { font-size: 19px; font-weight: 500; }
+#class-concepts h3 { font-size: 15px; font-weight: 500; }
+#class-concepts .quiet { color: var(--ed-quiet); font-size: 12px; line-height: 1.5; }
+#class-concepts .choose { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-bottom: 12px; }
+#class-concepts select, #class-concepts input, #class-concepts textarea, #class-concepts button { font: inherit; color: inherit; }
+#class-concepts select, #class-concepts input:not([type=checkbox]), #class-concepts textarea { background: var(--ed-field); border: 1px solid var(--ed-line); border-radius: 8px; padding: 9px; min-width: 0; width: 100%; }
+#class-concepts .choose select { width: auto; max-width: 100%; }
+#class-concepts button { background: var(--ed-field); border: 1px solid var(--ed-line); padding: 8px 11px; border-radius: 8px; cursor: pointer; }
+#class-concepts button:disabled { cursor: default; opacity: .65; }
+#class-concepts .shell { background: var(--ed-surface); border: 1px solid var(--ed-line); border-radius: 18px; padding: 21px; }
+#class-concepts .steps { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-bottom: 22px; font-size: 13px; color: var(--ed-quiet); }
+#class-concepts .steps strong { color: var(--ed-text); font-weight: 500; }
+#class-concepts .top, #class-concepts .row, #class-concepts .foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+#class-concepts .top { margin-bottom: 16px; }
+#class-concepts .top p { margin-top: 5px; }
+#class-concepts .workspace { display: grid; grid-template-columns: 175px minmax(0, 1fr); gap: 20px; }
+#class-concepts .rail { border-right: 1px solid var(--ed-line); padding-right: 16px; }
+#class-concepts .cat { display: grid; grid-template-columns: minmax(0, 1fr) 63px; align-items: center; gap: 5px; padding: 8px 0; }
+#class-concepts .cat button { text-align: left; background: transparent; border-color: transparent; padding: 8px 5px; }
+#class-concepts .cat button[aria-pressed=true] { background: var(--ed-focus); }
+#class-concepts .cat label { display: flex; align-items: center; gap: 3px; font-size: 12px; }
+#class-concepts .cat input { padding: 8px 3px; text-align: right; }
+#class-concepts .rail > button { width: 100%; margin-top: 10px; }
+#class-concepts .total { margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--ed-line); font-size: 12px; }
+#class-concepts .tasks { display: grid; gap: 0; margin: 12px 0; }
+#class-concepts .task { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; border-bottom: 1px solid var(--ed-line); padding: 11px 0; }
+#class-concepts .task button { border: 0; padding: 0; text-align: left; background: transparent; }
+#class-concepts .score { font-size: 12px; font-variant-numeric: tabular-nums; }
+#class-concepts .editor { border-top: 1px solid var(--ed-line); padding-top: 15px; }
+#class-concepts .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 13px 0; }
+#class-concepts .fields label { display: grid; align-content: start; gap: 5px; font-size: 12px; }
+#class-concepts .wide { grid-column: 1 / -1; }
+#class-concepts .checks { display: flex; flex-wrap: wrap; gap: 15px; font-size: 12px; margin: 13px 0; }
+#class-concepts .checks label { display: flex; gap: 6px; align-items: center; min-height: 32px; }
+#class-concepts .primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }
+#class-concepts .foot { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--ed-line); font-size: 12px; }
+#class-concepts details { border-bottom: 1px solid var(--ed-line); padding: 14px 0; }
+#class-concepts summary { cursor: pointer; font-size: 14px; }
+#class-concepts .group-body { padding: 8px 0 4px 18px; }
+#class-concepts .table-wrap { overflow-x: auto; }
+#class-concepts table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; margin: 14px 0; }
+#class-concepts td, #class-concepts th { border-bottom: 1px solid var(--ed-line); padding: 12px 7px; font-weight: 400; }
+#class-concepts th { color: var(--ed-quiet); }
+#class-concepts td input { min-width: 58px; padding: 7px; }
+#class-concepts .concept-note { margin-top: 12px; }
+#class-concepts [hidden] { display: none !important; }
+@media(max-width: 550px) { #class-concepts .shell { padding: 15px; } #class-concepts .workspace { grid-template-columns: 1fr; } #class-concepts .rail { border-right: 0; border-bottom: 1px solid var(--ed-line); padding: 0 0 14px; } #class-concepts .cat { grid-template-columns: 1fr 80px; } #class-concepts .fields { grid-template-columns: 1fr; } #class-concepts .steps { gap: 6px; font-size: 12px; } #class-concepts input, #class-concepts textarea, #class-concepts select { font-size: 16px; } }
+</style>
+<div id="class-concepts">
+  <div class="choose"><label for="layout-choice">Explore layouts</label><select id="layout-choice"><option value="workspace">Category workspace · recommended</option><option value="groups">Expandable category groups</option><option value="grid">Task-first gradebook</option></select><span class="quiet">Sample data · changes stay in this preview</span></div>
+  <div class="shell">
+    <div class="steps" aria-label="Class setup, step four of four"><span>✓ Info</span><span>›</span><span>✓ Schedule</span><span>›</span><span>✓ Customize</span><span>›</span><strong>◉ Coursework</strong></div>
+    <div class="top"><div><h2>Categories &amp; tasks</h2><p class="quiet">ECON001 · Principles of Microeconomics</p></div><span class="quiet">Step 4 of 4</span></div>
+    <section data-layout="workspace" aria-label="Category workspace layout">
+      <div class="workspace">
+        <aside class="rail" aria-label="Grading categories"><h3>Categories</h3><div id="category-list"><div class="cat"><button type="button" data-category="Homework" aria-pressed="true">Homework</button><label><input class="weight" type="number" min="0" max="100" value="35" aria-label="Homework weight">%</label></div><div class="cat"><button type="button" data-category="Quizzes" aria-pressed="false">Quizzes</button><label><input class="weight" type="number" min="0" max="100" value="15" aria-label="Quizzes weight">%</label></div><div class="cat"><button type="button" data-category="Exams" aria-pressed="false">Exams</button><label><input class="weight" type="number" min="0" max="100" value="50" aria-label="Exams weight">%</label></div></div><button id="add-category" type="button">+ Add category</button><div id="weight-total" class="total" aria-live="polite">100% allocated</div></aside>
+        <div><div class="row"><h3 id="selected-category">Homework</h3><button id="new-task" type="button">+ Add task</button></div><div id="task-list" class="tasks" aria-live="polite"></div>
+          <div id="task-editor" class="editor"><div class="row"><h3 id="editor-heading">New task</h3><span class="quiet">Inline draft</span></div><form id="task-draft"><div class="fields"><label class="wide">Task title<input id="task-title" value="Homework 3" required maxlength="500"></label><label>Type<select id="task-type"><option>Assignment</option><option>Exam</option><option>Project</option></select></label><label>Category<select id="task-category"><option>Homework</option><option>Quizzes</option><option>Exams</option></select></label><label>Due date · optional<input id="task-date" type="date" value="2026-11-12"></label><label>Due time · optional<input id="task-time" type="time"></label><label class="wide">Description<textarea id="task-description" rows="2" placeholder="Instructions, links, or a reminder"></textarea></label><label>Points possible<input id="possible" type="number" min="0.01" step="any" value="20"></label><label id="earned-field" hidden>Points earned<input id="earned" type="number" min="0" step="any" placeholder="0 is a valid score"></label></div><div class="checks"><label><input id="completed" type="checkbox"> Already completed</label><label id="graded-check" hidden><input id="graded" type="checkbox"> Grade received</label></div><div class="row"><span id="grade-hint" class="quiet">No grade entered; not counted as zero.</span><button class="primary" type="submit">Add task to draft</button></div></form></div>
+        </div>
+      </div>
+    </section>
+    <section data-layout="groups" aria-label="Expandable category groups layout" hidden><div class="row"><h3>Grading categories</h3><span class="quiet">100% allocated</span></div><details open><summary>Homework · 35% · 2 tasks</summary><div class="group-body"><div class="row"><label>Category weight <input type="number" value="35" min="0" max="100" aria-label="Group Homework weight"></label></div><div class="task"><span>Homework 1 <span class="quiet">· Graded</span></span><span class="score">18 / 20</span></div><div class="task"><span>Homework 2</span><span class="quiet">Completed · awaiting grade</span></div><details open><summary>+ Add task inline</summary><div class="fields"><label class="wide">Task title<input placeholder="Homework 3"></label><label>Points possible<input type="number" placeholder="20"></label><label>Points earned · optional<input type="number" placeholder="Not graded"></label><label class="wide">Due date<input type="date"></label></div></details></div></details><details><summary>Quizzes · 15% · 1 task</summary><div class="group-body"><div class="task"><span>Quiz 1</span><span class="score">8 / 10 · Graded</span></div></div></details><details><summary>Exams · 50% · 1 task</summary><div class="group-body"><div class="task"><span>Midterm</span><span class="score">Nov 20 · 100 points</span></div></div></details><p class="quiet concept-note">Category settings and task details live inside each expanding group.</p></section>
+    <section data-layout="grid" aria-label="Task-first gradebook layout" hidden><div class="row"><h3>Category weights</h3><span class="quiet">100% allocated</span></div><div class="fields"><label>Homework %<input type="number" value="35"></label><label>Quizzes %<input type="number" value="15"></label><label>Exams %<input type="number" value="50"></label></div><h3>Tasks</h3><div class="table-wrap"><table aria-label="Editable task gradebook"><thead><tr><th>Task</th><th>Category</th><th>Possible</th><th>Earned</th></tr></thead><tbody><tr><td>Homework 1<br><span class="quiet">Graded</span></td><td>Homework</td><td><input aria-label="Homework 1 points possible" value="20" type="number"></td><td><input aria-label="Homework 1 points earned" value="18" type="number"></td></tr><tr><td>Homework 2<br><span class="quiet">Awaiting grade</span></td><td>Homework</td><td><input aria-label="Homework 2 points possible" value="20" type="number"></td><td><input aria-label="Homework 2 points earned" placeholder="—" type="number"></td></tr><tr><td>Quiz 1<br><span class="quiet">Graded</span></td><td>Quizzes</td><td><input aria-label="Quiz 1 points possible" value="10" type="number"></td><td><input aria-label="Quiz 1 points earned" value="8" type="number"></td></tr></tbody></table></div><details open><summary>Add or expand a task for full details</summary><div class="fields"><label class="wide">Task title<input placeholder="Midterm"></label><label>Due date<input type="date"></label><label>Type<select><option>Exam</option><option>Assignment</option><option>Project</option></select></label><label class="wide">Description<textarea rows="2"></textarea></label></div></details><p class="quiet concept-note">Scores stay visible; longer fields expand below a row.</p></section>
+    <div class="foot"><span>← Back</span><span>Changes save with the class</span><button class="primary" disabled type="button" aria-label="Create class, design preview only">Create class</button></div>
+  </div>
+  <p id="layout-caption" class="quiet concept-note">Category workspace: all weights stay visible while one category’s tasks and inline editor share the main area.</p>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('class-concepts');
+  const find = (selector) => root.querySelector(selector);
+  const drafts = [{ title: 'Homework 1', category: 'Homework', possible: 20, earned: 18, completed: true }, { title: 'Homework 2', category: 'Homework', possible: 20, earned: null, completed: true }, { title: 'Quiz 1', category: 'Quizzes', possible: 10, earned: 8, completed: true }, { title: 'Midterm', category: 'Exams', possible: 100, earned: null, completed: false }];
+  let category = 'Homework';
+  const captions = { workspace: 'Category workspace: all weights stay visible while one category’s tasks and inline editor share the main area.', groups: 'Expandable groups: easy to scan a small class, with task editors expanding directly under each category.', grid: 'Task-first gradebook: fastest for entering many existing scores, but full task details need an expanded row.' };
+  find('#layout-choice').addEventListener('change', (event) => { root.querySelectorAll('[data-layout]').forEach((section) => { section.hidden = section.dataset.layout !== event.target.value; }); find('#layout-caption').textContent = captions[event.target.value]; });
+  function renderTasks() { const list = find('#task-list'); list.replaceChildren(); drafts.filter((task) => task.category === category).forEach((task) => { const row = document.createElement('div'); row.className = 'task'; const title = document.createElement('span'); title.textContent = task.title; const score = document.createElement('span'); score.className = 'score quiet'; score.textContent = task.earned !== null ? `${task.earned} / ${task.possible} · Graded` : task.completed ? 'Completed · awaiting grade' : `${task.possible ?? '—'} points · Upcoming`; row.append(title, score); list.append(row); }); if (!list.children.length) { const empty = document.createElement('p'); empty.className = 'quiet'; empty.textContent = 'No tasks yet. Add one below, or leave this category empty.'; list.append(empty); } }
+  function updateGrade() { const complete = find('#completed').checked; const graded = complete && find('#graded').checked; find('#graded-check').hidden = !complete; find('#earned-field').hidden = !graded; find('#earned').required = graded; find('#grade-hint').textContent = graded ? 'Enter the score received, including zero.' : complete ? 'Completed, awaiting a grade. No score is assumed.' : 'No grade entered; not counted as zero.'; }
+  find('#completed').addEventListener('change', updateGrade); find('#graded').addEventListener('change', updateGrade);
+  find('#category-list').addEventListener('click', (event) => { const button = event.target.closest('[data-category]'); if (!button) return; category = button.dataset.category; root.querySelectorAll('[data-category]').forEach((item) => item.setAttribute('aria-pressed', String(item === button))); find('#selected-category').textContent = category; find('#task-category').value = category; renderTasks(); });
+  find('#category-list').addEventListener('input', () => { const total = [...root.querySelectorAll('.weight')].reduce((sum, input) => sum + Number(input.value || 0), 0); find('#weight-total').textContent = total === 100 ? '100% allocated' : total < 100 ? `${total}% allocated · ${100 - total}% remaining` : `${total}% allocated · ${total - 100}% over`; });
+  find('#add-category').addEventListener('click', () => { const name = `Category ${root.querySelectorAll('.cat').length + 1}`; const row = document.createElement('div'); row.className = 'cat'; const button = document.createElement('button'); button.type = 'button'; button.dataset.category = name; button.textContent = name; button.setAttribute('aria-pressed', 'false'); const label = document.createElement('label'); const weight = document.createElement('input'); weight.type = 'number'; weight.className = 'weight'; weight.min = '0'; weight.max = '100'; weight.value = '0'; weight.setAttribute('aria-label', `${name} weight`); label.append(weight, '%'); row.append(button, label); find('#category-list').append(row); const option = document.createElement('option'); option.textContent = name; find('#task-category').append(option); button.click(); });
+  find('#new-task').addEventListener('click', () => { find('#task-draft').reset(); find('#task-title').value = ''; find('#task-category').value = category; updateGrade(); find('#task-title').focus(); });
+  find('#task-draft').addEventListener('submit', (event) => { event.preventDefault(); if (!find('#task-title').value.trim()) return; drafts.push({ title: find('#task-title').value.trim(), category: find('#task-category').value, possible: find('#possible').value ? Number(find('#possible').value) : null, earned: find('#completed').checked && find('#graded').checked ? Number(find('#earned').value) : null, completed: find('#completed').checked }); category = find('#task-category').value; const button = [...root.querySelectorAll('[data-category]')].find((item) => item.dataset.category === category); button.click(); find('#task-title').value = ''; find('#grade-hint').textContent = 'Added to this preview’s class draft.'; });
+  renderTasks(); updateGrade();
+})();
+</script>
