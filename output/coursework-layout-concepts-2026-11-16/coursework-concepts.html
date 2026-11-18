@@ -1,0 +1,241 @@
+<style>
+#coursework-concepts { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+#coursework-concepts * { box-sizing: border-box; }
+#coursework-concepts [hidden] { display: none !important; }
+#coursework-concepts .cw-stage { min-height: 820px; padding: 10px 0 20px; }
+#coursework-concepts .cw-window { --cw-bg:#0d1a2d; --cw-panel:#112239; --cw-field:#0b1728; --cw-border:#243b58; --cw-text:#e7edf9; --cw-muted:#a4b7d4; --cw-accent:#6669ff; --cw-success:#59dca6; color:var(--cw-text); background:var(--cw-bg); border:1px solid var(--cw-border); border-radius:22px; padding:26px 28px 22px; font-size:14px; line-height:1.5; }
+#coursework-concepts button, #coursework-concepts input, #coursework-concepts select { font:inherit; }
+#coursework-concepts button { cursor:pointer; color:inherit; }
+#coursework-concepts button:focus-visible, #coursework-concepts input:focus-visible, #coursework-concepts select:focus-visible { outline:3px solid #abaeff; outline-offset:3px; }
+#coursework-concepts .cw-progress { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:36px; padding-right:50px; }
+#coursework-concepts .cw-step { display:flex; gap:7px; align-items:center; color:var(--cw-muted); white-space:nowrap; font-size:13px; }
+#coursework-concepts .cw-step b { width:20px; height:20px; border:1.5px solid currentColor; border-radius:50%; display:grid; place-items:center; font-size:11px; font-weight:500; }
+#coursework-concepts .cw-step.done { color:var(--cw-success); }
+#coursework-concepts .cw-step.active { color:var(--cw-text); font-weight:600; }
+#coursework-concepts .cw-step.active b { color:var(--cw-text); background:var(--cw-accent); border-color:var(--cw-accent); }
+#coursework-concepts .cw-chevron { color:#7186a6; font-size:18px; }
+#coursework-concepts .cw-eyebrow { color:var(--cw-muted); font-size:11px; letter-spacing:1.6px; text-transform:uppercase; margin:0 0 6px; }
+#coursework-concepts h2 { color:var(--cw-text); font-size:27px; line-height:1.2; font-weight:600; letter-spacing:-.7px; margin:0 0 8px; }
+#coursework-concepts p { margin:0; }
+#coursework-concepts .cw-muted { color:var(--cw-muted); }
+#coursework-concepts .cw-subtitle { color:var(--cw-muted); margin-bottom:25px; max-width:570px; }
+#coursework-concepts .cw-tabs { display:flex; gap:24px; border-bottom:1px solid var(--cw-border); margin-bottom:26px; }
+#coursework-concepts .cw-tab { border:0; background:transparent; color:var(--cw-muted); border-bottom:3px solid transparent; padding:0 0 13px; display:flex; align-items:center; flex-wrap:wrap; gap:7px; font-weight:500; }
+#coursework-concepts .cw-tab[aria-selected=true] { color:var(--cw-text); border-bottom-color:var(--cw-accent); }
+#coursework-concepts .cw-badge { display:inline-block; border:1px solid var(--cw-border); border-radius:6px; padding:1px 6px; color:var(--cw-muted); font-size:11px; font-weight:400; }
+#coursework-concepts .cw-body { min-height:415px; }
+#coursework-concepts .cw-section-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:15px; }
+#coursework-concepts h3 { margin:0; font-size:16px; font-weight:600; color:var(--cw-text); }
+#coursework-concepts .cw-text-button { border:0; background:transparent; color:#b1b3ff; padding:6px 0; }
+#coursework-concepts .cw-table { border:1px solid var(--cw-border); border-radius:12px; overflow:hidden; }
+#coursework-concepts .cw-row { display:grid; grid-template-columns:minmax(0,1fr) 105px 36px; align-items:center; gap:14px; padding:var(--cw-row-padding,14px 16px); border-bottom:1px solid var(--cw-border); }
+#coursework-concepts .cw-row:last-child { border-bottom:0; }
+#coursework-concepts .cw-table-head { color:var(--cw-muted); background:var(--cw-panel); padding-top:9px; padding-bottom:9px; font-size:12px; }
+#coursework-concepts .cw-field { background:var(--cw-field); border:1px solid var(--cw-border); border-radius:8px; padding:9px 11px; color:var(--cw-text); min-width:0; width:100%; }
+#coursework-concepts .cw-weight { display:flex; align-items:center; gap:8px; }
+#coursework-concepts .cw-weight input { text-align:right; }
+#coursework-concepts .cw-icon { background:transparent; border:0; padding:6px; font-size:17px; color:var(--cw-muted); }
+#coursework-concepts .cw-allocation { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:17px; font-size:13px; }
+#coursework-concepts .cw-total { color:var(--cw-success); }
+#coursework-concepts .cw-meter { height:5px; background:#1e324c; border-radius:4px; margin:10px 0 10px; overflow:hidden; }
+#coursework-concepts .cw-meter span { display:block; height:100%; background:var(--cw-success); }
+#coursework-concepts .cw-hint { font-size:12px; color:var(--cw-muted); }
+#coursework-concepts .cw-optional-strip { display:flex; justify-content:space-between; align-items:center; gap:15px; padding-top:23px; margin-top:21px; border-top:1px solid var(--cw-border); }
+#coursework-concepts .cw-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border-top:1px solid var(--cw-border); padding-top:20px; margin-top:22px; }
+#coursework-concepts .cw-button { border:1px solid #304966; border-radius:10px; background:#14283f; padding:10px 16px; font-weight:500; }
+#coursework-concepts .cw-primary { background:var(--cw-accent); border-color:var(--cw-accent); color:#fff; }
+#coursework-concepts .cw-counter { color:var(--cw-muted); font-size:12px; }
+#coursework-concepts .cw-empty { display:flex; align-items:center; justify-content:center; flex-direction:column; text-align:center; border:1px dashed #36506f; border-radius:14px; padding:34px 18px; min-height:260px; background:var(--cw-field); }
+#coursework-concepts .cw-empty-icon { width:45px; height:45px; display:grid; place-items:center; background:#202d55; border-radius:12px; margin-bottom:17px; font-size:24px; color:#b4b6ff; }
+#coursework-concepts .cw-empty p { max-width:330px; margin:9px 0 20px; color:var(--cw-muted); }
+#coursework-concepts .cw-pills { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 22px; }
+#coursework-concepts .cw-pill { background:var(--cw-panel); border:1px solid var(--cw-border); padding:7px 10px; border-radius:8px; color:var(--cw-muted); font-size:12px; }
+#coursework-concepts .cw-pill strong { color:var(--cw-text); margin-left:8px; font-weight:500; }
+#coursework-concepts .cw-summary { display:flex; gap:10px; align-items:center; margin-bottom:12px; }
+#coursework-concepts .cw-check { color:var(--cw-success); }
+#coursework-concepts .cw-form { padding:18px; border:1px solid var(--cw-border); background:var(--cw-field); border-radius:12px; }
+#coursework-concepts .cw-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:16px 0; }
+#coursework-concepts label { display:block; color:var(--cw-muted); font-size:12px; }
+#coursework-concepts label .cw-field { display:block; margin-top:6px; font-size:14px; }
+#coursework-concepts .cw-form-actions { display:flex; justify-content:flex-end; gap:10px; }
+#coursework-concepts .cw-assignment-list { margin-bottom:14px; }
+#coursework-concepts .cw-assignment-item { border:1px solid var(--cw-border); border-radius:10px; padding:14px; display:flex; justify-content:space-between; gap:12px; background:var(--cw-field); margin-bottom:8px; }
+#coursework-concepts .cw-accordion { border:1px solid var(--cw-border); border-radius:13px; margin-bottom:16px; overflow:hidden; }
+#coursework-concepts .cw-accordion-head { width:100%; border:0; background:var(--cw-panel); padding:17px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; text-align:left; }
+#coursework-concepts .cw-accordion-label { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+#coursework-concepts .cw-accordion-body { padding:18px; }
+#coursework-concepts .cw-compact .cw-row { padding:10px 12px; }
+#coursework-concepts .cw-accordion-meta { display:block; margin-top:4px; color:var(--cw-muted); font-size:12px; font-weight:400; }
+#coursework-concepts .cw-toast { margin-top:12px; color:var(--cw-success); font-size:12px; }
+@media(min-width:1000px) { #coursework-concepts .cw-window { padding:30px 42px 24px; } #coursework-concepts .cw-body { min-height:430px; } }
+@media(max-width:540px) { #coursework-concepts .cw-stage { min-height:950px; } #coursework-concepts .cw-window { padding:21px 16px; border-radius:16px; } #coursework-concepts .cw-progress { gap:8px; padding:0; margin-bottom:28px; } #coursework-concepts .cw-step { font-size:11px; gap:4px; } #coursework-concepts .cw-step b { width:17px; height:17px; } #coursework-concepts .cw-chevron { font-size:13px; } #coursework-concepts h2 { font-size:24px; } #coursework-concepts .cw-tabs { gap:16px; } #coursework-concepts .cw-tab { font-size:12px; gap:4px; } #coursework-concepts .cw-row { grid-template-columns:minmax(0,1fr) 76px 24px; gap:7px; padding:12px 9px; } #coursework-concepts .cw-field { padding:8px; } #coursework-concepts .cw-weight { gap:4px; } #coursework-concepts .cw-optional-strip { align-items:flex-start; } #coursework-concepts .cw-body { min-height:460px; } #coursework-concepts .cw-footer { column-gap:8px; } #coursework-concepts .cw-counter { order:3; width:100%; text-align:center; } #coursework-concepts .cw-button { padding:10px 12px; font-size:12px; } #coursework-concepts .cw-form-grid { grid-template-columns:1fr; } #coursework-concepts .cw-empty { padding:25px 12px; } }
+</style>
+<div id="coursework-concepts">
+  <div class="viz-carousel viz-dotted-background" aria-label="Coursework layout concepts">
+    <section class="cw-stage" data-variant="Tabs · recommended" aria-label="Coursework with tabs">
+      <div class="cw-window" data-concept="tabs">
+        <nav class="cw-progress" aria-label="Class setup progress"><span class="cw-step done"><b>✓</b>Info</span><span class="cw-chevron">›</span><span class="cw-step done"><b>✓</b>Schedule</span><span class="cw-chevron">›</span><span class="cw-step active"><b>3</b>Coursework</span><span class="cw-chevron">›</span><span class="cw-step"><b>4</b>Customize</span></nav>
+        <p class="cw-eyebrow">Add class · English 201</p>
+        <h2>Set up your coursework</h2>
+        <p class="cw-subtitle">Define how your class is graded. Add assignments whenever you’re ready.</p>
+        <div class="cw-tabs" role="tablist" aria-label="Coursework sections">
+          <button class="cw-tab" id="cw-categories-tab" role="tab" aria-selected="true" aria-controls="cw-categories-panel" type="button" data-tab="categories">Categories &amp; weights <span class="cw-badge">3</span></button>
+          <button class="cw-tab" id="cw-assignments-tab" role="tab" aria-selected="false" aria-controls="cw-assignments-panel" type="button" data-tab="assignments">Assignments <span class="cw-badge">Optional</span></button>
+        </div>
+        <div class="cw-body">
+          <div id="cw-categories-panel" role="tabpanel" aria-labelledby="cw-categories-tab">
+            <div class="cw-section-top"><h3>Grading categories</h3><button type="button" class="cw-text-button" data-add-category>＋ Add category</button></div>
+            <div class="cw-table" data-categories>
+              <div class="cw-row cw-table-head"><span>Category name</span><span>Weight</span><span></span></div>
+              <div class="cw-row"><input class="cw-field" aria-label="Category name" value="Writing milestones"><div class="cw-weight"><input class="cw-field" aria-label="Writing milestones weight" type="number" min="0" max="100" value="40"><span class="cw-muted">%</span></div><button class="cw-icon" aria-label="Remove Writing milestones" type="button" data-remove-category>×</button></div>
+              <div class="cw-row"><input class="cw-field" aria-label="Category name" value="Exams"><div class="cw-weight"><input class="cw-field" aria-label="Exams weight" type="number" min="0" max="100" value="40"><span class="cw-muted">%</span></div><button class="cw-icon" aria-label="Remove Exams" type="button" data-remove-category>×</button></div>
+              <div class="cw-row"><input class="cw-field" aria-label="Category name" value="Participation"><div class="cw-weight"><input class="cw-field" aria-label="Participation weight" type="number" min="0" max="100" value="20"><span class="cw-muted">%</span></div><button class="cw-icon" aria-label="Remove Participation" type="button" data-remove-category>×</button></div>
+            </div>
+            <div class="cw-allocation"><span class="cw-muted">Total weight</span><span class="cw-total" data-total>100% allocated ✓</span></div>
+            <div class="cw-meter" aria-hidden="true"><span style="width:100%"></span></div>
+            <p class="cw-hint">Don’t have the full syllabus? You can finish weights later.</p>
+            <div class="cw-optional-strip"><div><h3>Have assignments already?</h3><p class="cw-hint">Add a few now, or continue with just your categories.</p></div><button type="button" class="cw-text-button" data-open-assignments>Add assignments →</button></div>
+          </div>
+          <div id="cw-assignments-panel" role="tabpanel" aria-labelledby="cw-assignments-tab" hidden>
+            <div class="cw-section-top"><h3>Assignments <span class="cw-badge" data-count>0</span></h3><span class="cw-hint">You can add these later</span></div>
+            <div class="cw-assignment-list" data-list></div>
+            <div class="cw-empty" data-empty><div class="cw-empty-icon" aria-hidden="true">＋</div><h3>Plan ahead, or come back later</h3><p>Your categories are ready. Assignments can be added after you create the class.</p><button type="button" class="cw-button cw-primary" data-add-assignment>＋ Add assignment</button></div>
+            <div class="cw-form" data-assignment-form hidden><h3>New assignment</h3><div class="cw-form-grid"><label>Assignment title<input class="cw-field" name="title" placeholder="e.g. Writing milestone 1"></label><label>Category<select class="cw-field" name="category"><option>Writing milestones</option><option>Exams</option><option>Participation</option><option>Uncategorized</option></select></label><label>Due date · optional<input type="date" name="due" class="cw-field"></label><label>Points possible · optional<input type="number" min="1" name="points" class="cw-field" placeholder="e.g. 100"></label></div><div class="cw-form-actions"><button type="button" class="cw-text-button" data-cancel-assignment>Cancel</button><button type="button" class="cw-button cw-primary" data-save-assignment>Add to class draft</button></div></div>
+            <button type="button" class="cw-text-button" data-add-another hidden>＋ Add another assignment</button>
+          </div>
+        </div>
+        <footer class="cw-footer"><button type="button" class="cw-button" data-back>← Back</button><span class="cw-counter">3 / 4</span><button type="button" class="cw-button cw-primary" data-continue>Continue to Customize →</button></footer>
+        <p class="cw-toast" aria-live="polite" data-status></p>
+      </div>
+    </section>
+    <section class="cw-stage" data-variant="Separate fifth step" aria-label="Assignments as a separate wizard step" hidden>
+      <div class="cw-window" data-concept="steps">
+        <nav class="cw-progress" aria-label="Class setup progress"><span class="cw-step done"><b>✓</b>Info</span><span class="cw-chevron">›</span><span class="cw-step done"><b>✓</b>Schedule</span><span class="cw-chevron">›</span><span class="cw-step done"><b>✓</b>Categories</span><span class="cw-chevron">›</span><span class="cw-step active"><b>4</b>Assignments</span><span class="cw-chevron">›</span><span class="cw-step"><b>5</b>Customize</span></nav>
+        <p class="cw-eyebrow">Add class · English 201</p>
+        <h2>Add assignments <span class="cw-badge">Optional</span></h2>
+        <p class="cw-subtitle">Know what’s coming up? Add it now, or skip ahead and do this later.</p>
+        <div class="cw-body">
+          <div class="cw-summary"><span class="cw-check">✓</span><h3>Your grading categories are set</h3></div>
+          <div class="cw-pills"><span class="cw-pill">Writing milestones <strong>40%</strong></span><span class="cw-pill">Exams <strong>40%</strong></span><span class="cw-pill">Participation <strong>20%</strong></span></div>
+          <div class="cw-assignment-list" data-list></div>
+          <div class="cw-empty" data-empty><div class="cw-empty-icon" aria-hidden="true">＋</div><h3>Start with your first assignment</h3><p>Add titles, categories, and due dates. You can always build your assignment list later.</p><button type="button" class="cw-button cw-primary" data-add-assignment>＋ Add assignment</button></div>
+          <div class="cw-form" data-assignment-form hidden><h3>New assignment</h3><div class="cw-form-grid"><label>Assignment title<input class="cw-field" name="title" placeholder="e.g. Writing milestone 1"></label><label>Category<select class="cw-field" name="category"><option>Writing milestones</option><option>Exams</option><option>Participation</option><option>Uncategorized</option></select></label><label>Due date · optional<input type="date" name="due" class="cw-field"></label><label>Points possible · optional<input type="number" name="points" class="cw-field" placeholder="e.g. 100"></label></div><div class="cw-form-actions"><button type="button" class="cw-text-button" data-cancel-assignment>Cancel</button><button type="button" class="cw-button cw-primary" data-save-assignment>Add to class draft</button></div></div>
+          <button type="button" class="cw-text-button" data-add-another hidden>＋ Add another assignment</button>
+          <p class="cw-hint" style="margin-top:16px">Skipping this step keeps your categories and weights.</p>
+        </div>
+        <footer class="cw-footer"><button type="button" class="cw-button" data-back>← Categories</button><span class="cw-counter">4 / 5</span><button type="button" class="cw-button cw-primary" data-continue>Skip for now →</button></footer>
+        <p class="cw-toast" aria-live="polite" data-status></p>
+      </div>
+    </section>
+    <section class="cw-stage" data-variant="Expandable sections" aria-label="Coursework with expandable sections" hidden>
+      <div class="cw-window" data-concept="expandable">
+        <nav class="cw-progress" aria-label="Class setup progress"><span class="cw-step done"><b>✓</b>Info</span><span class="cw-chevron">›</span><span class="cw-step done"><b>✓</b>Schedule</span><span class="cw-chevron">›</span><span class="cw-step active"><b>3</b>Coursework</span><span class="cw-chevron">›</span><span class="cw-step"><b>4</b>Customize</span></nav>
+        <p class="cw-eyebrow">Add class · English 201</p>
+        <h2>Set up your coursework</h2>
+        <p class="cw-subtitle">Start with your grading structure. Open assignments only if you need them.</p>
+        <div class="cw-body">
+          <div class="cw-accordion"><button type="button" class="cw-accordion-head" aria-expanded="true" aria-controls="cw-expand-categories" data-disclosure><span><span class="cw-accordion-label"><strong>Categories &amp; weights</strong><span class="cw-badge">3 categories</span></span><span class="cw-accordion-meta">100% allocated</span></span><span aria-hidden="true" data-chevron>⌃</span></button><div class="cw-accordion-body cw-compact" id="cw-expand-categories"><div class="cw-section-top"><span class="cw-hint">Define your grading structure</span><button type="button" class="cw-text-button" data-add-category>＋ Add category</button></div><div class="cw-table" data-categories><div class="cw-row cw-table-head"><span>Category name</span><span>Weight</span><span></span></div><div class="cw-row"><input class="cw-field" aria-label="Category name" value="Writing milestones"><div class="cw-weight"><input class="cw-field" aria-label="Writing milestones weight" type="number" min="0" max="100" value="40"><span class="cw-muted">%</span></div><button class="cw-icon" aria-label="Remove Writing milestones" type="button" data-remove-category>×</button></div><div class="cw-row"><input class="cw-field" aria-label="Category name" value="Exams"><div class="cw-weight"><input class="cw-field" aria-label="Exams weight" type="number" min="0" max="100" value="40"><span class="cw-muted">%</span></div><button class="cw-icon" aria-label="Remove Exams" type="button" data-remove-category>×</button></div><div class="cw-row"><input class="cw-field" aria-label="Category name" value="Participation"><div class="cw-weight"><input class="cw-field" aria-label="Participation weight" type="number" min="0" max="100" value="20"><span class="cw-muted">%</span></div><button class="cw-icon" aria-label="Remove Participation" type="button" data-remove-category>×</button></div></div><div class="cw-allocation"><span class="cw-muted">Total weight</span><span class="cw-total" data-total>100% allocated ✓</span></div><p class="cw-hint" style="margin-top:8px">You can finish weights later.</p></div></div>
+          <div class="cw-accordion"><button type="button" class="cw-accordion-head" aria-expanded="false" aria-controls="cw-expand-assignments" data-disclosure><span><span class="cw-accordion-label"><strong>Assignments</strong><span class="cw-badge">Optional</span></span><span class="cw-accordion-meta">None added · You can do this later</span></span><span aria-hidden="true" data-chevron>⌄</span></button><div class="cw-accordion-body" id="cw-expand-assignments" hidden><div class="cw-assignment-list" data-list></div><div class="cw-empty" data-empty><h3>Have an assignment to add?</h3><p>Keep everything organized by category, with optional due dates.</p><button type="button" class="cw-button cw-primary" data-add-assignment>＋ Add assignment</button></div><div class="cw-form" data-assignment-form hidden><h3>New assignment</h3><div class="cw-form-grid"><label>Assignment title<input class="cw-field" name="title" placeholder="e.g. Writing milestone 1"></label><label>Category<select class="cw-field" name="category"><option>Writing milestones</option><option>Exams</option><option>Participation</option><option>Uncategorized</option></select></label><label>Due date · optional<input type="date" name="due" class="cw-field"></label><label>Points possible · optional<input type="number" name="points" class="cw-field" placeholder="e.g. 100"></label></div><div class="cw-form-actions"><button type="button" class="cw-text-button" data-cancel-assignment>Cancel</button><button type="button" class="cw-button cw-primary" data-save-assignment>Add to class draft</button></div></div><button type="button" class="cw-text-button" data-add-another hidden>＋ Add another assignment</button></div></div>
+        </div>
+        <footer class="cw-footer"><button type="button" class="cw-button" data-back>← Back</button><span class="cw-counter">3 / 4</span><button type="button" class="cw-button cw-primary" data-continue>Continue to Customize →</button></footer>
+        <p class="cw-toast" aria-live="polite" data-status></p>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('coursework-concepts');
+  const tabsWindow = root.querySelector('[data-concept="tabs"]');
+  function showTab(name) {
+    tabsWindow.querySelectorAll('[data-tab]').forEach(tab => {
+      const selected = tab.dataset.tab === name;
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      document.getElementById(tab.getAttribute('aria-controls')).hidden = !selected;
+    });
+  }
+  tabsWindow.querySelectorAll('[data-tab]').forEach(tab => {
+    tab.addEventListener('click', () => showTab(tab.dataset.tab));
+    tab.addEventListener('keydown', event => {
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const name = event.key === 'Home' ? 'categories' : event.key === 'End' ? 'assignments' : tab.dataset.tab === 'categories' ? 'assignments' : 'categories';
+      showTab(name); tabsWindow.querySelector('[data-tab="' + name + '"]').focus();
+    });
+  });
+  tabsWindow.querySelector('[data-open-assignments]').addEventListener('click', () => showTab('assignments'));
+  showTab('categories');
+  root.querySelectorAll('[data-disclosure]').forEach(button => button.addEventListener('click', () => {
+    const expanded = button.getAttribute('aria-expanded') !== 'true';
+    button.setAttribute('aria-expanded', String(expanded));
+    document.getElementById(button.getAttribute('aria-controls')).hidden = !expanded;
+    button.querySelector('[data-chevron]').textContent = expanded ? '⌃' : '⌄';
+  }));
+  root.querySelectorAll('.cw-window').forEach(win => {
+    let count = 0;
+    const form = win.querySelector('[data-assignment-form]');
+    const empty = win.querySelector('[data-empty]');
+    const another = win.querySelector('[data-add-another]');
+    const list = win.querySelector('[data-list]');
+    const status = win.querySelector('[data-status]');
+    function openForm() { empty.hidden = true; another.hidden = true; form.hidden = false; form.querySelector('[name=title]').focus(); }
+    win.querySelector('[data-add-assignment]').addEventListener('click', openForm);
+    another.addEventListener('click', openForm);
+    win.querySelector('[data-cancel-assignment]').addEventListener('click', () => { form.hidden = true; empty.hidden = count > 0; another.hidden = count === 0; });
+    win.querySelector('[data-save-assignment]').addEventListener('click', () => {
+      const input = form.querySelector('[name=title]');
+      if (!input.value.trim()) { input.setCustomValidity('Add an assignment title.'); input.reportValidity(); return; }
+      input.setCustomValidity('');
+      const item = document.createElement('div'); item.className = 'cw-assignment-item';
+      const title = document.createElement('span'); title.textContent = input.value.trim();
+      const category = document.createElement('span'); category.className = 'cw-hint'; category.textContent = form.querySelector('[name=category]').value;
+      item.append(title,category); list.append(item); count++;
+      const badge = win.querySelector('[data-count]'); if (badge) badge.textContent = count;
+      if (win.dataset.concept === 'steps') win.querySelector('[data-continue]').textContent = 'Continue to Customize →';
+      if (win.dataset.concept === 'expandable') win.querySelector('[aria-controls="cw-expand-assignments"] .cw-accordion-meta').textContent = count + (count === 1 ? ' assignment added' : ' assignments added');
+      form.hidden = true; empty.hidden = true; another.hidden = false; input.value = '';
+      status.textContent = 'Added to this concept’s class draft.';
+    });
+    form.querySelector('[name=title]').addEventListener('input', event => event.target.setCustomValidity(''));
+    function updateTotal() {
+      const numbers = [...win.querySelectorAll('[data-categories] input[type=number]')];
+      const total = numbers.reduce((sum, field) => sum + Number(field.value || 0), 0);
+      const rounded = Math.round(total * 100) / 100;
+      const invalid = numbers.some(field => !field.checkValidity());
+      const output = win.querySelector('[data-total]'); if (!output) return;
+      output.textContent = invalid ? 'Check category weights' : rounded + '% allocated' + (rounded === 100 ? ' ✓' : rounded > 100 ? ' · ' + Math.round((rounded - 100) * 100) / 100 + '% over' : ' · ' + Math.round((100 - rounded) * 100) / 100 + '% remaining');
+      output.style.color = total === 100 && !invalid ? 'var(--cw-success)' : 'var(--cw-muted)';
+      const meter = win.querySelector('.cw-meter span'); if (meter) meter.style.width = Math.min(100, Math.max(0,total)) + '%';
+      const badge = win.querySelector('[data-tab="categories"] .cw-badge'); if (badge) badge.textContent = numbers.length;
+      const meta = win.querySelector('[aria-controls="cw-expand-categories"] .cw-accordion-meta'); if (meta) meta.textContent = output.textContent;
+    }
+    win.addEventListener('input', event => { if (event.target.matches('[data-categories] input[type=number]')) updateTotal(); });
+    win.addEventListener('click', event => { const button = event.target.closest('[data-remove-category]'); if (button) { button.closest('.cw-row').remove(); updateTotal(); } });
+    const addCategory = win.querySelector('[data-add-category]');
+    if (addCategory) addCategory.addEventListener('click', () => {
+      const table = win.querySelector('[data-categories]');
+      let row;
+      const source = table.querySelector('.cw-row:not(.cw-table-head)');
+      if (source) row = source.cloneNode(true);
+      else {
+        row = document.createElement('div'); row.className = 'cw-row';
+        const name = document.createElement('input'); name.className = 'cw-field'; name.setAttribute('aria-label','Category name');
+        const weight = document.createElement('div'); weight.className = 'cw-weight';
+        const input = document.createElement('input'); input.className = 'cw-field'; input.type = 'number'; input.min = '0'; input.max = '100'; input.setAttribute('aria-label','Category weight');
+        const percent = document.createElement('span'); percent.className = 'cw-muted'; percent.textContent = '%'; weight.append(input,percent);
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'cw-icon'; remove.dataset.removeCategory = ''; remove.textContent = '×'; row.append(name,weight,remove);
+      }
+      row.querySelector('input:not([type=number])').value = 'New category'; row.querySelector('input[type=number]').value = '0'; row.querySelector('[data-remove-category]').setAttribute('aria-label','Remove new category');
+      table.append(row); updateTotal(); row.querySelector('input').focus();
+    });
+    win.querySelector('[data-continue]').addEventListener('click', () => { status.textContent = 'Concept preview: continue to Customize with categories and ' + count + (count === 1 ? ' assignment.' : ' assignments.'); });
+    win.querySelector('[data-back]').addEventListener('click', () => { status.textContent = win.dataset.concept === 'steps' ? 'Concept preview: return to Categories.' : 'Concept preview: return to Schedule.'; });
+  });
+  if (globalThis.Tweak) {
+    const settings = { compact: false };
+    const tweak = new Tweak({ container: root, onChange: () => root.querySelectorAll('.cw-window').forEach(win => win.style.setProperty('--cw-row-padding', settings.compact ? '9px 12px' : '14px 16px')) });
+    tweak.addToggle(settings, 'compact', { label: 'Compact category rows' });
+  }
+})();
+</script>
