@@ -19,7 +19,7 @@ Implement batches in order. Each batch must leave the application buildable and 
 
 For every batch:
 
-1. Use `astra-orchestrator` for exploration, bounded implementation, testing, and appropriate independent review.
+1. Use `astra-orchestrator` (when requested) for exploration, bounded implementation, testing, and appropriate independent review.
 2. Assign one implementation owner per file or subsystem.
 3. Run the batch’s acceptance checks and relevant regression tests.
 4. Record changed areas, verification results, unresolved issues, and the next batch in the implementation handoff.
