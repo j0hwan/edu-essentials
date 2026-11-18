@@ -8,13 +8,14 @@ const [setup, coursework, auth] = await Promise.all(["class-setup.css", "class-c
 test("every wizard step uses bounded content scrolling without shrinking its header or footer", () => {
   for (const step of ["", "class-setup-schedule-step", "class-setup-coursework-step", "class-setup-customize-step"]) {
     for (const css of [`${auth}\n${setup}`, `${setup}\n${auth}`]) {
-      const dom = new JSDOM(`<style>${css}</style><div class="modal-backdrop"><form class="academic-editor class-setup ${step}"><header class="class-setup-header"></header><fieldset class="class-setup-body"></fieldset><footer class="class-setup-actions"></footer></form></div>`);
+      const dom = new JSDOM(`<style>${css}</style><div class="modal-backdrop"><form class="academic-editor class-setup ${step}"><header class="class-setup-header"></header><div class="class-setup-scroll"><fieldset class="class-setup-body"></fieldset></div><footer class="class-setup-actions"></footer></form></div>`);
       try {
         const style = (selector) => dom.window.getComputedStyle(dom.window.document.querySelector(selector));
         assert.equal(style("form").display, "flex");
         assert.equal(style("form").overflow, "hidden");
         assert.equal(style("fieldset").minHeight, "0px");
-        assert.equal(style("fieldset").overflowY, "auto");
+        assert.equal(style(".class-setup-scroll").minHeight, "0px");
+        assert.equal(style(".class-setup-scroll").overflowY, "auto");
         assert.equal(style("fieldset").alignContent, "start");
         assert.equal(style("header").flexShrink, "0");
         assert.equal(style("footer").flexShrink, "0");
@@ -23,13 +24,12 @@ test("every wizard step uses bounded content scrolling without shrinking its hea
   }
 });
 
-test("Coursework matches Schedule sizing and resists generic editor style collisions", () => {
+test("Coursework uses a full-width layout and resists generic editor style collisions", () => {
   for (const css of [`${auth}\n${setup}\n${coursework}`, `${coursework}\n${setup}\n${auth}`]) {
-    const dom = new JSDOM(`<style>${css}</style><form class="academic-editor class-setup"><div class="class-setup-schedule"></div><section class="class-coursework"><aside class="class-coursework-rail"><div class="class-coursework-category-list"></div><button class="class-coursework-add"></button></aside><div class="class-coursework-main"><div class="class-coursework-editor"><label>Title<input></label><label>Description<textarea></textarea></label><div class="class-coursework-completion"><label class="class-coursework-grade-check"><input type="checkbox">Grade received</label></div></div></div></section></form>`);
+    const dom = new JSDOM(`<style>${css}</style><form class="academic-editor class-setup"><div class="class-setup-schedule"></div><section class="class-coursework"><button class="class-coursework-add"></button><div class="class-coursework-main"><div class="class-coursework-editor"><label>Title<input></label><label>Description<textarea></textarea></label><div class="class-coursework-completion"><label class="class-coursework-grade-check"><input type="checkbox">Grade received</label></div></div></div></section></form>`);
     try {
       const style = (selector) => dom.window.getComputedStyle(dom.window.document.querySelector(selector));
-      assert.equal(style(".class-coursework").gridTemplateColumns, style(".class-setup-schedule").gridTemplateColumns);
-      assert.equal(style(".class-coursework-category-list").overflowY, "auto");
+      assert.equal(style(".class-coursework").gridTemplateColumns, "minmax(0, 1fr)");
       assert.equal(style(".class-coursework-add").minHeight, "46px");
       assert.equal(style(".class-coursework-editor").gridTemplateColumns, "repeat(2, minmax(0, 1fr))");
       assert.equal(style(".class-coursework-editor > label").margin, "0px");

@@ -32,6 +32,11 @@ async function submit() { await act(async () => host.querySelector("form").dispa
 async function change(label, value) {
   const node = [...host.querySelectorAll("label")].find((item) => item.textContent.trim() === label)?.control ?? host.querySelector(`[aria-label="${label}"]`);
   assert.ok(node, `Missing field ${label}`);
+  if (node.getAttribute("contenteditable") === "plaintext-only") {
+    await act(async () => { node.textContent = value; node.dispatchEvent(new window.Event("input", { bubbles: true })); });
+    await act(async () => node.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    return;
+  }
   const prototype = node.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
   await act(async () => {
     Object.getOwnPropertyDescriptor(prototype, "value").set.call(node, value);
@@ -40,13 +45,16 @@ async function change(label, value) {
   });
 }
 async function toCoursework() { await submit(); await click("Monday"); await submit(); }
+async function toAssignments() { await toCoursework(); await submit(); }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = undefined; host.replaceChildren(); });
 
-test("ClassSetup steps are Info, Schedule, Coursework, Customize", async () => {
+test("ClassSetup separates categories and optional assignments into five steps", async () => {
   await mount();
-  assert.deepEqual([...host.querySelectorAll(".class-setup-step-label")].map((node) => node.textContent), ["Info", "Schedule", "Coursework", "Customize"]);
+  assert.deepEqual([...host.querySelectorAll(".class-setup-step-label")].map((node) => node.textContent), ["Info", "Schedule", "Categories", "Assignments", "Customize"]);
   await toCoursework();
-  assert.equal(host.querySelector("h2").textContent, "Categories & tasks");
+  assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
+  assert.deepEqual([...host.querySelectorAll("[data-category-name]")].map((input) => input.value), ["Assignments", "Exam", "Attendance"]);
+  assert.deepEqual([...host.querySelectorAll('.class-grading-weight input')].map((input) => input.value), ["0", "0", "0"]);
 });
 
 test("the modal recovers keyboard focus when it is outside the form", async () => {
@@ -67,17 +75,32 @@ test("the modal recovers keyboard focus when it is outside the form", async () =
   }
 });
 
+test("deleted default categories stay deleted through back navigation and save", async () => {
+  await mount(); await toCoursework();
+  for (const name of ["Assignments", "Exam", "Attendance"]) await click(`Remove ${name} category`);
+  await submit(); await click("Back");
+  assert.equal(host.querySelectorAll("[data-category-name]").length, 0);
+  await submit(); await submit(); await submit();
+  assert.deepEqual(saved[1].gradingCategories, []);
+});
+
+test("editing a class with no categories preserves its empty grading setup", async () => {
+  await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [] } });
+  await click("Go to Categories");
+  assert.equal(host.querySelectorAll("[data-category-name]").length, 0);
+  await click("Go to Customize"); await submit();
+  assert.deepEqual(saved[1].gradingCategories, []);
+});
+
 test("task and category drafts are saved as the fourth argument and in course details", async () => {
   await mount(); await toCoursework();
-  await click("Add category");
-  const categoryFields = () => host.querySelectorAll(".class-coursework-category-editor input");
-  await change("New category name", "Labs");
-  const categoryWeight = categoryFields()[1];
+  await change("Category name 1", "Labs");
+  const categoryWeight = host.querySelector('[aria-label="Labs weight"]');
   assert.ok(categoryWeight, "category weight control renders");
   await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(categoryWeight, "25"); categoryWeight.dispatchEvent(new window.Event("input", { bubbles: true })); categoryWeight.dispatchEvent(new window.Event("change", { bubbles: true })); });
-  await act(async () => host.querySelector('[data-coursework-focus="all"]').click());
-  await click("Add task");
-  await change("Task title", "Microscope lab");
+  await submit();
+  await click("Add assignment");
+  await change("Assignment title", "Microscope lab");
   const categorySelect = host.querySelectorAll(".class-coursework-editor select")[1];
   assert.ok(categorySelect);
   await act(async () => { categorySelect.value = categorySelect.querySelector('option:not([value=""])').value; categorySelect.dispatchEvent(new window.Event("change", { bubbles: true })); });
@@ -88,33 +111,33 @@ test("task and category drafts are saved as the fourth argument and in course de
   await submit();
   assert.equal(calls, 1);
   assert.equal(saved.length, 4);
-  assert.deepEqual(saved[1].gradingCategories.map(({ name, weight }) => ({ name, weight })), [{ name: "Labs", weight: 25 }]);
+  assert.deepEqual(saved[1].gradingCategories.map(({ name, weight }) => ({ name, weight })), [{ name: "Labs", weight: 25 }, { name: "Exam", weight: 0 }, { name: "Attendance", weight: 0 }]);
   assert.equal(saved[3].length, 1);
   assert.equal(saved[3][0].title, "Microscope lab");
   assert.equal(saved[3][0].categoryId, saved[1].gradingCategories[0].id);
 });
 
 test("Back from Customize retains coursework task and category drafts", async () => {
-  await mount(); await toCoursework(); await click("Add category"); await change("New category name", "Labs");
-  await click("Add task"); await change("Task title", "Reading quiz"); await submit();
+  await mount(); await toCoursework(); await change("Category name 1", "Labs"); await submit();
+  await click("Add assignment"); await change("Assignment title", "Reading quiz"); await submit();
   await click("Back");
-  assert.equal(host.querySelector("h2").textContent, "Categories & tasks");
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
   await act(async () => host.querySelector(".class-coursework-task-title").click());
-  assert.equal([...host.querySelectorAll("label")].find((item) => item.textContent.trim() === "Task title").control.value, "Reading quiz");
-  assert.match(host.querySelector(".class-coursework-category-select").textContent, /Labs/);
+  assert.equal([...host.querySelectorAll("label")].find((item) => item.textContent.trim() === "Assignment title").control.value, "Reading quiz");
+  assert.match(host.querySelector(".class-coursework-pills").textContent, /Labs/);
 });
 
-test("an untitled task blocks Continue and returns focus to Coursework", async () => {
-  await mount(); await toCoursework(); await click("Add task"); await submit();
-  assert.equal(host.querySelector("h2").textContent, "Categories & tasks");
-  assert.ok([...host.querySelectorAll("label")].find((item) => item.textContent.trim() === "Task title").control.matches('[aria-invalid="true"]'));
-  assert.equal(host.querySelector('[role="alert"]')?.textContent, "Enter a title for each task before continuing.");
+test("an untitled assignment blocks Continue on the assignments step", async () => {
+  await mount(); await toAssignments(); await click("Add assignment"); await submit();
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
+  assert.ok([...host.querySelectorAll("label")].find((item) => item.textContent.trim() === "Assignment title").control.matches('[aria-invalid="true"]'));
+  assert.equal(host.querySelector('[role="alert"]')?.textContent, "Enter a title for each assignment before continuing.");
   assert.equal(calls, 0);
 });
 
 test("completed but ungraded is distinct from zero earned points", async () => {
   const task = { id: "quiz", title: "Quiz", courseId: "bio", due: "", dateKey: "", status: "done", progress: 100, description: "", weight: "", pointsPossible: 10, pointsEarned: null };
-  await mount({ initialAssignments: [task] }); await toCoursework();
+  await mount({ initialAssignments: [task] }); await toAssignments();
   await act(async () => host.querySelector(".class-coursework-task-title").click());
   const grade = host.querySelector(".class-coursework-grade-check input");
   assert.ok(grade);
@@ -126,7 +149,7 @@ test("completed but ungraded is distinct from zero earned points", async () => {
   assert.ok(earned);
   assert.equal(Number.isNaN(earned.valueAsNumber), true);
   await submit();
-  assert.equal(host.querySelector("h2").textContent, "Categories & tasks");
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
   assert.match(host.querySelector('[role="alert"]').textContent, /points earned/i);
   await change("Points earned", "0");
   assert.equal(earned.value, "0");
@@ -139,26 +162,41 @@ test("task-only changes trigger the unsaved-changes guard", async () => {
   let confirms = 0;
   window.confirm = () => { confirms++; return false; };
   try {
-    await mount(); await toCoursework(); await click("Add task"); await change("Task title", "Draft only");
+    await mount(); await toAssignments(); await click("Add assignment"); await change("Assignment title", "Draft only");
     await click("Close class setup");
     assert.equal(confirms, 1);
-    assert.equal(host.querySelector("h2").textContent, "Categories & tasks");
+    assert.equal(host.querySelector("h2").textContent, "Add assignments");
     assert.equal(calls, 0);
   } finally { window.confirm = originalConfirm; }
 });
 
-test("Edit Class initializes saved tasks and allows direct Coursework navigation", async () => {
+test("Edit Class initializes saved assignments and allows direct assignment navigation", async () => {
   const task = { id: "saved-task", title: "Saved exam", courseId: "bio", due: "", dateKey: "", status: "later", progress: 0, description: "", weight: "", type: "Exam" };
   await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [{ id: "exam", name: "Exams", weight: 100 }] }, initialAssignments: [task] });
-  await click("Go to Coursework");
-  assert.equal(host.querySelector("h2").textContent, "Categories & tasks");
+  await click("Go to Assignments");
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
   assert.ok(host.textContent.includes("Saved exam"));
+});
+
+test("saving a deleted category preserves its tasks without the removed category reference", async () => {
+  const task = { id: "saved-task", title: "Saved exam", courseId: "bio", due: "", dateKey: "", status: "later", progress: 0, description: "Keep this", weight: "", type: "Exam", categoryId: "exam" };
+  await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [{ id: "exam", name: "Exams", weight: 100 }] }, initialAssignments: [task] });
+  await click("Go to Categories");
+  await click("Remove Exams category");
+  assert.equal(host.querySelectorAll("[data-category-name]").length, 0);
+  await click("Go to Assignments");
+  assert.ok(host.textContent.includes("Saved exam"));
+  await click("Go to Customize");
+  await submit();
+  assert.equal(calls, 1);
+  assert.deepEqual(saved[1].gradingCategories, []);
+  assert.deepEqual(saved[3], [{ ...task, categoryId: undefined }]);
 });
 
 test("save errors preserve coursework drafts for retry", async () => {
   let attempts = 0;
   await mount({ onSave: async (...args) => { calls++; attempts++; saved = args; if (attempts === 1) throw new Error("Temporary save failure"); } });
-  await toCoursework(); await click("Add task"); await change("Task title", "Retryable task");
+  await toAssignments(); await click("Add assignment"); await change("Assignment title", "Retryable task");
   await submit(); await submit();
   assert.equal(calls, 1);
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
@@ -167,18 +205,149 @@ test("save errors preserve coursework drafts for retry", async () => {
   assert.equal(saved[3][0].title, "Retryable task");
 });
 
-test("validation reveals a collapsed category editor and focuses its invalid field", async () => {
+test("clearing a category weight restores zero and saves a valid weight", async () => {
   await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [{ id: "labs", name: "Labs", weight: 100 }] } });
-  await click("Go to Coursework");
-  await act(async () => host.querySelector(".class-coursework-category-select").click());
-  await click("Edit Labs category");
-  await change("Labs name", "");
-  await click("Done editing category");
-  assert.equal(host.querySelector(".class-coursework-category-editor"), null);
+  await click("Go to Categories");
+  await change("Labs weight", "");
+  const field = host.querySelector('[aria-label="Labs weight"]');
+  assert.ok(field);
+  assert.equal(field.value, "0");
+  assert.equal(field.getAttribute("aria-invalid"), "false");
+  assert.equal(host.querySelector(".class-grading-allocation output").textContent, "100% remaining");
+  await click("Go to Customize"); await submit();
+  assert.equal(saved[1].gradingCategories[0].weight, 0);
+});
+
+test("category weights above 100 are capped before they enter the saved class", async () => {
+  await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [{ id: "labs", name: "Labs", weight: 50 }] } });
+  await click("Go to Categories");
+  for (const value of ["101", "1000", "999"]) {
+    await change("Labs weight", value);
+    assert.equal(host.querySelector('[aria-label="Labs weight"]').value, "100");
+    assert.equal(host.querySelector(".class-grading-allocation output").textContent, "0% remaining");
+  }
+  await click("Go to Customize"); await submit();
+  assert.equal(saved[1].gradingCategories[0].weight, 100);
+});
+
+test("typing replaces zero and leading zeros are removed even when the numeric value is unchanged", async () => {
+  await mount(); await toCoursework();
+  const field = host.querySelector('[aria-label="Assignments weight"]');
+  const key = new window.KeyboardEvent("keydown", { key: "9", bubbles: true, cancelable: true });
+  await act(async () => field.dispatchEvent(key));
+  assert.equal(key.defaultPrevented, true);
+  assert.equal(field.value, "9");
+  await change("Assignments weight", "09");
+  assert.equal(field.value, "9");
+  await change("Assignments weight", "092");
+  assert.equal(field.value, "92");
+  await change("Assignments weight", "0092");
+  assert.equal(field.value, "92");
+  await change("Assignments weight", "");
+  assert.equal(field.value, "0");
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true })));
+  assert.equal(field.value, "2");
+  await submit(); await submit(); await submit();
+  assert.equal(saved[1].gradingCategories[0].weight, 2);
+});
+
+test("weight entry blocks signs, letters, decimals, and invalid pasted numbers", async () => {
+  await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [{ id: "labs", name: "Labs", weight: 50 }] } });
+  await click("Go to Categories");
+  const field = host.querySelector('[aria-label="Labs weight"]');
+  for (const key of ["+", "-", "e", "E", ".", "a"]) {
+    const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    await act(async () => field.dispatchEvent(event));
+    assert.equal(event.defaultPrevented, true, `${key} is blocked`);
+  }
+  for (const options of [{ key: "1" }, { key: "Backspace" }, { key: "ArrowUp" }, { key: "ArrowDown" }, { key: "a", ctrlKey: true }, { key: "v", metaKey: true }]) {
+    const event = new window.KeyboardEvent("keydown", { ...options, bubbles: true, cancelable: true });
+    await act(async () => field.dispatchEvent(event));
+    assert.equal(event.defaultPrevented, false, `${options.key} remains usable`);
+  }
+  for (const value of ["-5", "+5", "1e2", "25.5", "abc"]) {
+    const event = new window.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: { getData: () => value } });
+    await act(async () => field.dispatchEvent(event));
+    assert.equal(event.defaultPrevented, true);
+    assert.equal(field.value, "50");
+  }
+  for (const value of ["-5", "1e2", "25.5"]) {
+    await change("Labs weight", value);
+    assert.equal(field.value, "50", "the input change guard also rejects non-digit formats");
+  }
+});
+
+test("duplicate category validation focuses the category name for correction", async () => {
+  await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [{ id: "labs", name: "Labs", weight: 50 }, { id: "exam", name: "Exams", weight: 50 }] } });
+  await click("Go to Categories");
+  await change("Category name 1", "Exams");
   await submit();
-  const field = host.querySelector('[data-category-name="labs"]');
+  const field = host.querySelector('[aria-label="Category name 1"]');
   assert.ok(field);
   assert.equal(field.getAttribute("aria-invalid"), "true");
   assert.equal(document.activeElement, field);
+  await change("Category name 1", "Projects");
+  await submit();
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
+});
+
+test("the categories table and meter lead to optional assignments without tabs", async () => {
+  await mount(); await toCoursework();
+  for (const name of ["Assignments", "Exam", "Attendance"]) await click(`Remove ${name} category`);
+  assert.equal(host.querySelector('[role="tablist"]'), null);
+  assert.equal(host.querySelector(".class-coursework-editor"), null);
+  await click("Add category");
+  assert.equal(document.activeElement, host.querySelector('[aria-label="Category name 1"]'));
+  await change("Category name 1", "Writing milestones");
+  await change("Writing milestones weight", "40");
+  await click("Add category");
+  await change("Category name 2", "Exams");
+  await change("Exams weight", "60");
+  assert.equal(host.querySelector('[role="meter"]').getAttribute("aria-valuenow"), "100");
+  assert.equal(host.querySelector(".class-grading-allocation output").textContent, "0% remaining");
+  assert.ok(host.querySelector(".class-grading-allocation output.is-complete"));
+  await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
+  assert.equal(host.querySelector(".class-setup-step-count").textContent, "4 / 5");
+  assert.equal(host.querySelector(".class-coursework-optional").textContent, "Optional");
+  assert.equal(host.querySelectorAll(".class-coursework-pills button").length, 2);
+  assert.ok(button("Skip for now"));
+  assert.equal(calls, 0);
+  await click("Skip for now");
+  assert.equal(host.querySelector("h2").textContent, "Make it yours");
+  await submit();
+  assert.deepEqual(saved[1].gradingCategories.map(({ name, weight }) => ({ name, weight })), [{ name: "Writing milestones", weight: 40 }, { name: "Exams", weight: 60 }]);
+  assert.deepEqual(saved[3], []);
+});
+
+test("assignments remain separate while returning to unfinished category weights", async () => {
+  await mount(); await toCoursework();
+  await change("Category name 1", "Labs"); await change("Labs weight", "25");
+  await submit();
+  await click("Add assignment"); await change("Assignment title", "Reading quiz");
+  await click("Back");
+  assert.equal(host.querySelector('[aria-label="Labs weight"]').value, "25");
+  assert.equal(host.querySelector(".class-coursework-task-list"), null);
+  await change("Labs weight", "50");
+  await submit();
+  assert.ok(host.textContent.includes("Reading quiz"));
+  assert.ok(host.querySelector(".class-coursework-pills").textContent.includes("50%"));
+  assert.ok(button("Continue to Customize"));
+  await submit(); await submit();
+  assert.equal(saved[3][0].title, "Reading quiz");
+  assert.equal(saved[1].gradingCategories[0].weight, 50);
+});
+
+test("final save routes invalid categories and assignments to their own steps", async () => {
+  await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [{ id: "labs", name: "", weight: 0 }] }, initialAssignments: [{ id: "draft", title: "", courseId: "bio", due: "", dateKey: "", status: "later", progress: 0, description: "", weight: "" }] });
+  await click("Go to Customize"); await submit();
+  assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
+  assert.equal(document.activeElement, host.querySelector('[aria-label="Category name 1"]'));
+  await change("Category name 1", "Labs"); await submit();
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
+  await click("Go to Customize"); await submit();
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
+  assert.ok(host.querySelector('[data-task-title="draft"][aria-invalid="true"]'));
   assert.equal(calls, 0);
 });
