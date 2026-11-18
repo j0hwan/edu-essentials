@@ -292,6 +292,50 @@ test("duplicate category validation focuses the category name for correction", a
   assert.equal(host.querySelector("h2").textContent, "Add assignments");
 });
 
+test("the total weight meter uses shorter transitions for larger changes in either direction", async () => {
+  await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [{ id: "labs", name: "Labs", weight: 20 }] } });
+  await click("Go to Categories");
+  const meter = host.querySelector('[role="meter"]');
+  const fill = meter.firstElementChild;
+  assert.equal(fill.style.width, "20%");
+
+  let stepDuration;
+  for (const [weight, isSingleStep] of [[21, true], [20, true], [80, false], [20, false]]) {
+    await change("Labs weight", String(weight));
+    assert.equal(fill.style.width, `${weight}%`);
+    assert.equal(meter.getAttribute("aria-valuenow"), String(weight));
+    const duration = Number.parseFloat(fill.style.transitionDuration);
+    assert.ok(duration > 0);
+    if (isSingleStep) {
+      stepDuration ??= duration;
+      assert.equal(duration, stepDuration);
+    } else {
+      assert.ok(duration < stepDuration);
+    }
+  }
+});
+
+test("the total weight meter reflects the total before clamping its fill", async () => {
+  await mount({ editing: true, initialDetails: { officeHours: "", meetings: [], gradingCategories: [
+    { id: "labs", name: "Labs", weight: 99.5 }, { id: "exams", name: "Exams", weight: 0 },
+  ] } });
+  await click("Go to Categories");
+  const meter = host.querySelector('[role="meter"]');
+  assert.ok(meter.matches(".is-invalid"), "99.5 is outside the blue range");
+  await change("Labs weight", "99");
+  assert.ok(meter.matches(":not(.is-complete, .is-invalid)"));
+  await change("Exams weight", "1");
+  assert.ok(meter.matches(".is-complete"));
+  await change("Exams weight", "2");
+  assert.ok(meter.matches(".is-invalid"));
+  assert.equal(meter.firstElementChild.style.width, "100%");
+  await change("Exams weight", "1");
+  assert.ok(meter.matches(".is-complete"));
+  await change("Exams weight", "0");
+  await change("Labs weight", "0");
+  assert.ok(meter.matches(":not(.is-complete, .is-invalid)"));
+});
+
 test("the categories table and meter lead to optional assignments without tabs", async () => {
   await mount(); await toCoursework();
   for (const name of ["Assignments", "Exam", "Attendance"]) await click(`Remove ${name} category`);

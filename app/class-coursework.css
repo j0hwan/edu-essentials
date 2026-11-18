@@ -50,7 +50,8 @@
 .class-grading-allocation .is-complete { color: var(--green); }
 .class-grading-allocation .is-invalid { color: var(--red); }
 .class-grading-meter { height: 5px; overflow: hidden; border-radius: 4px; background: var(--surface-2); }
-.class-grading-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+.class-grading-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--brand); transition: width 230ms ease-out; }
+.class-grading-meter.is-complete > span { background: var(--green); }
 .class-grading-meter.is-invalid > span { background: var(--red); }
 .class-coursework-assignments { gap: 20px; }
 .class-coursework-category-summary { display: grid; gap: 14px; }

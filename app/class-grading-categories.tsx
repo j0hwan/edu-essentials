@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Percent, Plus, Trash2 } from "lucide-react";
 import type { GradingCategory } from "../lib/coursework";
 import "./class-coursework.css";
@@ -15,6 +15,10 @@ export default function ClassGradingCategories({ categories, onChange, onRemove,
   const sectionRef = useRef<HTMLElement>(null);
   const pendingFocus = useRef<string | null>(null);
   const total = Math.round(categories.reduce((sum, category) => sum + category.weight, 0) * 10000) / 10000;
+  const meterValue = Number.isFinite(total) ? Math.max(0, Math.min(100, total)) : 0;
+  const meterStatus = total === 100 ? " is-complete" : total >= 0 && total <= 99 ? "" : " is-invalid";
+  const previousMeterValue = useRef(meterValue);
+  const meterFillRef = useRef<HTMLSpanElement>(null);
   const formatWeight = (weight: number) => weight.toLocaleString("en-US", { maximumFractionDigits: 4 });
   const invalidWeights = categories.some(({ weight }) => !Number.isFinite(weight) || weight < 0 || weight > 100);
   const remainingLabel = invalidWeights ? "—% remaining" : `${formatWeight(100 - total)}% remaining`;
@@ -25,6 +29,13 @@ export default function ClassGradingCategories({ categories, onChange, onRemove,
     if (input.value !== String(weight)) input.value = String(weight);
     update(category.id, { weight });
   };
+  useLayoutEffect(() => {
+    const distance = Math.abs(meterValue - previousMeterValue.current);
+    previousMeterValue.current = meterValue;
+    if (!distance || !meterFillRef.current) return;
+    const duration = Math.round(120 + 110 * (1 - distance / 100) ** 2);
+    meterFillRef.current.style.transitionDuration = `${duration}ms`;
+  }, [meterValue]);
   useEffect(() => {
     if (!pendingFocus.current) return;
     const input = [...(sectionRef.current?.querySelectorAll<HTMLInputElement>("[data-category-name]") ?? [])].find((node) => node.dataset.categoryName === pendingFocus.current);
@@ -74,7 +85,7 @@ export default function ClassGradingCategories({ categories, onChange, onRemove,
     {!categories.length && <p className="class-coursework-hint">Add your grading categories, or continue and set them up later.</p>}
     <div className="class-grading-allocation">
       <div><span>Total Weight</span><output aria-live="polite" className={total === 100 && !invalidWeights ? "is-complete" : invalidWeights || total > 100 ? "is-invalid" : undefined}>{remainingLabel}</output></div>
-      <div className={`class-grading-meter${invalidWeights || total > 100 ? " is-invalid" : ""}`} role="meter" aria-label="Total category weight" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number.isFinite(total) ? Math.max(0, Math.min(100, total)) : 0} aria-valuetext={remainingLabel}><span style={{ width: `${Number.isFinite(total) ? Math.max(0, Math.min(100, total)) : 0}%` }} /></div>
+      <div className={`class-grading-meter${meterStatus}`} role="meter" aria-label="Total category weight" aria-valuemin={0} aria-valuemax={100} aria-valuenow={meterValue} aria-valuetext={remainingLabel}><span ref={meterFillRef} style={{ width: `${meterValue}%` }} /></div>
     </div>
   </section>;
 }
