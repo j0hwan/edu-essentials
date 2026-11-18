@@ -711,16 +711,16 @@ test("meeting-name presets appear only during editing and apply all four names w
 
 test("preset hover previews replacement text without changing or saving the typed meeting name", async () => {
   await mount(); await submit(); await click("Monday"); await click("Rename Meeting 1");
-  await change("Meeting name", "My custom meeting");
+  await change("Meeting name", "My meeting name");
   const title = host.querySelector('[aria-label="Meeting name"]');
   for (const name of ["Lecture", "Lab", "Discussion", "Office Hours"]) {
     await act(async () => button(name).dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
     assert.equal(title.dataset.preview, name);
-    assert.equal(title.textContent, "My custom meeting");
+    assert.equal(title.textContent, "My meeting name");
     assert.equal(button("Select meeting 1").querySelector("strong").textContent, "Meeting 1");
     await act(async () => button(name).dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
     assert.equal(title.hasAttribute("data-preview"), false);
-    assert.equal(title.textContent, "My custom meeting");
+    assert.equal(title.textContent, "My meeting name");
   }
   await act(async () => button("Lab").focus());
   assert.equal(title.dataset.preview, "Lab");
@@ -728,7 +728,7 @@ test("preset hover previews replacement text without changing or saving the type
   assert.equal(title.hasAttribute("data-preview"), false);
   await act(async () => title.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
   await submit(); await submit(); await submit();
-  assert.equal(saved[1].meetings[0].name, "My custom meeting");
+  assert.equal(saved[1].meetings[0].name, "My meeting name");
 });
 
 test("Escape on a meeting-name preset cancels the draft without closing the dialog", async () => {
@@ -767,11 +767,11 @@ test("double click preserves native word selection and meeting title edits stay 
   assert.equal(title.dataset.caretAtEnd, "false");
   await change("Meeting name", "Lab\nsection");
   assert.equal(title.textContent, "Lab section");
-  await change("Meeting name", "x".repeat(161));
-  assert.equal(title.textContent.length, 160);
+  await change("Meeting name", "x".repeat(31));
+  assert.equal(title.textContent.length, 30);
   await act(async () => title.blur());
   await submit(); await submit(); await submit();
-  assert.equal(saved[1].meetings[0].name.length, 160);
+  assert.equal(saved[1].meetings[0].name.length, 30);
 });
 
 test("validation selects an invalid background meeting and keeps its skipped date available for removal", async () => {

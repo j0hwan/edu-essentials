@@ -60,7 +60,10 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-meeting-presets button::before { content: ""; position: absolute; inset: -4px; }
 .class-setup-meeting-presets button:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--ink); }
 .class-setup .class-setup-meeting-title { position: relative; display: inline-block; vertical-align: top; min-width: 3px; min-height: 1.45em; max-width: 100%; line-height: 1.45; white-space: pre-wrap; outline: none; }
+.class-setup .class-setup-meeting-title[contenteditable="plaintext-only"] { height: 1.45em; white-space: pre; }
 .class-setup-meeting-title[contenteditable="plaintext-only"]::before { content: ""; position: absolute; top: 100%; left: 0; right: -3px; height: 2px; background: var(--brand); pointer-events: none; }
+.class-setup-meeting-title[contenteditable="plaintext-only"][data-limit-flash="true"]::before { animation: class-setup-name-limit 320ms ease-out; }
+@keyframes class-setup-name-limit { 0%, 100% { background-color: var(--brand); } 25%, 45% { background-color: var(--red); } }
 .class-setup-meeting-title[contenteditable="plaintext-only"][data-caret-at-end="true"]:focus { caret-color: transparent; }
 .class-setup-meeting-title[contenteditable="plaintext-only"][data-caret-at-end="true"]:focus::after { content: ""; position: absolute; top: var(--meeting-caret-top, .12em); left: var(--meeting-caret-left, calc(100% + 2px)); height: var(--meeting-caret-height, 1.21em); width: 1px; background: currentColor; pointer-events: none; animation: class-setup-caret-blink 1s step-end infinite; }
 .class-setup .class-setup-meeting-title[data-preview] { color: transparent; caret-color: transparent; }

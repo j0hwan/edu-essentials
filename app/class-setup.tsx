@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Pencil, Plus, Slash, Trash2, X } from "lucide-react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Plus, Slash, Trash2, X } from "lucide-react";
 import { addDays, assignmentTypes, dateLabel, emptyCourseDetails, isDate, isTime, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { mergeCourseworkAssignments, validateAssignmentGrading, validateGradingCategories } from "../lib/coursework";
 import type { SavedAssignment } from "../lib/workspace-codec";
@@ -13,6 +13,7 @@ import LocationInput from "./location-input";
 import ClassCardBody from "./class-card-body";
 import ClassSetupDocumentPreview from "./class-setup-document-preview";
 import ClassCoursework from "./class-coursework";
+import ClassSetupTitle from "./class-setup-title";
 import { useSaveProtection } from "./use-save-protection";
 import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
 import "./course-icon-picker.css";
@@ -34,102 +35,6 @@ const isMeetingComplete = (meeting: Meeting) => {
   catch { return false; }
 };
 const hasMissingMeetingFields = (meeting: Meeting) => !meeting.days.length || [meeting.start, meeting.end, meeting.from, meeting.until, ...(meeting.excludedDates ?? [])].some((value) => !value.trim());
-
-function MeetingTitle({ title, onRename }: { title: string; onRename: (name: string) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [caretAtEnd, setCaretAtEnd] = useState(true);
-  const [previewName, setPreviewName] = useState<string | null>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLSpanElement>(null);
-  const pencilRef = useRef<HTMLButtonElement>(null);
-  const restoreFocus = useRef(false);
-  const selectTitle = useRef(false);
-  const preservedSelection = useRef<Range | null>(null);
-  const activeEdit = useRef(false);
-  const updateCaret = useCallback(() => {
-    const heading = titleRef.current;
-    const selection = window.getSelection();
-    if (!heading || !selection?.rangeCount || !selection.isCollapsed || !heading.contains(selection.focusNode)) { setCaretAtEnd(false); return; }
-    const prefix = document.createRange();
-    prefix.selectNodeContents(heading);
-    prefix.setEnd(selection.focusNode!, selection.focusOffset);
-    if (typeof prefix.getClientRects === "function") {
-      const rect = [...prefix.getClientRects()].at(-1);
-      const box = heading.getBoundingClientRect();
-      if (rect?.height) {
-        heading.style.setProperty("--meeting-caret-left", `${rect.right - box.left + 2}px`);
-        heading.style.setProperty("--meeting-caret-top", `${rect.top - box.top}px`);
-        heading.style.setProperty("--meeting-caret-height", `${rect.height}px`);
-      } else {
-        for (const property of ["--meeting-caret-left", "--meeting-caret-top", "--meeting-caret-height"]) heading.style.removeProperty(property);
-      }
-    }
-    setCaretAtEnd(prefix.toString().length === heading.textContent?.length);
-  }, []);
-  useEffect(() => {
-    if (editing) {
-      const heading = titleRef.current;
-      if (!heading) return;
-      heading.focus();
-      const range = preservedSelection.current ?? document.createRange();
-      if (!preservedSelection.current) {
-        range.selectNodeContents(heading);
-        if (!selectTitle.current) range.collapse(false);
-      }
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      document.addEventListener("selectionchange", updateCaret);
-      const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateCaret) : undefined;
-      observer?.observe(heading);
-      return () => { document.removeEventListener("selectionchange", updateCaret); observer?.disconnect(); };
-    }
-    else if (restoreFocus.current) { pencilRef.current?.focus(); restoreFocus.current = false; }
-  }, [editing, updateCaret]);
-  const beginEditing = (highlight: boolean) => {
-    const selection = window.getSelection();
-    preservedSelection.current = highlight && selection?.rangeCount && !selection.isCollapsed && titleRef.current?.contains(selection.getRangeAt(0).commonAncestorContainer) ? selection.getRangeAt(0).cloneRange() : null;
-    activeEdit.current = true;
-    selectTitle.current = highlight; setCaretAtEnd(!highlight); setEditing(true);
-  };
-  const finishEditing = (save: boolean, focus = false) => {
-    if (!activeEdit.current) return;
-    activeEdit.current = false;
-    const heading = titleRef.current;
-    const name = heading?.textContent?.trim() ?? "";
-    if (heading) heading.textContent = save ? name || title : title;
-    if (save) onRename(name);
-    restoreFocus.current = focus;
-    setPreviewName(null);
-    setEditing(false);
-  };
-  const handleEditingKey = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (editing && !event.nativeEvent.isComposing && (event.key === "Escape" || (event.key === "Enter" && event.currentTarget === titleRef.current))) {
-      event.preventDefault(); event.stopPropagation();
-      finishEditing(event.key === "Enter", true);
-    }
-  };
-  return <div ref={editorRef} className="class-setup-section-heading" onBlur={(event) => { if (editing && !editorRef.current?.contains(event.relatedTarget)) finishEditing(true); }}>
-    <h3><span ref={titleRef} className="class-setup-meeting-title" contentEditable={editing ? "plaintext-only" : false} suppressContentEditableWarning role={editing ? "textbox" : undefined} aria-label={editing ? "Meeting name" : undefined} aria-multiline={editing ? false : undefined} tabIndex={editing ? 0 : undefined} spellCheck={false} data-caret-at-end={caretAtEnd} data-preview={editing ? previewName ?? undefined : undefined} onDoubleClick={() => { if (!editing) beginEditing(true); }} onInput={(event) => {
-      setPreviewName(null);
-      const heading = event.currentTarget;
-      const text = (heading.textContent ?? "").replace(/[\r\n]+/g, " ").slice(0, 160);
-      if (text !== heading.textContent) {
-        heading.textContent = text;
-        const range = document.createRange();
-        range.selectNodeContents(heading); range.collapse(false);
-        const selection = window.getSelection();
-        selection?.removeAllRanges(); selection?.addRange(range);
-      }
-      updateCaret();
-    }} onKeyUp={updateCaret} onMouseUp={updateCaret} onKeyDown={handleEditingKey}>{title}</span></h3>
-    {editing && <div className="class-setup-meeting-presets" role="group" aria-label="Meeting name presets">{["Lecture", "Lab", "Discussion", "Office Hours"].map((name) => <button key={name} type="button" onMouseEnter={() => setPreviewName(name)} onMouseLeave={() => setPreviewName(null)} onFocus={() => setPreviewName(name)} onBlur={() => setPreviewName(null)} onPointerDown={(event) => event.preventDefault()} onKeyDown={handleEditingKey} onClick={() => {
-      if (titleRef.current) titleRef.current.textContent = name;
-      finishEditing(true, true);
-    }}>{name}</button>)}</div>}
-    {!editing && <button ref={pencilRef} type="button" className="class-setup-meeting-rename" aria-label={`Rename ${title}`} onClick={() => beginEditing(false)}><Pencil size={17} aria-hidden="true" /></button>}
-  </div>;
-}
 
 export default function ClassSetup({ initial, initialDetails: savedDetails, initialAssignments = [], editing = false, savedImageId, savedImageUrl, savedSyllabusPreview, today, canUpload, onSave, onClose, onDelete, initialBounds }: {
   initial: Course; today: string; canUpload: boolean;
@@ -443,7 +348,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
           <button type="button" className="secondary-button class-setup-add-meeting" disabled={details.meetings.length >= 30} onClick={addMeeting}><Plus size={18} aria-hidden="true" />Add meeting</button>
         </aside>
         {selectedMeeting ? <section className="class-setup-meeting" id="class-setup-meeting-editor" key={selectedMeeting.id} aria-label={selectedMeeting.name || `Meeting ${selectedMeetingIndex + 1}`}>
-          <MeetingTitle title={selectedMeeting.name || `Meeting ${selectedMeetingIndex + 1}`} onRename={(name) => changeMeeting(selectedMeeting.id, { name: name || undefined })} />
+          <ClassSetupTitle presets={["Lecture", "Lab", "Discussion", "Office Hours"]} title={selectedMeeting.name || `Meeting ${selectedMeetingIndex + 1}`} onRename={(name) => changeMeeting(selectedMeeting.id, { name: name || undefined })} />
           <div className="class-setup-week" role="group" aria-label={`Weekdays for meeting ${selectedMeetingIndex + 1}`} aria-invalid={checkedSteps.includes(1) && !selectedMeeting.days.length ? true : undefined}>{weekdays.map((day, dayIndex) => <button type="button" key={day} aria-label={day} aria-pressed={selectedMeeting.days.includes(dayIndex)} onClick={() => changeMeeting(selectedMeeting.id, { days: selectedMeeting.days.includes(dayIndex) ? selectedMeeting.days.filter((value) => value !== dayIndex) : [...selectedMeeting.days, dayIndex].sort() })}>{day.slice(0, 3)}</button>)}</div>
           <div className="settings-form-grid class-setup-meeting-fields">
             {field("Start time", selectedMeeting.start, (start) => changeMeeting(selectedMeeting.id, { start }), "time", true)}

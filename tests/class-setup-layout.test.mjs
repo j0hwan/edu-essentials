@@ -7,6 +7,23 @@ const setupCss = await readFile(new URL("../app/class-setup.css", import.meta.ur
 const authCss = await readFile(new URL("../app/auth.css", import.meta.url), "utf8");
 const markup = '<form class="academic-editor class-setup class-setup-customize-step"><div class="class-setup-card-controls"></div><label class="class-setup-color"><input type="color"></label><div class="class-setup-zoom"><input type="range"></div><button class="class-setup-image-button"><span class="class-setup-image-affordance">Change image</span></button></form>';
 
+test("inline name editors keep the same single-line box when their text is cleared", () => {
+  for (const css of [`${setupCss}\n${authCss}`, `${authCss}\n${setupCss}`]) {
+    const dom = new JSDOM(`<style>${css}</style><form class="academic-editor class-setup"><div class="class-setup-section-heading"><h3><span class="class-setup-meeting-title" contenteditable="plaintext-only">Labs</span></h3></div></form>`);
+    try {
+      const title = dom.window.document.querySelector(".class-setup-meeting-title");
+      const initial = dom.window.getComputedStyle(title);
+      title.replaceChildren();
+      const empty = dom.window.getComputedStyle(title);
+      assert.ok(Math.abs(parseFloat(empty.height) - parseFloat(empty.fontSize) * 1.45) < 0.01);
+      assert.equal(empty.height, initial.height);
+      assert.equal(empty.minHeight, initial.minHeight);
+      assert.equal(empty.whiteSpace, "pre");
+      assert.equal(empty.lineHeight, initial.lineHeight);
+    } finally { dom.window.close(); }
+  }
+});
+
 test("the class color stays square regardless of generic editor stylesheet order", () => {
   for (const css of [`${setupCss}\n${authCss}`, `${authCss}\n${setupCss}`]) {
     const dom = new JSDOM(`<style>${css}</style>${markup}`);
