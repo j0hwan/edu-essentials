@@ -66,6 +66,11 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   const [selectedMeetingId, setSelectedMeetingId] = useState(initialDetails.meetings[0]?.id ?? "");
   const [skipDatePickerFallback, setSkipDatePickerFallback] = useState(false);
   const [step, setStep] = useState(0);
+  const [checkedCategoryAllocation, setCheckedCategoryAllocation] = useState(false);
+  const gradingCategories = details.gradingCategories ?? [];
+  const categoryWeightTotal = gradingCategories.reduce((sum, category) => sum + category.weight, 0);
+  const categoryAllocationMissing = !editing && categoryWeightTotal !== 100;
+  const showCategoryAllocationError = checkedCategoryAllocation && categoryAllocationMissing;
   const [uploads, setUploads] = useState<ClassSetupUploads>({});
   const [imagePreview, setImagePreview] = useState("");
   const currentImagePreview = uploads.image ? imagePreview : savedImageUrl ?? "";
@@ -290,8 +295,14 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
         validateCourseDetails({ ...details, gradingCategories: undefined });
       }
       let validatedDetails = details;
-      let categories = details.gradingCategories ?? [];
+      let categories = gradingCategories;
       if (step >= 2) {
+        if (categoryAllocationMissing) {
+          setCheckedCategoryAllocation(true);
+          setStep(2);
+          return;
+        }
+        setCheckedCategoryAllocation(false);
         try {
           categories = validateGradingCategories(categories);
           validatedDetails = { ...details, ...(details.gradingCategories !== undefined ? { gradingCategories: categories } : {}) };
@@ -400,11 +411,21 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
         <h3>{steps[step]}<span className="class-coursework-optional">Optional</span></h3>
         <p>Know what’s coming up? Add it now, or skip ahead and do this later.</p>
       </header>}
-      {step === 2 && <ClassGradingCategories categories={details.gradingCategories ?? []} onChange={(gradingCategories) => setDetails((current) => ({ ...current, gradingCategories }))} onRemove={(category) => {
-        setDetails((current) => ({ ...current, gradingCategories: current.gradingCategories?.filter((item) => item.id !== category.id) }));
-        setAssignments((current) => current.map((assignment) => assignment.categoryId === category.id ? { ...assignment, categoryId: undefined } : assignment));
-      }} disabled={busy} showErrors={checkedSteps.includes(2)} />}
-      {step === 3 && <ClassCoursework courseId={course.id} today={today} categories={details.gradingCategories ?? []} assignments={assignments} onAssignmentsChange={setAssignments} disabled={busy} showErrors={checkedSteps.includes(3)} validationAttempt={courseworkValidationAttempt} />}
+      {step === 2 && <ClassGradingCategories
+        categories={gradingCategories}
+        weightTotal={categoryWeightTotal}
+        requireFullAllocation={!editing}
+        showAllocationError={showCategoryAllocationError}
+        onChange={(gradingCategories) => setDetails((current) => ({ ...current, gradingCategories }))}
+        onWeightEdit={() => setCheckedCategoryAllocation(false)}
+        onRemove={(category) => {
+          setDetails((current) => ({ ...current, gradingCategories: current.gradingCategories?.filter((item) => item.id !== category.id) }));
+          setAssignments((current) => current.map((assignment) => assignment.categoryId === category.id ? { ...assignment, categoryId: undefined } : assignment));
+        }}
+        disabled={busy}
+        showErrors={checkedSteps.includes(2)}
+      />}
+      {step === 3 && <ClassCoursework courseId={course.id} today={today} categories={gradingCategories} assignments={assignments} onAssignmentsChange={setAssignments} disabled={busy} showErrors={checkedSteps.includes(3)} validationAttempt={courseworkValidationAttempt} />}
       {step === 4 && <>
         <div className="class-setup-customize">
           <section className="class-setup-appearance" aria-label="Class appearance">

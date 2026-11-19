@@ -71,7 +71,8 @@ async function change(label, value) {
     node.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
 }
-async function appearance() { await submit(); await click("Monday"); await submit(); await submit(); await submit(); }
+async function submitAllocatedCategories() { await change("Assignments weight", "100"); await submit(); }
+async function appearance() { await submit(); await click("Monday"); await submit(); await submitAllocatedCategories(); await submit(); }
 async function file(kind, value) {
   const input = host.querySelectorAll('input[type="file"]')[kind === "image" ? 0 : 1];
   Object.defineProperty(input, "files", { configurable: true, value: [value] });
@@ -359,7 +360,7 @@ test("required fields have visible asterisks and setup omits the removed introdu
   await change("Add skip date", "2026-11-02");
   assert.ok(button("Skip dates (1)"));
   await submit(); verifyLabels();
-  await submit(); verifyLabels();
+  await submitAllocatedCategories(); verifyLabels();
   await submit(); verifyLabels();
   assert.match(host.textContent, /Storage only/);
 });
@@ -402,7 +403,7 @@ test("larger progress replaces the visible title and preserves accessible step n
   assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Set up your coursework");
   assert.equal(progress.querySelectorAll(".is-complete").length, 2);
   verifyIndicators(2);
-  await submit();
+  await submitAllocatedCategories();
   assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Add assignments");
   assert.equal(progress.querySelectorAll(".is-complete").length, 3);
   verifyIndicators(3);
@@ -441,7 +442,7 @@ test("manual setup keeps course information separate from meeting locations; Bac
   await click("Skip dates (0)"); await change("Add skip date", "2026-11-02");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
-  await submit();
+  await submitAllocatedCategories();
   assert.equal(host.querySelector("h2").textContent, "Add assignments");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
@@ -694,7 +695,7 @@ test("meeting titles rename with the pencil or double click, preserve names and 
   assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Lecture");
   await submit(); await click("Back");
   assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Lecture");
-  await submit(); await submit(); await submit(); await submit();
+  await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.deepEqual(saved[1].meetings.map((meeting) => meeting.name), ["Lecture", "Lab"]);
 });
 
@@ -715,7 +716,7 @@ test("meeting-name presets appear only during editing and apply all four names w
     assert.equal(host.querySelector('[aria-label="Meeting name presets"]'), null);
     assert.equal(document.activeElement, button(`Rename ${name}`));
   }
-  await submit(); await submit(); await submit(); await submit();
+  await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.equal(saved[1].meetings[0].name, "Office Hours");
 });
 
@@ -737,7 +738,7 @@ test("preset hover previews replacement text without changing or saving the type
   await act(async () => title.focus());
   assert.equal(title.hasAttribute("data-preview"), false);
   await act(async () => title.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
-  await submit(); await submit(); await submit(); await submit();
+  await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.equal(saved[1].meetings[0].name, "My meeting name");
 });
 
@@ -757,7 +758,7 @@ test("clearing a meeting title restores its default numbered title", async () =>
   await act(async () => host.querySelector('[aria-label="Meeting name"]').blur());
   assert.equal(host.querySelector(".class-setup-section-heading h3").textContent, "Meeting 1");
   assert.equal(button("Select meeting 1").querySelector("strong").textContent, "Meeting 1");
-  await submit(); await submit(); await submit(); await submit();
+  await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.equal(saved[1].meetings[0].name, undefined);
 });
 
@@ -780,7 +781,7 @@ test("double click preserves native word selection and meeting title edits stay 
   await change("Meeting name", "x".repeat(31));
   assert.equal(title.textContent.length, 30);
   await act(async () => title.blur());
-  await submit(); await submit(); await submit(); await submit();
+  await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.equal(saved[1].meetings[0].name.length, 30);
 });
 
@@ -794,7 +795,7 @@ test("validation selects an invalid background meeting and keeps its skipped dat
   assert.match(host.querySelector('[role="alert"]').textContent, /excluded dates/);
   assert.equal(button("Select meeting 1").getAttribute("aria-pressed"), "true");
   assert.equal(button("Skip dates (1)").hasAttribute("aria-expanded"), false);
-  await click("Remove skip date Nov 2, 2026"); await submit(); await submit(); await submit(); await submit();
+  await click("Remove skip date Nov 2, 2026"); await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.equal(saved[1].meetings.length, 2);
   assert.deepEqual(saved[1].meetings[0].excludedDates, []);
   assert.deepEqual(saved[1].meetings[1].days, [2]);
@@ -834,7 +835,7 @@ test("schedule validation blocks advancement, and asynchronous classes can remov
   assert.equal(host.querySelector("h2").textContent, "Class schedule");
   await click("Monday"); await change("End time", "08:00"); await submit();
   assert.match(host.querySelector('[role="alert"]').textContent, /end must be after/);
-  await click("Delete meeting 1"); await submit(); await submit(); await submit(); await submit();
+  await click("Delete meeting 1"); await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.deepEqual(saved[1].meetings, []);
 });
 
@@ -875,7 +876,7 @@ test("missing schedule fields highlight together without a popup and allow advan
   assert.equal(host.querySelector('[aria-invalid="true"]'), null);
   await click("Continue");
   assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
-  await submit();
+  await submitAllocatedCategories();
   assert.equal(host.querySelector("h2").textContent, "Add assignments");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
@@ -901,7 +902,7 @@ test("skip dates stay isolated to each meeting and are preserved independently o
   assert.ok(button("Remove skip date Nov 16, 2026"));
   assert.equal(button("Remove skip date Nov 2, 2026"), undefined);
 
-  await submit(); await submit(); await submit(); await submit();
+  await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.deepEqual(saved[1].meetings.map((meeting) => meeting.excludedDates), [
     ["2026-11-02", "2026-11-09"],
     ["2026-11-16"],
@@ -994,7 +995,10 @@ test("the icon picker fits three desktop columns and four mobile columns without
 for (const editing of [false, true]) {
   test(`${editing ? "editing" : "adding"} a course supports no icon in customization and saved details`, async () => {
     await mount({ editing, initialDetails: { officeHours: "Tuesday afternoons", meetings: [{ id: "icon-meeting", days: [1], start: "09:00", end: "10:00", from: "2026-10-26", until: "2027-03-01", location: "Room 1" }], ...(editing ? { icon: "none" } : {}) } });
-    await submit(); await submit(); await submit(); await submit();
+    await submit(); await submit();
+    if (editing) await submit();
+    else await submitAllocatedCategories();
+    await submit();
     const card = host.querySelector('[aria-label="Class card preview"]');
     if (editing) {
       assert.equal(button("No icon").getAttribute("aria-pressed"), "true");

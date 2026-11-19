@@ -45,7 +45,7 @@ async function change(label, value) {
   });
 }
 async function toCoursework() { await submit(); await click("Monday"); await submit(); }
-async function toAssignments() { await toCoursework(); await submit(); }
+async function toAssignments() { await toCoursework(); await change("Assignments weight", "100"); await submit(); }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = undefined; host.replaceChildren(); });
 
 test("ClassSetup separates categories and optional assignments into five steps", async () => {
@@ -55,6 +55,63 @@ test("ClassSetup separates categories and optional assignments into five steps",
   assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
   assert.deepEqual([...host.querySelectorAll("[data-category-name]")].map((input) => input.value), ["Assignments", "Exam", "Attendance"]);
   assert.deepEqual([...host.querySelectorAll('.class-grading-weight input')].map((input) => input.value), ["0", "0", "0"]);
+});
+
+test("manual setup flags incomplete allocation on Continue and clears it on a weight edit", async () => {
+  await mount(); await toCoursework();
+  const continueButton = button("Continue");
+  const allocation = host.querySelector(".class-grading-allocation");
+  const status = allocation.querySelector("output");
+  const marker = allocation.querySelector(".class-setup-required");
+  const meter = allocation.querySelector('[role="meter"]');
+  assert.equal(marker.textContent.trim(), "*");
+  assert.equal(continueButton.disabled, false);
+  assert.equal(button("Go to Assignments").disabled, true);
+  assert.equal(status.textContent, "100% remaining");
+
+  await change("Exam weight", "1");
+  for (const [weight, expected, overAllocated] of [["100", "-1% remaining", true], ["24", "75% remaining", false]]) {
+    await change("Assignments weight", weight);
+    assert.equal(status.textContent, expected);
+    assert.equal(marker.matches(".is-missing"), false);
+    assert.equal(status.matches(".is-invalid"), overAllocated);
+    assert.equal(meter.matches(".is-invalid"), overAllocated);
+    assert.equal(host.querySelector('[role="alert"]'), null);
+  }
+
+  await click("Continue");
+  assert.equal(host.querySelector('[role="alert"]'), null);
+  assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
+  assert.ok(marker.matches(".is-missing"));
+  assert.ok(status.matches(".is-invalid"));
+  assert.ok(meter.matches(".is-invalid"));
+  assert.equal(continueButton.disabled, false);
+
+  await change("Category name 3", "Participation");
+  assert.ok(marker.matches(".is-missing"));
+
+  await change("Assignments weight", "25");
+  assert.equal(status.textContent, "74% remaining");
+  assert.equal(marker.matches(".is-missing"), false);
+  assert.equal(status.matches(".is-invalid"), false);
+  assert.equal(meter.matches(".is-invalid"), false);
+
+  await change("Assignments weight", "100");
+  assert.equal(status.textContent, "-1% remaining");
+  assert.equal(marker.matches(".is-missing"), false);
+  assert.ok(status.matches(".is-invalid"));
+  assert.ok(meter.matches(".is-invalid"));
+  await submit();
+  assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
+  assert.ok(marker.matches(".is-missing"));
+
+  await change("Assignments weight", "99");
+  assert.ok(status.matches(".is-complete"));
+  assert.equal(marker.matches(".is-missing"), false);
+  assert.equal(continueButton.disabled, false);
+  await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Add assignments");
+  assert.equal(calls, 0);
 });
 
 test("the modal recovers keyboard focus when it is outside the form", async () => {
@@ -78,10 +135,13 @@ test("the modal recovers keyboard focus when it is outside the form", async () =
 test("deleted default categories stay deleted through back navigation and save", async () => {
   await mount(); await toCoursework();
   for (const name of ["Assignments", "Exam", "Attendance"]) await click(`Remove ${name} category`);
-  await submit(); await click("Back");
+  await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
+  await click("Back"); await submit();
   assert.equal(host.querySelectorAll("[data-category-name]").length, 0);
+  await click("Add category"); await change("New category weight", "100");
   await submit(); await submit(); await submit();
-  assert.deepEqual(saved[1].gradingCategories, []);
+  assert.deepEqual(saved[1].gradingCategories.map(({ name, weight }) => ({ name, weight })), [{ name: "New category", weight: 100 }]);
 });
 
 test("editing a class with no categories preserves its empty grading setup", async () => {
@@ -98,6 +158,7 @@ test("task and category drafts are saved as the fourth argument and in course de
   const categoryWeight = host.querySelector('[aria-label="Labs weight"]');
   assert.ok(categoryWeight, "category weight control renders");
   await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(categoryWeight, "25"); categoryWeight.dispatchEvent(new window.Event("input", { bubbles: true })); categoryWeight.dispatchEvent(new window.Event("change", { bubbles: true })); });
+  await change("Exam weight", "75");
   await submit();
   await click("Add assignment");
   await change("Assignment title", "Microscope lab");
@@ -111,14 +172,14 @@ test("task and category drafts are saved as the fourth argument and in course de
   await submit();
   assert.equal(calls, 1);
   assert.equal(saved.length, 4);
-  assert.deepEqual(saved[1].gradingCategories.map(({ name, weight }) => ({ name, weight })), [{ name: "Labs", weight: 25 }, { name: "Exam", weight: 0 }, { name: "Attendance", weight: 0 }]);
+  assert.deepEqual(saved[1].gradingCategories.map(({ name, weight }) => ({ name, weight })), [{ name: "Labs", weight: 25 }, { name: "Exam", weight: 75 }, { name: "Attendance", weight: 0 }]);
   assert.equal(saved[3].length, 1);
   assert.equal(saved[3][0].title, "Microscope lab");
   assert.equal(saved[3][0].categoryId, saved[1].gradingCategories[0].id);
 });
 
 test("Back from Customize retains coursework task and category drafts", async () => {
-  await mount(); await toCoursework(); await change("Category name 1", "Labs"); await submit();
+  await mount(); await toCoursework(); await change("Category name 1", "Labs"); await change("Labs weight", "100"); await submit();
   await click("Add assignment"); await change("Assignment title", "Reading quiz"); await submit();
   await click("Back");
   assert.equal(host.querySelector("h2").textContent, "Add assignments");
@@ -247,6 +308,7 @@ test("typing replaces zero and leading zeros are removed even when the numeric v
   assert.equal(field.value, "0");
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true })));
   assert.equal(field.value, "2");
+  await change("Exam weight", "98");
   await submit(); await submit(); await submit();
   assert.equal(saved[1].gradingCategories[0].weight, 2);
 });
@@ -365,15 +427,20 @@ test("the categories table and meter lead to optional assignments without tabs",
   assert.deepEqual(saved[3], []);
 });
 
-test("assignments remain separate while returning to unfinished category weights", async () => {
+test("assignment drafts survive returning to Categories and reallocating weights", async () => {
   await mount(); await toCoursework();
-  await change("Category name 1", "Labs"); await change("Labs weight", "25");
+  await change("Category name 1", "Labs"); await change("Labs weight", "25"); await change("Exam weight", "75");
   await submit();
   await click("Add assignment"); await change("Assignment title", "Reading quiz");
   await click("Back");
   assert.equal(host.querySelector('[aria-label="Labs weight"]').value, "25");
   assert.equal(host.querySelector(".class-coursework-task-list"), null);
   await change("Labs weight", "50");
+  assert.equal(host.querySelector('[role="alert"]'), null);
+  await click("Continue");
+  assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
+  assert.ok(host.querySelector('.class-grading-allocation .class-setup-required.is-missing'));
+  await change("Exam weight", "50");
   await submit();
   assert.ok(host.textContent.includes("Reading quiz"));
   assert.ok(host.querySelector(".class-coursework-pills").textContent.includes("50%"));

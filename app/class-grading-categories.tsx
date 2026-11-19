@@ -5,28 +5,38 @@ import { Percent, Plus, Trash2 } from "lucide-react";
 import type { GradingCategory } from "../lib/coursework";
 import "./class-coursework.css";
 
-export default function ClassGradingCategories({ categories, onChange, onRemove, disabled, showErrors }: {
+export default function ClassGradingCategories({ categories, weightTotal, requireFullAllocation, showAllocationError, onChange, onWeightEdit, onRemove, disabled, showErrors }: {
   categories: GradingCategory[];
+  weightTotal: number;
+  requireFullAllocation: boolean;
+  showAllocationError: boolean;
   onChange: (categories: GradingCategory[]) => void;
+  onWeightEdit: () => void;
   onRemove: (category: GradingCategory) => void;
   disabled: boolean;
   showErrors: boolean;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const pendingFocus = useRef<string | null>(null);
-  const total = Math.round(categories.reduce((sum, category) => sum + category.weight, 0) * 10000) / 10000;
+  const total = requireFullAllocation ? weightTotal : Math.round(weightTotal * 10000) / 10000;
+  const overAllocated = total > 100;
   const meterValue = Number.isFinite(total) ? Math.max(0, Math.min(100, total)) : 0;
-  const meterStatus = total === 100 ? " is-complete" : total >= 0 && total <= 99 ? "" : " is-invalid";
+  const invalidMeter = requireFullAllocation ? overAllocated || showAllocationError : !(total >= 0 && total <= 99);
+  const meterStatus = total === 100 ? " is-complete" : invalidMeter ? " is-invalid" : "";
   const previousMeterValue = useRef(meterValue);
   const meterFillRef = useRef<HTMLSpanElement>(null);
   const formatWeight = (weight: number) => weight.toLocaleString("en-US", { maximumFractionDigits: 4 });
   const invalidWeights = categories.some(({ weight }) => !Number.isFinite(weight) || weight < 0 || weight > 100);
-  const remainingLabel = invalidWeights ? "—% remaining" : `${formatWeight(100 - total)}% remaining`;
+  const invalidTotal = overAllocated || (requireFullAllocation ? showAllocationError : invalidWeights);
+  const totalStatus = total === 100 && !invalidWeights ? "is-complete" : invalidTotal ? "is-invalid" : undefined;
+  const remaining = 100 - total;
+  const remainingLabel = invalidWeights ? "—% remaining" : `${formatWeight(remaining)}% remaining`;
   const update = (id: string, patch: Partial<GradingCategory>) => onChange(categories.map((category) => category.id === id ? { ...category, ...patch } : category));
   const changeWeight = (category: GradingCategory, input: HTMLInputElement, value = input.value) => {
     const weight = value === "" ? 0 : /^\d+$/.test(value) ? Math.min(100, Number(value)) : category.weight;
     // React treats numeric strings like "092" as equal to 92, so normalize the displayed value too.
     if (input.value !== String(weight)) input.value = String(weight);
+    onWeightEdit();
     update(category.id, { weight });
   };
   useLayoutEffect(() => {
@@ -82,9 +92,12 @@ export default function ClassGradingCategories({ categories, onChange, onRemove,
       </div>)}
       <div className="class-grading-row class-grading-add-row" role="row"><div role="cell" aria-colspan={3}><button type="button" className="secondary-button class-grading-add" data-add-category disabled={disabled || categories.length >= 50} onClick={add}><Plus size={18} aria-hidden="true" />Add category</button></div></div>
     </div>
-    {!categories.length && <p className="class-coursework-hint">Add your grading categories, or continue and set them up later.</p>}
+    {!categories.length && !requireFullAllocation && <p className="class-coursework-hint">Add your grading categories, or continue and set them up later.</p>}
     <div className="class-grading-allocation">
-      <div><span>Total Weight</span><output aria-live="polite" className={total === 100 && !invalidWeights ? "is-complete" : invalidWeights || total > 100 ? "is-invalid" : undefined}>{remainingLabel}</output></div>
+      <div>
+        <span>Total Weight{requireFullAllocation && <span aria-hidden="true" className={showAllocationError ? "class-setup-required is-missing" : "class-setup-required"}> *</span>}</span>
+        <output aria-live="polite" className={totalStatus}>{remainingLabel}</output>
+      </div>
       <div className={`class-grading-meter${meterStatus}`} role="meter" aria-label="Total category weight" aria-valuemin={0} aria-valuemax={100} aria-valuenow={meterValue} aria-valuetext={remainingLabel}><span ref={meterFillRef} style={{ width: `${meterValue}%` }} /></div>
     </div>
   </section>;
