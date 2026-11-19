@@ -77,8 +77,6 @@
 .class-setup .class-coursework-sidebar .class-coursework-task-summary button:focus-visible { outline-offset: -3px; }
 .class-setup .class-coursework-sidebar .class-coursework-add { flex-shrink: 0; margin-top: 0; }
 .class-setup .class-coursework-sidebar .class-coursework-task-list + .class-coursework-add { margin-top: 10px; }
-.class-coursework-remove-confirmation { padding: 8px; border-top: 1px solid var(--border); }
-.class-coursework-remove-confirmation > span { width: 100%; }
 .class-coursework-details { display: flex; flex-direction: column; min-width: 0; }
 .class-coursework-no-tasks { display: grid; flex: 1; place-content: center; gap: 4px; padding: 20px; text-align: center; }
 .class-coursework-no-tasks > svg { justify-self: center; margin-bottom: 4px; color: color-mix(in srgb, var(--brand) 60%, var(--muted)); }

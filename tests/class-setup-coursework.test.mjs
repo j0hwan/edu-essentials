@@ -268,7 +268,7 @@ test("task-only changes trigger the unsaved-changes guard", async () => {
   } finally { window.confirm = originalConfirm; }
 });
 
-test("the manual assignment list switches drafts and restores focus after removal", async () => {
+test("the manual task list removes drafts immediately and restores focus", async () => {
   await mount(); await toAssignments();
   await click("Add task");
   assert.equal(document.activeElement, host.querySelector("[data-task-title]"));
@@ -292,19 +292,16 @@ test("the manual assignment list switches drafts and restores focus after remova
   assert.equal(host.querySelector('input[type="time"]').value, "18:30");
 
   await click("Remove Problem set 1");
-  assert.equal(document.activeElement, button("Confirm remove"));
-  await click("Keep task");
-  assert.equal(document.activeElement, button("Remove Problem set 1"));
-  await click("Remove Problem set 1"); await click("Confirm remove");
   assert.equal(document.activeElement, taskCard("Midterm exam"));
   assert.equal(taskCard("Midterm exam").getAttribute("aria-pressed"), "true");
   assert.equal(host.querySelectorAll(".class-coursework-task-title").length, 1);
   assert.equal(host.querySelector('[aria-label="Type"]').value, "Exam");
 
-  await click("Remove Midterm exam"); await click("Confirm remove");
+  await click("Remove Midterm exam");
   assert.equal(document.activeElement, button("Add task"));
   assert.equal(host.querySelector(".class-coursework-details h3").textContent, "No tasks yet");
   assert.ok(button("Skip").matches(".primary-button"));
+  assert.equal(calls, 0);
 });
 
 test("Edit Class initializes saved assignments and allows direct assignment navigation", async () => {

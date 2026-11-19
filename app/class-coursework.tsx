@@ -153,9 +153,8 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
           {!manualEntry && (assignment.pointsEarned != null || assignment.pointsPossible != null) && <span className="class-coursework-task-score">{assignment.pointsEarned != null ? Number.isFinite(assignment.pointsEarned) ? `${assignment.pointsEarned} / ${assignment.pointsPossible ?? "—"} points · Graded` : "Enter received score" : `${assignment.pointsPossible} points possible`}</span>}
         </button>
         {!manualEntry && assignment.status === "done" && <Check className="class-coursework-complete" size={16} aria-label="Completed" />}
-        {manualEntry && <button type="button" className="icon-button class-setup-delete-button class-coursework-task-remove" aria-label={`Remove ${taskTitle(assignment)}`} data-coursework-focus={`remove-task:${assignment.id}`} disabled={disabled} onClick={() => requestRemove(assignment.id)}><Trash2 size={17} aria-hidden="true" /></button>}
+        {manualEntry && <button type="button" className="icon-button class-setup-delete-button class-coursework-task-remove" aria-label={`Remove ${taskTitle(assignment)}`} disabled={disabled} onClick={() => removeTask(assignment)}><Trash2 size={17} aria-hidden="true" /></button>}
       </div>
-      {manualEntry && removeId === assignment.id && <div className="class-coursework-editor-actions class-coursework-remove-confirmation">{removeConfirmation(assignment)}</div>}
       {!manualEntry && editingId === assignment.id && renderEditor(assignment)}
     </article>;
   })}</div>;
