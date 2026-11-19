@@ -268,6 +268,43 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
       setDetails((current) => ({ ...current, syllabusDeleted: true, syllabusText: undefined, syllabusName: undefined, syllabusFileId: undefined }));
     }
   };
+  const validateCourseDraft = () => validateCourse({
+    ...course,
+    initials: editing && course.code === initial.code ? initial.initials : course.code.slice(0, 2).toUpperCase(),
+    soft: editing && course.color === initial.color ? initial.soft : `${course.color}18`,
+  });
+  const validateSchedule = () => validateCourseDetails({ ...details, gradingCategories: undefined });
+  const validateAssignments = (categories: typeof gradingCategories) => {
+    const categoryIds = new Set(categories.map((category) => category.id));
+    for (const assignment of assignments) {
+      if (!assignment.title.trim() || assignment.title.length > 500) throw new Error("Enter a task title of up to 500 characters.");
+      if (assignment.description.length > 20000) throw new Error(`Shorten the description for ${assignment.title}.`);
+      if ((assignment.dateKey && !isDate(assignment.dateKey)) || (assignment.dueTime && (!assignment.dateKey || !isTime(assignment.dueTime)))) throw new Error(`Set a valid due date and time for ${assignment.title}, or leave both blank.`);
+      if (assignment.type !== undefined && !assignmentTypes.includes(assignment.type)) throw new Error(`Choose a task type for ${assignment.title}.`);
+      if (assignment.categoryId && !categoryIds.has(assignment.categoryId)) throw new Error(`Choose a category for ${assignment.title}, or leave it uncategorized.`);
+      if (assignment.status === "done" && assignment.progress !== 100) throw new Error(`Completed tasks must have 100% progress: ${assignment.title}.`);
+      validateAssignmentGrading(assignment);
+    }
+    mergeCourseworkAssignments([], course.id, assignments);
+  };
+  const canAdvance = () => {
+    try {
+      validateCourseDraft();
+      if (step >= 1) validateSchedule();
+      if (step >= 2) {
+        if (categoryAllocationMissing) return false;
+        const categories = validateGradingCategories(gradingCategories);
+        if (step === 3) validateAssignments(categories);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const isFinalStep = step === steps.length - 1;
+  const highlightSubmit = editing || isFinalStep || canAdvance();
+  const advanceLabel = step === 3 && !assignments.length ? "Skip for now"
+    : editing ? (step === 3 ? "Continue to Customize" : "Continue") : "Next";
   const submit = async () => {
     if (saving.current || formRef.current?.closest("[data-modal-exiting]")) return;
     setError("");
@@ -279,7 +316,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
       return;
     }
     try {
-      const validated = validateCourse({ ...course, initials: editing && course.code === initial.code ? initial.initials : course.code.slice(0, 2).toUpperCase(), soft: editing && course.color === initial.color ? initial.soft : `${course.color}18` });
+      const validated = validateCourseDraft();
       if (step >= 1) {
         const missingMeeting = details.meetings.find(hasMissingMeetingFields);
         const invalidMeeting = missingMeeting ?? details.meetings.find((meeting) => !isMeetingComplete(meeting));
@@ -292,7 +329,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
           focusMissingRef.current = true;
           return;
         }
-        validateCourseDetails({ ...details, gradingCategories: undefined });
+        validateSchedule();
       }
       let validatedDetails = details;
       let categories = gradingCategories;
@@ -316,17 +353,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
       if (step >= 3) {
         setCourseworkValidationAttempt((current) => current + 1);
         try {
-          const categoryIds = new Set(categories.map((category) => category.id));
-          for (const assignment of assignments) {
-            if (!assignment.title.trim() || assignment.title.length > 500) throw new Error("Enter a task title of up to 500 characters.");
-            if (assignment.description.length > 20000) throw new Error(`Shorten the description for ${assignment.title}.`);
-            if ((assignment.dateKey && !isDate(assignment.dateKey)) || (assignment.dueTime && (!assignment.dateKey || !isTime(assignment.dueTime)))) throw new Error(`Set a valid due date and time for ${assignment.title}, or leave both blank.`);
-            if (assignment.type !== undefined && !assignmentTypes.includes(assignment.type)) throw new Error(`Choose a task type for ${assignment.title}.`);
-            if (assignment.categoryId && !categoryIds.has(assignment.categoryId)) throw new Error(`Choose a category for ${assignment.title}, or leave it uncategorized.`);
-            if (assignment.status === "done" && assignment.progress !== 100) throw new Error(`Completed tasks must have 100% progress: ${assignment.title}.`);
-            validateAssignmentGrading(assignment);
-          }
-          mergeCourseworkAssignments([], course.id, assignments);
+          validateAssignments(categories);
         } catch (failure) {
           setCheckedSteps((current) => current.includes(3) ? current : [...current, 3]);
           setStep(3);
@@ -334,7 +361,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
           throw failure;
         }
       }
-      if (step < steps.length - 1) { transition(() => setStep(step + 1)); return; }
+      if (!isFinalStep) { transition(() => setStep(step + 1)); return; }
       saving.current = true; setBusy(true); setAttemptedSave(true);
       const preview = formRef.current?.querySelector<HTMLElement>(".class-setup-image-button");
       const bounds = preview?.getBoundingClientRect();
@@ -481,6 +508,13 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
     </fieldset></div>
     {error && <p role="alert" className="auth-error">{error}</p>}
     {attemptedSave && !busy && error && <p className="form-hint">Selected files are locked for safe retries because some attachments may already be saved. Retry to finish, or close setup and manage saved attachments from the class files.</p>}
-    <div className="modal-actions class-setup-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { if (step) { transition(() => { setStep(step - 1); setError(""); }); } else close(); }}>{step ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button><span className="class-setup-step-count">{step + 1} / {steps.length}</span>{onDelete && <button type="button" className="secondary-button" aria-label="Delete class" title="Delete class" disabled={busy || attemptedSave} onClick={onDelete}><Trash2 size={18} aria-hidden="true" /></button>}<button className="primary-button" disabled={busy}>{busy ? "Saving class…" : step === steps.length - 1 ? editing ? "Save class" : "Create class" : <>{step === 3 ? assignments.length ? "Continue to Customize" : "Skip for now" : "Continue"}<ArrowRight size={16} /></>}</button></div>
+    <div className="modal-actions class-setup-actions">
+      <button type="button" className="secondary-button" disabled={busy} onClick={() => { if (step) { transition(() => { setStep(step - 1); setError(""); }); } else close(); }}>{step ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button>
+      <span className="class-setup-step-count">{step + 1} / {steps.length}</span>
+      {onDelete && <button type="button" className="secondary-button" aria-label="Delete class" title="Delete class" disabled={busy || attemptedSave} onClick={onDelete}><Trash2 size={18} aria-hidden="true" /></button>}
+      <button type="submit" className={highlightSubmit ? "primary-button" : "secondary-button"} data-class-setup-advance={!editing && !isFinalStep ? true : undefined} disabled={busy}>
+        {busy ? "Saving class…" : isFinalStep ? (editing ? "Save class" : "Create class") : <>{advanceLabel}<ArrowRight size={16} /></>}
+      </button>
+    </div>
   </form></div>;
 }

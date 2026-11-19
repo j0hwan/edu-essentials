@@ -171,6 +171,10 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup .class-setup-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 18px; }
 .class-setup-actions > span { font-size: 12px; color: var(--muted); }
 .class-setup-actions [aria-label="Delete class"] > svg { color: var(--red); }
+.class-setup-actions [data-class-setup-advance] {
+  transition: background-color 350ms ease, border-color 350ms ease, color 350ms ease, box-shadow 350ms ease, transform 160ms ease;
+}
+.class-setup-actions [data-class-setup-advance].primary-button { border: 1px solid transparent; }
 .class-setup button:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 .class-setup .class-setup-meeting-select:focus-visible { outline-offset: -4px; }
 @media (max-width: 760px) {

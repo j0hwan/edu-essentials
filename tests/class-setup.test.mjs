@@ -801,7 +801,7 @@ test("validation selects an invalid background meeting and keeps its skipped dat
   assert.deepEqual(saved[1].meetings[1].days, [2]);
 });
 
-test("empty meeting days become invalid only after Continue and clear as soon as a day is selected", async () => {
+test("empty meeting days become invalid only after Next and clear as soon as a day is selected", async () => {
   await mount(); await submit();
   const days = () => host.querySelector('.class-setup-week');
   assert.equal(host.querySelector(".class-setup-week-label"), null);
@@ -810,16 +810,19 @@ test("empty meeting days become invalid only after Continue and clear as soon as
   assert.equal(days().querySelectorAll('button[aria-pressed="false"]').length, 7);
   await click("Monday"); await click("Monday");
   assert.equal(days().hasAttribute("aria-invalid"), false);
-  await click("Continue");
+  assert.equal(button("Next").className, button("Back").className);
+  await click("Next");
   assert.equal(host.querySelector("h2").textContent, "Class schedule");
   assert.equal(days().getAttribute("aria-invalid"), "true");
   await click("Monday");
   assert.equal(days().hasAttribute("aria-invalid"), false);
   assert.equal(button("Monday").getAttribute("aria-pressed"), "true");
+  assert.ok(button("Next").matches(".primary-button"));
   await click("Tuesday"); await click("Monday");
   assert.equal(days().hasAttribute("aria-invalid"), false);
   await click("Tuesday");
   assert.equal(days().getAttribute("aria-invalid"), "true");
+  assert.equal(button("Next").className, button("Back").className);
   await click("Monday"); await click("Add meeting");
   assert.equal(days().getAttribute("aria-invalid"), "true");
   await click("Select meeting 1");
@@ -833,16 +836,21 @@ test("schedule validation blocks advancement, and asynchronous classes can remov
   assert.equal(host.querySelector('[role="alert"]'), null);
   assert.equal(host.querySelector(".class-setup-week").getAttribute("aria-invalid"), "true");
   assert.equal(host.querySelector("h2").textContent, "Class schedule");
-  await click("Monday"); await change("End time", "08:00"); await submit();
+  await click("Monday"); await change("End time", "08:00");
+  assert.equal(button("Next").className, button("Back").className);
+  await submit();
   assert.match(host.querySelector('[role="alert"]').textContent, /end must be after/);
-  await click("Delete meeting 1"); await submit(); await submitAllocatedCategories(); await submit(); await submit();
+  await click("Delete meeting 1");
+  assert.ok(button("Next").matches(".primary-button"));
+  await submit(); await submitAllocatedCategories(); await submit(); await submit();
   assert.deepEqual(saved[1].meetings, []);
 });
 
-test("Continue marks all missing information asterisks and clears them as fields are filled", async () => {
+test("Next marks all missing information asterisks and clears them as fields are filled", async () => {
   await mount({ initial: emptyCourse("new-course") });
   assert.equal(host.querySelector(".is-missing"), null);
-  await click("Continue");
+  assert.equal(button("Next").className, button("Cancel").className);
+  await click("Next");
   assert.equal(host.querySelector("h2").textContent, "Course information");
   assert.equal(host.querySelector('[role="alert"]'), null);
   assert.deepEqual([...host.querySelectorAll(".is-missing")].map((marker) => marker.closest("label").textContent.trim()), ["Course code *", "Class name *"]);
@@ -852,18 +860,24 @@ test("Continue marks all missing information asterisks and clears them as fields
   assert.equal(host.querySelectorAll(".is-missing").length, 2);
   await change("Course code", "BIO 101");
   assert.equal(host.querySelectorAll(".is-missing").length, 1);
+  assert.equal(button("Next").className, button("Cancel").className);
   await change("Class name", "Biology");
   assert.equal(host.querySelector(".is-missing"), null);
   assert.equal(host.querySelector('[aria-invalid="true"]'), null);
-  await click("Continue");
+  assert.ok(button("Next").matches(".primary-button"));
+  await change("Credits", "31");
+  assert.equal(button("Next").className, button("Cancel").className);
+  await change("Credits", "3");
+  assert.ok(button("Next").matches(".primary-button"));
+  await click("Next");
   assert.equal(host.querySelector("h2").textContent, "Class schedule");
   assert.equal(host.querySelector(".is-missing"), null);
 });
 
 test("missing schedule fields highlight together without a popup and allow advancement once complete", async () => {
-  await mount(); await click("Continue");
+  await mount(); await click("Next");
   for (const label of ["Start time", "End time", "Classes start", "Classes end"]) await change(label, "");
-  await click("Continue");
+  await click("Next");
   assert.equal(host.querySelector('[role="alert"]'), null);
   assert.equal(host.querySelectorAll(".is-missing").length, 4);
   assert.equal(host.querySelectorAll('[aria-invalid="true"]').length, 5);
@@ -874,7 +888,7 @@ test("missing schedule fields highlight together without a popup and allow advan
   await change("Classes start", "2026-10-26"); await change("Classes end", "2027-01-24");
   assert.equal(host.querySelector(".is-missing"), null);
   assert.equal(host.querySelector('[aria-invalid="true"]'), null);
-  await click("Continue");
+  await click("Next");
   assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
   await submitAllocatedCategories();
   assert.equal(host.querySelector("h2").textContent, "Add assignments");
