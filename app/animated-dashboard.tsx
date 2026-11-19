@@ -1,6 +1,6 @@
 import { Component, type ReactNode } from "react";
 
-const targets = ".dashboard-study-brief, .class-grid > .class-card, .dashboard-classes > .assignment-table, .dashboard-upcoming";
+const targets = ".dashboard-study-brief, .class-grid > .class-card";
 const fixedBriefElements = ".dashboard-focus-counts, .dashboard-focus-item .status-badge, .dashboard-focus-item > svg, .dashboard-focus-pagination > .dashboard-focus-page-button:last-child";
 const legendLabels = ".dashboard-focus-counts > span";
 

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentProps } from "react";
-import { ArrowRight, LayoutGrid, List, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { Course, CourseDetails } from "../lib/academics";
 import type { PrivateFile } from "../lib/files";
 import type { SavedAssignment } from "../lib/workspace-codec";
@@ -11,7 +11,7 @@ import ClassCardBody from "./class-card-body";
 import CourseVisual from "./course-visual";
 import DashboardLoadTransition from "./dashboard-load-transition";
 import DashboardStudyBrief from "./dashboard-study-brief";
-import { AssignmentTable, StatusBadge } from "./assignment-table";
+import { StatusBadge } from "./assignment-table";
 
 type StudyBriefProps = ComponentProps<typeof DashboardStudyBrief>;
 
@@ -37,7 +37,6 @@ export type WorkspaceDashboardProps = {
   overdueCount: number;
   dueTodayCount: number;
   completedThisWeek: number;
-  dashboardView: "cards" | "list";
   selectedCourseId?: string;
   getCourse: (courseId: string) => Course;
   chatMessages?: StudyBriefProps["chatMessages"];
@@ -49,8 +48,6 @@ export type WorkspaceDashboardProps = {
   onOpenAssistant: NonNullable<StudyBriefProps["onOpenAssistant"]>;
   onAskAssistant: NonNullable<StudyBriefProps["onAskAssistant"]>;
   onContinueAssistant?: StudyBriefProps["onContinueAssistant"];
-  onToggleView: () => void;
-  onShowAllAssignments: () => void;
 };
 
 export default function WorkspaceDashboard({
@@ -75,7 +72,6 @@ export default function WorkspaceDashboard({
   overdueCount,
   dueTodayCount,
   completedThisWeek,
-  dashboardView,
   selectedCourseId,
   getCourse,
   chatMessages,
@@ -87,8 +83,6 @@ export default function WorkspaceDashboard({
   onOpenAssistant,
   onAskAssistant,
   onContinueAssistant,
-  onToggleView,
-  onShowAllAssignments,
 }: WorkspaceDashboardProps) {
   return <DashboardLoadTransition key={loadKey} ready={ready} restoringCourseOnReload={restoringCourseOnReload} restorationChecked={restorationChecked} imagesListed={imagesListed} imageKeys={imageKeys} reducedMotion={reducedMotion}>{(onImageSettled, imagesPending) => <AnimatedDashboard reflowKey={reflowKey} reducedMotion={reducedMotion} restoredCourse={skipOpeningAnimation} imagesPending={imagesPending}>
     <DashboardStudyBrief
@@ -114,25 +108,17 @@ export default function WorkspaceDashboard({
     <section className="dashboard-classes" aria-labelledby="dashboard-classes-title">
       <div className="section-title-row dashboard-classes-heading">
         <h2 id="dashboard-classes-title">Your classes</h2>
-        <div className="dashboard-classes-actions">
-          <button className="secondary-button" onClick={onAddClass}><Plus size={16} />Add Class</button>
-          <button type="button" className="view-toggle" role="switch" aria-label="Dashboard view" aria-checked={dashboardView === "list"} onClick={onToggleView}><span className={dashboardView === "cards" ? "active" : ""}><LayoutGrid size={16} /> Cards</span><span className={dashboardView === "list" ? "active" : ""}><List size={16} /> List</span></button>
-        </div>
+        <button className="secondary-button" onClick={onAddClass}><Plus size={16} />Add Class</button>
       </div>
-      {dashboardView === "cards" ? (
-        <div>
-          <div className="class-grid">
-            {courses.map((course) => {
-              const courseAssignments = assignments.filter((assignment) => assignment.courseId === course.id && assignment.status !== "done");
-              return <button key={course.id} className="class-card" data-course-card-id={course.id} aria-haspopup="dialog" aria-expanded={selectedCourseId === course.id} onClick={() => onSelectCourse(course)}>
-                <CourseVisual course={course} details={courseDetails[course.id]} image={courseImages.get(course.id)} profileId={profileId} store={store} filesReady={filesReady} restored={skipOpeningAnimation} cacheEnabled={cacheEnabled} onImageSettled={onImageSettled} />
-                <ClassCardBody course={course} overdue={courseAssignments.filter((item) => item.status === "overdue").length} today={courseAssignments.filter((item) => item.status === "today").length} later={courseAssignments.filter((item) => item.status === "later").length} />
-              </button>;
-            })}
-          </div>
-        </div>
-      ) : <AssignmentTable items={assignments} courseFor={getCourse} onSelectAssignment={onSelectAssignment} />}
+      <div className="class-grid">
+        {courses.map((course) => {
+          const courseAssignments = assignments.filter((assignment) => assignment.courseId === course.id && assignment.status !== "done");
+          return <button key={course.id} className="class-card" data-course-card-id={course.id} aria-haspopup="dialog" aria-expanded={selectedCourseId === course.id} onClick={() => onSelectCourse(course)}>
+            <CourseVisual course={course} details={courseDetails[course.id]} image={courseImages.get(course.id)} profileId={profileId} store={store} filesReady={filesReady} restored={skipOpeningAnimation} cacheEnabled={cacheEnabled} onImageSettled={onImageSettled} />
+            <ClassCardBody course={course} overdue={courseAssignments.filter((item) => item.status === "overdue").length} today={courseAssignments.filter((item) => item.status === "today").length} later={courseAssignments.filter((item) => item.status === "later").length} />
+          </button>;
+        })}
+      </div>
     </section>
-    {dashboardView === "cards" && <section className="dashboard-upcoming"><div className="section-title-row"><div><h2>Coming up</h2></div><button className="text-button" onClick={onShowAllAssignments}>See all <ArrowRight size={14} /></button></div><AssignmentTable items={focusAssignments.slice(0, 5)} compact courseFor={getCourse} onSelectAssignment={onSelectAssignment} /></section>}
   </AnimatedDashboard>}</DashboardLoadTransition>;
 }

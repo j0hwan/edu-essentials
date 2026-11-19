@@ -2192,35 +2192,19 @@ test("workspace saving uses one compact notification across pages", async () => 
   }
 });
 
-test("dashboard class header keeps class and view controls and assignments can be added from Tasks", async () => {
+test("dashboard shows class cards for a saved List layout and assignments can be added from Tasks", async () => {
   reset();
-  const server = installWorkspaceServer(savedDashboard, [sampleCourse]);
+  const server = installWorkspaceServer({ ...savedDashboard, d: { ...savedDashboard.d, dashboardView: "list" } }, [sampleCourse]);
   try {
     await render(Workspace, { initialProfile: baseProfile });
     await click("Dashboard");
     assert.equal(rootNode.querySelector(".dashboard-tools"), null, "the dashboard shortcut row is removed");
-    const header = rootNode.querySelector(".dashboard-classes-heading");
-    const actions = header.querySelector(".dashboard-classes-actions");
-    assert.equal(actions.children.length, 2);
-    assert.equal(actions.children[0].textContent.trim(), "Add Class");
-    assert.equal(actions.children[1].getAttribute("aria-label"), "Dashboard view");
-
-    const viewSwitch = actions.children[1];
-    assert.equal(viewSwitch.getAttribute("role"), "switch");
-    assert.equal(viewSwitch.getAttribute("aria-checked"), "false");
-    assert.ok(rootNode.querySelector(".dashboard-classes .class-grid"));
-    await act(async () => viewSwitch.children[0].click());
-    assert.equal(viewSwitch.getAttribute("aria-checked"), "true");
-    assert.ok(rootNode.querySelector(".dashboard-classes .assignment-table:not(.compact)"));
-    await act(async () => viewSwitch.children[1].click());
-    assert.equal(viewSwitch.getAttribute("aria-checked"), "false");
-    assert.ok(rootNode.querySelector(".dashboard-classes .class-grid"));
-    await act(async () => viewSwitch.click());
-    assert.equal(viewSwitch.getAttribute("aria-checked"), "true", "clicking the switch padding toggles the view");
-    assert.ok(rootNode.querySelector(".dashboard-classes .assignment-table:not(.compact)"));
-    await clickAria("Dashboard view");
-    assert.equal(viewSwitch.getAttribute("aria-checked"), "false", "the view is restored to Cards");
-    assert.ok(rootNode.querySelector(".dashboard-classes .class-grid"));
+    const dashboard = rootNode.querySelector(".dashboard-reflow");
+    const actions = dashboard.querySelectorAll(".dashboard-classes-heading button");
+    assert.deepEqual([...actions].map((button) => button.textContent.trim()), ["Add Class"]);
+    assert.ok(dashboard.querySelector(`[data-course-card-id="${sampleCourse.id}"]`));
+    assert.equal(dashboard.querySelector(".assignment-table"), null);
+    assert.doesNotMatch(dashboard.textContent, /Coming up/);
 
     await click("Tasks");
     await click("Add assignment");
@@ -2233,6 +2217,7 @@ test("dashboard class header keeps class and view controls and assignments can b
     assert.equal(server.dashboard.d.assignments.length, 1);
     assert.equal(server.dashboard.d.assignments[0].title, "Tasks-created essay");
     assert.equal(server.dashboard.d.assignments[0].courseId, sampleCourse.id);
+    assert.equal(server.dashboard.d.dashboardView, "list");
   } finally { if (root) await unmount(); }
 });
 
@@ -2307,7 +2292,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     const initial = { ...savedDashboard, d: { ...savedDashboard.d, assignments: ["First", "Second"].map((title) => ({ id: title, title, courseId: "", dateKey: "", due: "Invalid Date", status: "later", progress: 0, description: "Keep this description", weight: "" })), manualEvents: [{ id: "legacy", title: "Old noon event", courseId: "math", dateKey: "2026-10-15", time: "12:00 PM", type: "Study block" }] } };
     const server = installWorkspaceServer(initial); await render(Workspace, { initialProfile: baseProfile });
     assert.equal(server.writes, 0); assert.equal(unloadBlocked(), false, "undated tasks are valid without requiring repair");
-    await click("Dashboard"); await clickAria("Dashboard view");
+    await click("Tasks");
     for (const title of ["First", "Second"]) {
       const row = [...rootNode.querySelectorAll(".assignment-row")].find((node) => node.textContent.includes(title));
       await act(async () => row.click()); await click("Edit assignment"); await edit("Due date", "2026-10-15"); await click("Save assignment");
@@ -2336,7 +2321,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.equal(rootNode.querySelector(".add-class-card"), null);
     assert.ok(!rootNode.querySelector(".dashboard-classes-heading").textContent.includes("total credits"));
     assert.ok(!rootNode.querySelector(".dashboard-classes-heading").textContent.includes("View every assignment"));
-    await clickAria("Dashboard view"); await click("Add Class");
+    await click("Add Class");
     assert.ok(rootNode.querySelector('[role="dialog"][aria-label="Add a class"]'));
     const chooser = rootNode.querySelector(".add-class-choice-modal");
     assert.ok(chooser, "Add Class opens the redesigned class chooser");
@@ -2353,7 +2338,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     }
     await clickIn(chooser, "Close");
     assert.equal(rootNode.querySelector(".add-class-choice-modal"), null, "Close dismisses the chooser");
-    await clickAria("Dashboard view"); await click("Add Class"); await click("Manual entry");
+    await click("Add Class"); await click("Manual entry");
     assert.equal(rootNode.querySelector(".add-class-choice-modal"), null, "choosing Manual entry leaves the chooser");
     assert.ok(field("Course code"), "Manual entry opens the class form");
     for (const [key, value] of Object.entries({ "Course code": "BIO 42", "Class name": "Field Biology", "Credits": "4", "Instructor": "Dr. Rivers", "Meeting Notes": "Bring your field journal" })) await edit(key, value);
@@ -2402,11 +2387,11 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     reset(); const server = installWorkspaceServer(savedDashboard, [sampleCourse]); await render(Workspace, { initialProfile: baseProfile }); await click("Tasks"); await click("Add assignment");
     await edit("Assignment title", "Archival essay"); await edit("Class", "history"); await edit("Due date", "2026-10-15"); await edit("Due time", "17:00"); await edit("Type", "Project"); await edit("Description", "Use primary sources"); await edit("Weight", "25%"); await edit("Assignment notes", "Outline ready"); await edit("Progress", "37"); await edit("Review instructions", true); await click("Save assignment");
     await saveAndReload(); let a = server.dashboard.d.assignments[0]; assert.equal(a.type, "Project"); assert.equal(a.dueTime, "17:00"); assert.equal(a.notes, "Outline ready"); assert.deepEqual(a.checklist, [true, false, false]);
-    await click("Dashboard"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark complete"); await click("Close assignment"); await saveAndReload();
+    await click("Tasks"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark complete"); await click("Close assignment"); await saveAndReload();
     a = server.dashboard.d.assignments[0]; assert.equal(a.progress, 100); assert.ok(a.completedAt); assert.equal(a.progressBeforeCompletion, 37);
-    await click("Dashboard"); await clickAria("Dashboard view"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark incomplete"); await click("Close assignment"); await saveAndReload();
+    await click("Tasks"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Mark incomplete"); await click("Close assignment"); await saveAndReload();
     assert.equal(server.dashboard.d.assignments[0].progress, 37); assert.equal(server.dashboard.d.assignments[0].completedAt, null);
-    await click("Dashboard"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Delete assignment"); await saveAndReload(); assert.equal(server.dashboard.d.assignments.length, 0);
+    await click("Tasks"); await act(async () => rootNode.querySelector(".assignment-row").click()); await click("Delete assignment"); await saveAndReload(); assert.equal(server.dashboard.d.assignments.length, 0);
   });
 
   await t.test("calendar event CRUD, all views, week start and filters share saved data", async () => {

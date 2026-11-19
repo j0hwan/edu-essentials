@@ -18,7 +18,7 @@ try {
   await page.waitForSelector(".class-card");
   await page.waitForTimeout(2800);
   const motion = await page.evaluate(async () => {
-    const targets = [...document.querySelectorAll(".dashboard-study-brief, .dashboard-classes-heading, .class-card, .dashboard-upcoming")];
+    const targets = [...document.querySelectorAll(".dashboard-study-brief, .dashboard-classes-heading, .class-card")];
     const frames = [];
     const initial = targets.map((element) => element.getBoundingClientRect().toJSON());
     document.querySelector(".sidebar-toggle").click();

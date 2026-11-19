@@ -1,52 +1,6 @@
 /* workspace dashboard styles extracted from globals.css. */
 
 /* Dashboard */
-.view-toggle {
-  position: relative;
-  isolation: isolate;
-  display: inline-grid;
-  grid-template-columns: repeat(2, 1fr);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  padding: 3px;
-}
-
-.view-toggle::before {
-  content: "";
-  position: absolute;
-  inset: 3px auto 3px 3px;
-  width: calc((100% - 6px) / 2);
-  border-radius: 7px;
-  background: var(--brand-soft);
-  pointer-events: none;
-  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.view-toggle[aria-checked="true"]::before {
-  transform: translateX(100%);
-}
-
-.view-toggle > span {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-  padding: 0 10px;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.view-toggle > span.active {
-  color: var(--brand-dark);
-}
-
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(130px, 0.7fr)) minmax(260px, 1.4fr);

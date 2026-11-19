@@ -357,6 +357,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const aiApplyLock = useRef(false);
   const [notes, setNotes] = useState("");
   const noteFocusRef = useRef<string | null>(null);
+  // Retain the legacy layout value when saving existing workspace snapshots.
   const [dashboardView, setDashboardView] = useState<"cards" | "list">("cards");
   const closeExpandedClassRef = useRef<(() => void) | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
@@ -1226,8 +1227,8 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   ready={saveState.ready && profile.id === initialProfile.id && !restoringPlaceholderAssets}
   restoringCourseOnReload={restoringCourseOnReload || restoringPlaceholderAssets}
   restorationChecked={restorationChecked}
-  imagesListed={Boolean(selectedClass) || dashboardView !== "cards" || courses.length === 0 || !fileStore.loading || Boolean(fileStore.error)}
-  imageKeys={!selectedClass && dashboardView === "cards" ? [...courseImages.values()].filter((file): file is PrivateFile => Boolean(file)).map(courseImageLoadKey) : []}
+  imagesListed={Boolean(selectedClass) || courses.length === 0 || !fileStore.loading || Boolean(fileStore.error)}
+  imageKeys={!selectedClass ? [...courseImages.values()].filter((file): file is PrivateFile => Boolean(file)).map(courseImageLoadKey) : []}
   reducedMotion={profile.preferences.reducedMotion}
   reflowKey={String(sidebarCollapsed)}
   skipOpeningAnimation={skipOpeningAnimation}
@@ -1243,7 +1244,6 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   overdueCount={overdueAssignments.length}
   dueTodayCount={todayAssignments.length}
   completedThisWeek={weeklyCompleted}
-  dashboardView={dashboardView}
   selectedCourseId={selectedClass?.id}
   getCourse={(courseId) => courseFor(courses, courseId)}
   chatMessages={dashboardChat.messages}
@@ -1263,8 +1263,6 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     setAssistantPrompt({ id: uid("assistant-prompt"), profileId: initialProfile.id, question, send: true, conversationId });
     navigate("assistant");
   }}
-  onToggleView={() => setDashboardView((current) => current === "cards" ? "list" : "cards")}
-  onShowAllAssignments={() => setDashboardView("list")}
 />}
         {saveState.ready && page === "tasks" && <div className="page">{renderPageHeader("Your coursework", "Tasks", "All your assignments, across every course.", <button className="primary-button" onClick={newAssignment}><Plus size={16} /> Add assignment</button>)}<AssignmentTable items={assignments} courseFor={(courseId) => courseFor(courses, courseId)} onSelectAssignment={setSelectedAssignment} /></div>}
         {saveState.ready && page === "calendar" && renderCalendar()}

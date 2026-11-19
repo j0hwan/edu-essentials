@@ -17,10 +17,7 @@ export function CoursesSkeleton({ reducedMotion = false }: CoursesSkeletonProps)
         <section className="courses-skeleton__classes">
           <div className="courses-skeleton__classes-heading">
             <span className="courses-skeleton__section-title" />
-            <div className="courses-skeleton__class-actions">
-              <span className="courses-skeleton__add-class" />
-              <span className="courses-skeleton__view-toggle" />
-            </div>
+            <span className="courses-skeleton__add-class" />
           </div>
           <div className="courses-skeleton__tools">
             <span />
@@ -33,8 +30,6 @@ export function CoursesSkeleton({ reducedMotion = false }: CoursesSkeletonProps)
             ))}
           </div>
         </section>
-
-        <div className="courses-skeleton__upcoming courses-skeleton__surface" />
       </div>
     </div>
   );

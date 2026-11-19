@@ -76,10 +76,7 @@ function setup(options = {}) {
     root.render(createElement(Dashboard, { reflowKey, reducedMotion, restoredCourse }, createElement("section", { "data-step": step },
       createElement("div", { className: "dashboard-study-brief", "data-target": "a" }, label, ...details),
       createElement("div", { className: "dashboard-classes-heading", "data-target": "a" },
-        createElement("div", { className: "dashboard-classes-actions", "data-target": "b" },
-          createElement("button", { "data-target": "b" }, "Add Class"),
-          createElement("button", { className: "view-toggle", "data-target": "b" }, "Cards / List"),
-        ),
+        createElement("button", { "data-target": "b" }, "Add Class"),
       ),
       createElement("div", { className: "class-grid" }, createElement("div", { className: "class-card", "data-target": "b" })),
     )));
@@ -213,14 +210,14 @@ test("legend labels interpolate uniform typography and gaps to their natural lay
   } finally { await cleanup(); }
 });
 
-test("sidebar reflow leaves class action controls and their heading outside FLIP", async () => {
+test("sidebar reflow leaves Add Class and the class heading outside FLIP", async () => {
   const { calls, render, cleanup } = setup();
   try {
     await render("open", 0);
     await render("closed", 1);
     await render("open", 0);
     const heading = document.querySelector(".dashboard-classes-heading");
-    assert.equal(heading.querySelectorAll(".dashboard-classes-actions > button").length, 2);
+    assert.equal(heading.querySelector("button").textContent, "Add Class");
     assert.ok(calls.length > 0, "course cards still animate");
     assert.ok(calls.every(({ element }) => element !== heading && !heading.contains(element)));
   } finally { await cleanup(); }
