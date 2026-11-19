@@ -608,7 +608,6 @@ test("class coursework categories and scored tasks persist together through crea
     await click("Add task");
     await edit("Task Title", "Microscope lab");
     await edit("Weight Category", [...field("Weight Category").options].find((option) => option.textContent.startsWith("Labs")).value);
-    await click("Grading and completion");
     await edit("Points possible", "20");
     await edit("Done", true); await edit("Grade received", true); await edit("Points earned", "0");
     assert.equal(server.writes, 0, "coursework remains a draft until the class is created");

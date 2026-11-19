@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, ChevronDown, ClipboardList, Plus, X } from "lucide-react";
+import { Check, ChevronDown, ClipboardList, Plus, Trash2 } from "lucide-react";
 import { assignmentStatus, assignmentTypes, dateLabel, isDate, isTime } from "../lib/academics";
 import type { GradingCategory } from "../lib/coursework";
 import type { SavedAssignment } from "../lib/workspace-codec";
@@ -21,7 +21,6 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
   const [selected, setSelected] = useState("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [removeId, setRemoveId] = useState<string | null>(null);
-  const [showGrading, setShowGrading] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
   const pendingControlFocus = useRef<string | null>(null);
   const [handledValidation, setHandledValidation] = useState(-1);
@@ -36,7 +35,6 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
     onAssignmentsChange([...assignments, assignment]);
     setEditingId(id);
     setRemoveId(null);
-    setShowGrading(false);
     if (manualEntry) pendingControlFocus.current = `title:${id}`;
   };
   const titleMissing = (assignment: SavedAssignment) => !manualEntry && !assignment.title.trim();
@@ -57,7 +55,6 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
     if (invalid) {
       setSelected("all");
       setEditingId(invalid.id);
-      if (manualEntry && hasInvalidPoints(invalid)) setShowGrading(true);
     }
   }
   useEffect(() => {
@@ -72,7 +69,6 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
     pendingControlFocus.current = next ? `task:${next.id}` : "add-task";
     onAssignmentsChange(assignments.filter((item) => item.id !== assignment.id));
     setRemoveId(null);
-    if (activeTask?.id === assignment.id) setShowGrading(false);
     if (!manualEntry || activeTask?.id === assignment.id) setEditingId(manualEntry ? next?.id ?? null : null);
   };
   const requestRemove = (id: string) => {
@@ -88,6 +84,8 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
   const renderEditor = (assignment: SavedAssignment) => {
     const edit = (patch: Partial<SavedAssignment>) => updateAssignment(assignment.id, patch);
     const pointsInvalid = showErrors && hasInvalidPoints(assignment);
+    const gradeReceived = assignment.pointsEarned != null;
+    const earnedScore = Number.isFinite(assignment.pointsEarned) ? assignment.pointsEarned : "";
     const title = <label className="class-coursework-wide">{manualEntry ? "Task Title" : "Assignment title"}<input data-task-title={assignment.id} data-coursework-focus={`title:${assignment.id}`} maxLength={500} value={assignment.title} aria-invalid={showErrors && titleMissing(assignment)} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => edit({ title: event.target.value })} /></label>;
     const description = <label className="class-coursework-wide">{manualEntry ? "Task Description" : "Description"}<textarea maxLength={20000} value={assignment.description} disabled={disabled} onChange={(event) => edit({ description: event.target.value })} /></label>;
     const dueDate = <label>{manualEntry ? "Due Date" : "Due date"}<input type="date" value={assignment.dateKey || ""} aria-invalid={manualEntry && showErrors && Boolean(assignment.dateKey) && !isDate(assignment.dateKey) || undefined} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => {
@@ -96,30 +94,32 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
       edit({ dateKey, due: dateKey && isDate(dateKey) ? dateLabel(dateKey) : "", status: assignment.status === "done" ? "done" : assignmentStatus({ status: "later", dateKey }, today), dueTime: dateKey ? dueTime : "" });
     }} /></label>;
     const dueTime = <label>{manualEntry ? "Due Time" : "Due time"}<input type="time" value={assignment.dateKey ? assignment.dueTime ?? "" : ""} aria-invalid={manualEntry && showErrors && Boolean(assignment.dateKey && assignment.dueTime) && !isTime(assignment.dueTime ?? "") || undefined} disabled={disabled || !assignment.dateKey} onKeyDown={enterGuard} onChange={(event) => edit({ dueTime: event.target.value || undefined })} /></label>;
-    const type = <label>Type<select aria-label="Type" value={assignment.type ?? "Assignment"} disabled={disabled} onChange={(event) => edit({ type: event.target.value as SavedAssignment["type"] })}>
+    const selectField = (label: string, control: React.ReactNode) => <label>{label}{manualEntry ? <span className="class-coursework-select">
+      {control}<ChevronDown size={16} aria-hidden="true" />
+    </span> : control}</label>;
+    const type = selectField("Type", <select aria-label="Type" value={assignment.type ?? "Assignment"} disabled={disabled} onChange={(event) => edit({ type: event.target.value as SavedAssignment["type"] })}>
       {assignmentTypes.map((option) => <option key={option}>{option}</option>)}
-    </select></label>;
+    </select>);
     const categoryLabel = manualEntry ? "Weight Category" : "Category";
-    const category = <label>{categoryLabel}<select aria-label={categoryLabel} value={assignment.categoryId ?? ""} disabled={disabled || (manualEntry && !categories.length)} onChange={(event) => { edit({ categoryId: event.target.value || undefined }); setSelected("all"); }}>
+    const category = selectField(categoryLabel, <select aria-label={categoryLabel} value={assignment.categoryId ?? ""} disabled={disabled || (manualEntry && !categories.length)} onChange={(event) => { edit({ categoryId: event.target.value || undefined }); setSelected("all"); }}>
       <option value="">Uncategorized</option>
       {categories.map((item) => <option key={item.id} value={item.id}>{manualEntry ? `${item.name} · ${formatWeight(item.weight)}%` : item.name}</option>)}
-    </select></label>;
+    </select>);
     const grading = <>
       <div className="class-coursework-completion class-coursework-wide">
         <label className="class-coursework-done"><input type="checkbox" checked={assignment.status === "done"} disabled={disabled} onChange={(event) => edit(event.target.checked ? { status: "done", completedAt: new Date().toISOString(), progressBeforeCompletion: assignment.progress, progress: 100 } : { status: assignmentStatus({ status: "later", dateKey: assignment.dateKey }, today), completedAt: null, progress: assignment.progressBeforeCompletion ?? 0, pointsEarned: null })} />Done</label>
-        <label className="class-coursework-grade-check"><input type="checkbox" checked={assignment.pointsEarned != null} disabled={disabled || assignment.status !== "done"} onChange={(event) => edit({ pointsEarned: event.target.checked ? Number.NaN : null })} />Grade received</label>
+        <label className="class-coursework-grade-check"><input type="checkbox" checked={gradeReceived} disabled={disabled || assignment.status !== "done"} onChange={(event) => edit({ pointsEarned: event.target.checked ? Number.NaN : null })} />Grade received</label>
       </div>
       <label>Points possible<input type="number" min="0" max="1000000000" step="any" value={Number.isFinite(assignment.pointsPossible) ? assignment.pointsPossible! : ""} aria-invalid={pointsInvalid} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => edit({ pointsPossible: event.target.value === "" ? null : Number(event.target.value) })} /></label>
-      {assignment.pointsEarned != null && <label>Points earned<input type="number" min="0" max="1000000000" step="any" value={Number.isFinite(assignment.pointsEarned) ? assignment.pointsEarned : ""} aria-invalid={pointsInvalid} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => edit({ pointsEarned: event.target.value === "" ? Number.NaN : Number(event.target.value) })} /></label>}
+      {(manualEntry || gradeReceived) && <label>Points earned<input type={gradeReceived ? "number" : "text"} min="0" max="1000000000" step="any"
+        value={gradeReceived ? earnedScore : "N/A"} aria-invalid={gradeReceived && pointsInvalid} disabled={disabled || !gradeReceived}
+        onKeyDown={enterGuard} onChange={(event) => edit({ pointsEarned: event.target.value === "" ? Number.NaN : Number(event.target.value) })} /></label>}
       {assignment.pointsEarned != null && assignment.pointsPossible != null && assignment.pointsEarned > assignment.pointsPossible && <p className="class-coursework-warning" role="status">Earned points exceed possible points (extra credit).</p>}
     </>;
 
     if (manualEntry) return <div key={assignment.id} className="class-coursework-editor">
       {title}{description}{dueDate}{dueTime}{type}{category}
-      <button type="button" className="class-coursework-grading-toggle class-coursework-wide" aria-expanded={showGrading} aria-controls={`${prefix}-grading`} disabled={disabled} onClick={() => setShowGrading(!showGrading)}>
-        <ChevronDown size={15} aria-hidden="true" />Grading and completion
-      </button>
-      <div className="class-coursework-grading-fields class-coursework-wide" id={`${prefix}-grading`} hidden={!showGrading}>{showGrading && grading}</div>
+      <div className="class-coursework-grading-fields class-coursework-wide">{grading}</div>
     </div>;
 
     return <div className="class-coursework-editor" id={`${prefix}-${assignment.id}`}>
@@ -147,14 +147,13 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
           onClick={() => {
             setEditingId(!manualEntry && editingId === assignment.id ? null : assignment.id);
             setRemoveId(null);
-            if (manualEntry && !isSelected) setShowGrading(false);
           }}>
           <strong>{taskTitle(assignment)}</strong>
           {metadata && <span>{metadata}</span>}
           {!manualEntry && (assignment.pointsEarned != null || assignment.pointsPossible != null) && <span className="class-coursework-task-score">{assignment.pointsEarned != null ? Number.isFinite(assignment.pointsEarned) ? `${assignment.pointsEarned} / ${assignment.pointsPossible ?? "—"} points · Graded` : "Enter received score" : `${assignment.pointsPossible} points possible`}</span>}
         </button>
-        {assignment.status === "done" && <Check className="class-coursework-complete" size={16} aria-label="Completed" />}
-        {manualEntry && <button type="button" className="class-setup-delete-button class-coursework-task-remove" aria-label={`Remove ${taskTitle(assignment)}`} data-coursework-focus={`remove-task:${assignment.id}`} disabled={disabled} onClick={() => requestRemove(assignment.id)}><X size={18} aria-hidden="true" /></button>}
+        {!manualEntry && assignment.status === "done" && <Check className="class-coursework-complete" size={16} aria-label="Completed" />}
+        {manualEntry && <button type="button" className="icon-button class-setup-delete-button class-coursework-task-remove" aria-label={`Remove ${taskTitle(assignment)}`} data-coursework-focus={`remove-task:${assignment.id}`} disabled={disabled} onClick={() => requestRemove(assignment.id)}><Trash2 size={17} aria-hidden="true" /></button>}
       </div>
       {manualEntry && removeId === assignment.id && <div className="class-coursework-editor-actions class-coursework-remove-confirmation">{removeConfirmation(assignment)}</div>}
       {!manualEntry && editingId === assignment.id && renderEditor(assignment)}
@@ -168,7 +167,7 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
     {addButton("primary-button")}
   </div>;
 
-  if (manualEntry) return <section ref={sectionRef} className="class-coursework class-coursework-manual" aria-label="Assignments setup">
+  if (manualEntry) return <section ref={sectionRef} className="class-coursework class-coursework-manual" aria-label="Task setup">
     <div className="class-coursework-main">
       <aside className="class-coursework-sidebar" aria-label="Tasks">
         {activeTask && taskList}
@@ -184,7 +183,7 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
     </div>
   </section>;
 
-  return <section ref={sectionRef} className="class-coursework class-coursework-assignments" aria-label="Assignments setup">
+  return <section ref={sectionRef} className="class-coursework class-coursework-assignments" aria-label="Task setup">
     <div className="class-coursework-category-summary">
       <h3>{categories.length ? <><Check size={18} aria-hidden="true" />Your grading categories are set</> : "Assignments can be added without categories"}</h3>
       {categories.length > 0 && <div className="class-coursework-pills" aria-label="Filter assignments by category">

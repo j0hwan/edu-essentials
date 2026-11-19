@@ -42,6 +42,8 @@ test("Coursework uses a full-width layout and resists generic editor style colli
       assert.equal(style("input").boxSizing, "border-box");
       assert.equal(style("input").minWidth, "0px");
       assert.equal(style("textarea").resize, "vertical");
+      dom.window.document.querySelector(".class-coursework").classList.add("class-coursework-manual");
+      assert.equal(style("textarea").resize, "none");
       assert.equal(style(".class-coursework-grade-check").flexDirection, "row");
       assert.equal(style(".class-coursework-completion").flexWrap, "wrap");
     } finally { dom.window.close(); }

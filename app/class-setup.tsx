@@ -22,8 +22,8 @@ import "./class-setup.css";
 
 export type ClassSetupUpload = { file: File; id: string };
 export type ClassSetupUploads = { image?: ClassSetupUpload; syllabus?: ClassSetupUpload };
-const steps = ["Course information", "Class schedule", "Set up your coursework", "Add assignments", "Make it yours"];
-const stepLabels = ["Info", "Schedule", "Categories", "Assignments", "Customize"];
+const steps = ["Course information", "Class schedule", "Set up your coursework", "Add tasks", "Make it yours"];
+const stepLabels = ["Info", "Schedule", "Categories", "Tasks", "Customize"];
 const assignmentDraftJson = (assignments: SavedAssignment[]) => JSON.stringify(assignments, (_key, value: unknown) => typeof value === "number" && !Number.isFinite(value) ? "invalid-number" : value);
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const formatMeetingTime = (time: string) => {

@@ -183,7 +183,7 @@ async function enterCustomize(page) {
   await page.getByRole("heading", { name: "Set up your coursework", level: 2 }).waitFor();
   await settle(page);
   await page.getByRole("button", { name: "Next", exact: true }).click();
-  await page.getByRole("heading", { name: "Add assignments", level: 2 }).waitFor();
+  await page.getByRole("heading", { name: "Add tasks", level: 2 }).waitFor();
   await settle(page);
   await page.getByRole("button", { name: "Skip", exact: true }).click();
   await page.getByRole("heading", { name: "Make it yours" }).waitFor();
@@ -324,7 +324,7 @@ async function verifySavedPreview(page, mode, viewport) {
   await page.getByRole("heading", { name: "Set up your coursework", level: 2 }).waitFor();
   await settle(page);
   await page.getByRole("button", { name: "Next", exact: true }).click();
-  await page.getByRole("heading", { name: "Add assignments", level: 2 }).waitFor();
+  await page.getByRole("heading", { name: "Add tasks", level: 2 }).waitFor();
   await settle(page);
   await page.getByRole("button", { name: "Skip", exact: true }).click();
   await page.getByRole("heading", { name: "Make it yours" }).waitFor();

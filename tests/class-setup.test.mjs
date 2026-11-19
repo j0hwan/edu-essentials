@@ -389,7 +389,7 @@ test("larger progress replaces the visible title and preserves accessible step n
   assert.equal(host.querySelector('[role="dialog"]').getAttribute("aria-labelledby"), accessibleTitle.id);
   assert.equal(accessibleTitle.textContent, "Course information");
   assert.equal(host.querySelectorAll(".class-setup-progress").length, 1);
-  assert.deepEqual([...progress.querySelectorAll(".class-setup-step-label")].map((node) => node.textContent), ["Info", "Schedule", "Categories", "Assignments", "Customize"]);
+  assert.deepEqual([...progress.querySelectorAll(".class-setup-step-label")].map((node) => node.textContent), ["Info", "Schedule", "Categories", "Tasks", "Customize"]);
   assert.equal(progress.querySelectorAll(".class-setup-step-separator").length, 4);
   assert.equal(progress.querySelector(".class-setup-step-separator").getAttribute("width"), "18");
   assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Course information");
@@ -404,14 +404,14 @@ test("larger progress replaces the visible title and preserves accessible step n
   assert.equal(progress.querySelectorAll(".is-complete").length, 2);
   verifyIndicators(2);
   await submitAllocatedCategories();
-  assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Add assignments");
+  assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Add tasks");
   assert.equal(progress.querySelectorAll(".is-complete").length, 3);
   verifyIndicators(3);
   await submit();
   assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Make it yours");
   verifyIndicators(4);
   await click("Back");
-  assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Add assignments");
+  assert.equal(progress.querySelector('[aria-current="step"]').getAttribute("aria-label"), "Add tasks");
   verifyIndicators(3);
   await click("Back");
   assert.equal(progress.querySelectorAll(".is-complete").length, 2);
@@ -443,7 +443,7 @@ test("manual setup keeps course information separate from meeting locations; Bac
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
   await submitAllocatedCategories();
-  assert.equal(host.querySelector("h2").textContent, "Add assignments");
+  assert.equal(host.querySelector("h2").textContent, "Add tasks");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
   assert.equal(calls, 0);
@@ -891,7 +891,7 @@ test("missing schedule fields highlight together without a popup and allow advan
   await click("Next");
   assert.equal(host.querySelector("h2").textContent, "Set up your coursework");
   await submitAllocatedCategories();
-  assert.equal(host.querySelector("h2").textContent, "Add assignments");
+  assert.equal(host.querySelector("h2").textContent, "Add tasks");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
 });
