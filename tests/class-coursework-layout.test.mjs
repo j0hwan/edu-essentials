@@ -6,17 +6,23 @@ import { JSDOM } from "jsdom";
 const [setup, coursework, auth] = await Promise.all(["class-setup.css", "class-coursework.css", "auth.css"].map((name) => readFile(new URL(`../app/${name}`, import.meta.url), "utf8")));
 
 test("every wizard step uses bounded content scrolling without shrinking its header or footer", () => {
-  for (const step of ["", "class-setup-schedule-step", "class-setup-coursework-step", "class-setup-customize-step"]) {
+  for (const step of ["", "class-setup-schedule-step", "class-setup-coursework-step", "class-setup-assignments-step", "class-setup-customize-step"]) {
+    const manualAssignments = step === "class-setup-assignments-step";
     for (const css of [`${auth}\n${setup}`, `${setup}\n${auth}`]) {
       const dom = new JSDOM(`<style>${css}</style><div class="modal-backdrop"><form class="academic-editor class-setup ${step}"><header class="class-setup-header"></header><div class="class-setup-scroll"><fieldset class="class-setup-body"></fieldset></div><footer class="class-setup-actions"></footer></form></div>`);
       try {
         const style = (selector) => dom.window.getComputedStyle(dom.window.document.querySelector(selector));
         assert.equal(style("form").display, "flex");
         assert.equal(style("form").overflow, "hidden");
+        assert.equal(style("form").height, manualAssignments ? "760px" : "auto");
         assert.equal(style("fieldset").minHeight, "0px");
         assert.equal(style(".class-setup-scroll").minHeight, "0px");
         assert.equal(style(".class-setup-scroll").overflowY, "auto");
-        assert.equal(style("fieldset").alignContent, "start");
+        if (manualAssignments) {
+          assert.equal(style(".class-setup-scroll").display, "grid");
+          assert.equal(style(".class-setup-scroll").gridTemplateRows, "minmax(min-content, 1fr)");
+        }
+        assert.equal(style("fieldset").alignContent, manualAssignments ? "stretch" : "start");
         assert.equal(style("header").flexShrink, "0");
         assert.equal(style("footer").flexShrink, "0");
       } finally { dom.window.close(); }

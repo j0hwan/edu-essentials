@@ -29,6 +29,7 @@ async function mount(overrides = {}) {
 const button = (text) => [...host.querySelectorAll("button")].find((node) => node.textContent.trim() === text || node.getAttribute("aria-label") === text);
 async function click(text) { assert.ok(button(text), `Missing button ${text}`); await act(async () => button(text).click()); }
 async function submit() { await act(async () => host.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }))); }
+const taskCard = (title) => [...host.querySelectorAll(".class-coursework-task-title")].find((node) => node.querySelector("strong").textContent === title);
 async function change(label, value) {
   const node = [...host.querySelectorAll("label")].find((item) => item.textContent.trim() === label)?.control ?? host.querySelector(`[aria-label="${label}"]`);
   assert.ok(node, `Missing field ${label}`);
@@ -37,7 +38,7 @@ async function change(label, value) {
     await act(async () => node.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     return;
   }
-  const prototype = node.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+  const prototype = node.tagName === "SELECT" ? window.HTMLSelectElement.prototype : node.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
   await act(async () => {
     Object.getOwnPropertyDescriptor(prototype, "value").set.call(node, value);
     node.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -166,11 +167,17 @@ test("task and category drafts are saved as the fourth argument and in course de
   await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(categoryWeight, "25"); categoryWeight.dispatchEvent(new window.Event("input", { bubbles: true })); categoryWeight.dispatchEvent(new window.Event("change", { bubbles: true })); });
   await change("Exam weight", "75");
   await submit();
-  await click("Add assignment");
-  await change("Assignment title", "Microscope lab");
-  const categorySelect = host.querySelectorAll(".class-coursework-editor select")[1];
+  await click("Add task");
+  await change("Task Title", "Microscope lab");
+  const dueTime = host.querySelector('input[type="time"]');
+  assert.equal(dueTime.value, "");
+  assert.equal(dueTime.disabled, true);
+  await change("Due Date", "2026-12-01");
+  assert.equal(dueTime.value, "23:59");
+  assert.equal(dueTime.disabled, false);
+  const categorySelect = host.querySelector('[aria-label="Weight Category"]');
   assert.ok(categorySelect);
-  await act(async () => { categorySelect.value = categorySelect.querySelector('option:not([value=""])').value; categorySelect.dispatchEvent(new window.Event("change", { bubbles: true })); });
+  await change("Weight Category", categorySelect.querySelector('option:not([value=""])').value);
   assert.equal(calls, 0, "Next does not save");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
@@ -181,51 +188,61 @@ test("task and category drafts are saved as the fourth argument and in course de
   assert.deepEqual(saved[1].gradingCategories.map(({ name, weight }) => ({ name, weight })), [{ name: "Labs", weight: 25 }, { name: "Exam", weight: 75 }, { name: "Attendance", weight: 0 }]);
   assert.equal(saved[3].length, 1);
   assert.equal(saved[3][0].title, "Microscope lab");
+  assert.equal(saved[3][0].dueTime, "23:59");
   assert.equal(saved[3][0].categoryId, saved[1].gradingCategories[0].id);
 });
 
 test("Back from Customize retains coursework task and category drafts", async () => {
   await mount(); await toCoursework(); await change("Category name 1", "Labs"); await change("Labs weight", "100"); await submit();
-  await click("Add assignment"); await change("Assignment title", "Reading quiz"); await submit();
+  await click("Add task"); await change("Task Title", "Reading quiz"); await submit();
   await click("Back");
   assert.equal(host.querySelector("h2").textContent, "Add assignments");
-  await act(async () => host.querySelector(".class-coursework-task-title").click());
-  assert.equal([...host.querySelectorAll("label")].find((item) => item.textContent.trim() === "Assignment title").control.value, "Reading quiz");
-  assert.match(host.querySelector(".class-coursework-pills").textContent, /Labs/);
+  assert.equal(taskCard("Reading quiz").getAttribute("aria-pressed"), "true");
+  assert.equal(host.querySelector("[data-task-title]").value, "Reading quiz");
+  assert.match(host.querySelector('[aria-label="Weight Category"]').textContent, /Labs/);
 });
 
-test("an untitled assignment blocks Next on the assignments step", async () => {
+test("Next names blank manual assignments by position and preserves custom titles", async () => {
   await mount(); await toAssignments();
-  assert.ok(button("Skip for now").matches(".primary-button"));
-  await click("Add assignment");
-  assert.equal(button("Next").className, button("Back").className);
-  await click("Next");
-  assert.equal(host.querySelector("h2").textContent, "Add assignments");
-  assert.ok([...host.querySelectorAll("label")].find((item) => item.textContent.trim() === "Assignment title").control.matches('[aria-invalid="true"]'));
-  assert.equal(host.querySelector('[role="alert"]')?.textContent, "Enter a title for each assignment before continuing.");
-  assert.equal(calls, 0);
-  await change("Assignment title", "Reading quiz");
+  assert.ok(button("Skip").matches(".primary-button"));
+  await click("Add task");
   assert.ok(button("Next").matches(".primary-button"));
+  await click("Add task"); await change("Task Title", "   ");
+  await click("Add task"); await change("Task Title", "Reading quiz");
+  await click("Add task");
+  await click("Next");
+  assert.equal(host.querySelector("h2").textContent, "Make it yours");
+  assert.equal(calls, 0);
+  await click("Back");
+  const titles = ["Untitled Task 1", "Untitled Task 2", "Reading quiz", "Untitled Task 4"];
+  assert.deepEqual([...host.querySelectorAll(".class-coursework-task-title strong")].map((node) => node.textContent), titles);
+  await click("Next"); await click("Create class");
+  assert.equal(calls, 1);
+  assert.deepEqual(saved[3].map(({ title, dateKey, dueTime, description }) => ({ title, dateKey, dueTime, description })),
+    titles.map((title) => ({ title, dateKey: "", dueTime: undefined, description: "" })));
 });
 
 test("completed but ungraded is distinct from zero earned points", async () => {
   const task = { id: "quiz", title: "Quiz", courseId: "bio", due: "", dateKey: "", status: "done", progress: 100, description: "", weight: "", pointsPossible: 10, pointsEarned: null };
   await mount({ initialAssignments: [task] }); await toAssignments();
-  await act(async () => host.querySelector(".class-coursework-task-title").click());
+  assert.equal(button("Grading and completion").getAttribute("aria-expanded"), "false");
+  await click("Grading and completion");
   const grade = host.querySelector(".class-coursework-grade-check input");
   assert.ok(grade);
   assert.equal(grade.checked, false);
   assert.equal(host.querySelectorAll('.class-coursework-editor label input[type="number"]').length, 1, "ungraded tasks do not show a score input");
   await act(async () => grade.click());
   assert.equal(grade.checked, true);
-  const earned = [...host.querySelectorAll(".class-coursework-editor label")].find((item) => item.textContent.trim() === "Points earned")?.querySelector("input");
-  assert.ok(earned);
-  assert.equal(Number.isNaN(earned.valueAsNumber), true);
+  const earned = () => [...host.querySelectorAll(".class-coursework-editor label")].find((item) => item.textContent.trim() === "Points earned")?.control;
+  assert.ok(earned());
+  assert.equal(Number.isNaN(earned().valueAsNumber), true);
+  await click("Grading and completion");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Add assignments");
+  assert.equal(button("Grading and completion").getAttribute("aria-expanded"), "true");
   assert.match(host.querySelector('[role="alert"]').textContent, /points earned/i);
   await change("Points earned", "0");
-  assert.equal(earned.value, "0");
+  assert.equal(earned().value, "0");
   await submit();
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
 });
@@ -235,12 +252,51 @@ test("task-only changes trigger the unsaved-changes guard", async () => {
   let confirms = 0;
   window.confirm = () => { confirms++; return false; };
   try {
-    await mount(); await toAssignments(); await click("Add assignment"); await change("Assignment title", "Draft only");
+    await mount(); await toAssignments(); await click("Add task"); await change("Task Title", "Draft only");
     await click("Close class setup");
     assert.equal(confirms, 1);
     assert.equal(host.querySelector("h2").textContent, "Add assignments");
     assert.equal(calls, 0);
   } finally { window.confirm = originalConfirm; }
+});
+
+test("the manual assignment list switches drafts and restores focus after removal", async () => {
+  await mount(); await toAssignments();
+  await click("Add task");
+  assert.equal(document.activeElement, host.querySelector("[data-task-title]"));
+  assert.equal(host.querySelector(".class-coursework-no-tasks"), null);
+  await change("Task Title", "Problem set 1");
+  await change("Task Description", "Show your work.");
+  await change("Due Date", "2026-12-01");
+  await change("Due Time", "18:30");
+  await change("Due Date", "2026-12-02");
+  assert.match(taskCard("Problem set 1").textContent, /Assignment · Dec 2/);
+
+  await click("Add task");
+  await change("Task Title", "Midterm exam");
+  await change("Type", "Exam");
+  assert.equal(taskCard("Midterm exam").getAttribute("aria-pressed"), "true");
+  assert.equal(host.querySelectorAll(".class-coursework-task-title").length, 2);
+  assert.equal(host.querySelector('[aria-label="Task details"]').querySelector("h3"), null);
+  await act(async () => taskCard("Problem set 1").click());
+  assert.equal(host.querySelectorAll(".class-coursework-editor").length, 1);
+  assert.equal(host.querySelector("textarea").value, "Show your work.");
+  assert.equal(host.querySelector('input[type="time"]').value, "18:30");
+
+  await click("Remove Problem set 1");
+  assert.equal(document.activeElement, button("Confirm remove"));
+  await click("Keep task");
+  assert.equal(document.activeElement, button("Remove Problem set 1"));
+  await click("Remove Problem set 1"); await click("Confirm remove");
+  assert.equal(document.activeElement, taskCard("Midterm exam"));
+  assert.equal(taskCard("Midterm exam").getAttribute("aria-pressed"), "true");
+  assert.equal(host.querySelectorAll(".class-coursework-task-title").length, 1);
+  assert.equal(host.querySelector('[aria-label="Type"]').value, "Exam");
+
+  await click("Remove Midterm exam"); await click("Confirm remove");
+  assert.equal(document.activeElement, button("Add task"));
+  assert.equal(host.querySelector(".class-coursework-details h3").textContent, "No tasks yet");
+  assert.ok(button("Skip").matches(".primary-button"));
 });
 
 test("Edit Class initializes saved assignments and allows direct assignment navigation", async () => {
@@ -269,7 +325,7 @@ test("saving a deleted category preserves its tasks without the removed category
 test("save errors preserve coursework drafts for retry", async () => {
   let attempts = 0;
   await mount({ onSave: async (...args) => { calls++; attempts++; saved = args; if (attempts === 1) throw new Error("Temporary save failure"); } });
-  await toAssignments(); await click("Add assignment"); await change("Assignment title", "Retryable task");
+  await toAssignments(); await click("Add task"); await change("Task Title", "Retryable task");
   await submit(); await submit();
   assert.equal(calls, 1);
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
@@ -428,11 +484,16 @@ test("the categories table and meter lead to optional assignments without tabs",
   await click("Next");
   assert.equal(host.querySelector("h2").textContent, "Add assignments");
   assert.equal(host.querySelector(".class-setup-step-count").textContent, "4 / 5");
-  assert.equal(host.querySelector(".class-coursework-optional").textContent, "Optional");
-  assert.equal(host.querySelectorAll(".class-coursework-pills button").length, 2);
-  assert.ok(button("Skip for now"));
+  assert.ok(host.querySelector("#class-setup-title").matches(".class-setup-accessible-title"));
+  assert.doesNotMatch(host.querySelector(".class-setup-body").textContent, /Optional ·|Add assignments/);
+  const sidebar = host.querySelector(".class-coursework-sidebar");
+  const details = sidebar.nextElementSibling;
+  assert.equal(sidebar.querySelector("button"), button("Add task"));
+  assert.equal(details.querySelector("h3").textContent, "No tasks yet");
+  assert.equal(details.querySelector("p").textContent, "(You can do this later!)");
+  assert.ok(button("Skip"));
   assert.equal(calls, 0);
-  await click("Skip for now");
+  await click("Skip");
   assert.equal(host.querySelector("h2").textContent, "Make it yours");
   await submit();
   assert.deepEqual(saved[1].gradingCategories.map(({ name, weight }) => ({ name, weight })), [{ name: "Writing milestones", weight: 40 }, { name: "Exams", weight: 60 }]);
@@ -443,7 +504,7 @@ test("assignment drafts survive returning to Categories and reallocating weights
   await mount(); await toCoursework();
   await change("Category name 1", "Labs"); await change("Labs weight", "25"); await change("Exam weight", "75");
   await submit();
-  await click("Add assignment"); await change("Assignment title", "Reading quiz");
+  await click("Add task"); await change("Task Title", "Reading quiz");
   await click("Back");
   assert.equal(host.querySelector('[aria-label="Labs weight"]').value, "25");
   assert.equal(host.querySelector(".class-coursework-task-list"), null);
@@ -455,7 +516,7 @@ test("assignment drafts survive returning to Categories and reallocating weights
   await change("Exam weight", "50");
   await submit();
   assert.ok(host.textContent.includes("Reading quiz"));
-  assert.ok(host.querySelector(".class-coursework-pills").textContent.includes("50%"));
+  assert.match(host.querySelector('[aria-label="Weight Category"]').textContent, /Labs · 50%/);
   assert.ok(button("Next"));
   await submit(); await submit();
   assert.equal(saved[3][0].title, "Reading quiz");

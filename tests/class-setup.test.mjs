@@ -1069,7 +1069,7 @@ test("cover drag, zoom and keyboard positioning persist and reset for replacemen
     assert.equal(chooserOpened, 0);
     await act(async () => coverButton.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true })));
     assert.match(cover.style.backgroundPosition, /^42% /);
-    await click("Back"); await click("Skip for now");
+    await click("Back"); await click("Skip");
     assert.equal(host.querySelector('[aria-label="Image zoom"]').value, "2");
     button("Change class image").getBoundingClientRect = () => ({ width: 300, height: 132 });
     await submit();

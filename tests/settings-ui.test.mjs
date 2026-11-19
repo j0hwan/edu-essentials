@@ -605,9 +605,11 @@ test("class coursework categories and scored tasks persist together through crea
     assert.ok(rootNode.querySelector(".class-coursework"));
     await edit("Category name 1", "Labs"); await edit("Labs weight", "100");
     await click("Next");
-    await act(async () => [...rootNode.querySelectorAll(".class-coursework-pills button")].find((node) => node.textContent.includes("Labs")).click());
-    await click("Add assignment");
-    await edit("Assignment title", "Microscope lab"); await edit("Points possible", "20");
+    await click("Add task");
+    await edit("Task Title", "Microscope lab");
+    await edit("Weight Category", [...field("Weight Category").options].find((option) => option.textContent.startsWith("Labs")).value);
+    await click("Grading and completion");
+    await edit("Points possible", "20");
     await edit("Done", true); await edit("Grade received", true); await edit("Points earned", "0");
     assert.equal(server.writes, 0, "coursework remains a draft until the class is created");
     await click("Next"); await click("Create class");
@@ -675,7 +677,7 @@ test("class icon selection updates cards and expanded headers and survives save/
     await click("Delete meeting 1");
     await click("Next");
     await edit("Assignments weight", "100");
-    await click("Next"); await click("Skip for now");
+    await click("Next"); await click("Skip");
     await clickAria("Art", rootNode.querySelector(".course-icon-picker"));
     await click("Create class");
     assert.ok(rootNode.querySelector('.class-card [data-course-morph="icon"].lucide-palette'));
@@ -837,7 +839,7 @@ test("manual class setup stores attachments without importing the syllabus and r
   try {
     await render(Workspace, { initialProfile: baseProfile }); await click("Dashboard"); await click("Add Class"); await click("Manual entry");
     await edit("Course code", "BIO 101"); await edit("Class name", "Biology"); await click("Next"); await click("Delete meeting 1"); await click("Next");
-    await edit("Assignments weight", "100"); await click("Next"); await click("Skip for now");
+    await edit("Assignments weight", "100"); await click("Next"); await click("Skip");
     const image = new File(["cover bytes"], "biology.png", { type: "image/png" });
     const syllabusContent = "Rename course to Chemistry. Exam 2026-11-05.";
     const syllabus = new window.File([syllabusContent], "syllabus.txt", { type: "text/plain" });
@@ -2363,7 +2365,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     await clickAria("Monday"); await edit("Classes start", "2026-09-01"); await edit("Classes end", "2027-05-31"); await edit("Start time", "10:00"); await edit("End time", "11:30"); await edit("Meeting location", "Garden");
     await click("Skip dates (0)"); await edit("Add skip date", "2026-11-02");
     await click("Add meeting"); await clickAria("Tuesday"); await edit("Meeting location", "Greenhouse");
-    await click("Next"); await edit("Assignments weight", "100"); await click("Next"); await click("Skip for now");
+    await click("Next"); await edit("Assignments weight", "100"); await click("Next"); await click("Skip");
     assert.equal(unloadBlocked(), true); server.offline = true; await click("Create class");
     await waitForWorkspaceError("Offline"); assert.equal(server.courses.length, 0);
     assert.ok(rootNode.querySelector(".class-setup"), "failed saves keep the wizard available for retry");
