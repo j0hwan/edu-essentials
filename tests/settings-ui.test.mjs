@@ -2221,10 +2221,16 @@ test("dashboard shows class cards for a saved List layout and assignments can be
   } finally { if (root) await unmount(); }
 });
 
-test("expanded-course Add Task binds the course, requires due time, and saves task fields", async () => {
+test("expanded-course Add Task binds the course and saves grading and task fields", async () => {
   reset();
   const otherCourse = { ...sampleCourse, id: "science", code: "SCI 101", name: "Science" };
-  const server = installWorkspaceServer(savedDashboard, [sampleCourse, otherCourse]);
+  const initial = { ...savedDashboard, d: { ...savedDashboard.d, courseDetails: {
+    [otherCourse.id]: { officeHours: "", meetings: [], gradingCategories: [
+      { id: "labs", name: "Labs", weight: 37.5 },
+      { id: "exams", name: "Exams", weight: 62.5 },
+    ] },
+  } } };
+  const server = installWorkspaceServer(initial, [sampleCourse, otherCourse]);
   try {
     await render(Workspace, { initialProfile: baseProfile });
     await click("Dashboard");
@@ -2235,8 +2241,16 @@ test("expanded-course Add Task binds the course, requires due time, and saves ta
     assert.equal(dialog.textContent.includes(otherCourse.code), false, "the course code is hidden");
     assert.equal(dialog.textContent.includes(otherCourse.name), false, "the course name is hidden");
     assert.equal([...dialog.querySelectorAll("label")].some((label) => label.textContent.startsWith("Class")), false, "the class is bound without a selector");
-    assert.deepEqual([...dialog.querySelectorAll("label")].map((label) => label.firstChild.textContent.trim()), ["Task Title", "Task Description", "Due Date", "Due Time", "Type", "Weight Category"]);
-    assert.equal(field("Weight Category").disabled, true);
+    for (const label of ["Task Title", "Task Description", "Due Date", "Due Time", "Type", "Weight Category", "Done", "Grade received", "Points possible", "Points earned"]) {
+      assert.ok(dialog.contains(field(label)));
+    }
+    assert.equal(field("Weight Category").disabled, false);
+    assert.deepEqual([...field("Weight Category").options].map((option) => [option.value, option.textContent]),
+      [["", "Uncategorized"], ["labs", "Labs · 37.5%"], ["exams", "Exams · 62.5%"]]);
+    assert.equal(field("Weight Category").value, "");
+    assert.equal(field("Grade received").disabled, true);
+    assert.equal(field("Points earned").disabled, true);
+    assert.equal(field("Points earned").value, "N/A");
     assert.equal(field("Due Time").required, true);
     assert.equal(field("Due Time").value, "23:59", "new tasks default to 11:59 PM");
     assert.equal(field("Due Date").required, true);
@@ -2252,6 +2266,28 @@ test("expanded-course Add Task binds the course, requires due time, and saves ta
     assert.equal(server.writes, 0, "submit validation also rejects a missing time");
     assert.ok(rootNode.contains(dialog));
     await edit("Due Time", "23:59");
+    await edit("Weight Category", "labs");
+    await edit("Points possible", "20.5");
+    await edit("Done", true);
+    await edit("Grade received", true);
+    assert.equal(field("Points earned").value, "");
+    await clickIn(dialog, "Add Task");
+    assert.match(dialog.querySelector('[role="alert"]').textContent, /points earned/i);
+    assert.equal(server.writes, 0, "a received grade requires a score");
+    await edit("Points earned", "21");
+    assert.match(dialog.querySelector('[role="status"]').textContent, /extra credit/);
+    await edit("Done", false);
+    assert.equal(field("Grade received").checked, false);
+    assert.equal(field("Points earned").value, "N/A");
+    assert.equal(field("Points possible").value, "20.5");
+    await edit("Done", true);
+    await edit("Grade received", true);
+    await edit("Points earned", "0");
+    await edit("Points possible", "");
+    await clickIn(dialog, "Add Task");
+    assert.match(dialog.querySelector('[role="alert"]').textContent, /requires points possible/i);
+    assert.equal(server.writes, 0);
+    await edit("Points possible", "20.5");
     assert.equal(dialog.checkValidity(), true);
     await clickIn(dialog, "Add Task");
     await waitForWorkspaceSave(server);
@@ -2264,7 +2300,13 @@ test("expanded-course Add Task binds the course, requires due time, and saves ta
     assert.equal(saved.dateKey, "2026-11-15");
     assert.equal(saved.dueTime, "23:59");
     assert.equal(saved.type, "Project");
-    assert.equal(saved.progress, 0);
+    assert.equal(saved.status, "done");
+    assert.equal(saved.progress, 100);
+    assert.equal(saved.progressBeforeCompletion, 0);
+    assert.ok(Number.isFinite(Date.parse(saved.completedAt)));
+    assert.equal(saved.categoryId, "labs");
+    assert.equal(saved.pointsPossible, 20.5);
+    assert.equal(saved.pointsEarned, 0);
     assert.equal(saved.weight, "");
     await click("Close class");
     await waitUntil(() => !rootNode.querySelector('[aria-label="Class details"]'), "course closes before reload");
@@ -2274,6 +2316,8 @@ test("expanded-course Add Task binds the course, requires due time, and saves ta
     await waitUntil(() => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`), "course cards after reload");
     await act(async () => rootNode.querySelector(`[data-course-card-id="${sampleCourse.id}"]`).click());
     await clickIn(rootNode.querySelector('[aria-label="Class details"]'), "Add Task");
+    assert.equal(field("Weight Category").disabled, true);
+    assert.equal(field("Weight Category").selectedOptions[0].textContent, "Uncategorized");
     await edit("Task Title", "Unsaved task");
     window.confirm = () => false;
     await clickIn(rootNode.querySelector(".add-task-form"), "Cancel");
@@ -2282,6 +2326,19 @@ test("expanded-course Add Task binds the course, requires due time, and saves ta
     await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     assert.equal(rootNode.querySelector(".add-task-form"), null);
     assert.equal(server.dashboard.d.assignments.length, 1, "canceling a task creates no record");
+    await click("Close class");
+    await waitUntil(() => !rootNode.querySelector('[aria-label="Class details"]'), "course closes after canceling the draft");
+    await act(async () => rootNode.querySelector(`[data-course-card-id="${otherCourse.id}"]`).click());
+    await click("Edit class");
+    await clickAria("Go to Tasks");
+    const labsFilter = [...rootNode.querySelectorAll(".class-coursework-pills button")].find((button) => button.textContent.startsWith("Labs"));
+    assert.ok(labsFilter);
+    await act(async () => labsFilter.click());
+    await act(async () => rootNode.querySelector(".class-coursework-task-title").click());
+    assert.equal(field("Category").value, "labs");
+    assert.equal(field("Done").checked, true);
+    assert.equal(field("Points possible").value, "20.5");
+    assert.equal(field("Points earned").value, "0");
   } finally { if (root) await unmount(); }
 });
 

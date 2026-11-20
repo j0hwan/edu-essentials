@@ -1441,6 +1441,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         academicEditor={editor ? { key: (editor.course ?? editor.assignment ?? editor.event)!.id, props: {
           initial: editor,
           courses: courses,
+          taskCategories: editor.taskCourse ? extraData.courseDetails[editor.taskCourse.id]?.gradingCategories : undefined,
           today: today,
           onApply: applyEditor,
           onClose: () => setEditor(null),

@@ -1,5 +1,9 @@
 export type GradingCategory = { id: string; name: string; weight: number };
 
+export function formatGradingWeight(weight: number): string {
+  return Number.isFinite(weight) ? weight.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "—";
+}
+
 export function validateGradingCategories(value: unknown): GradingCategory[] {
   if (!Array.isArray(value) || value.length > 50) throw new Error("Invalid grading categories.");
   const ids = new Set<string>();

@@ -3,9 +3,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown, ClipboardList, Plus, Trash2 } from "lucide-react";
 import { assignmentStatus, assignmentTypes, dateLabel, isDate, isTime, validateExamSchedule } from "../lib/academics";
-import type { GradingCategory } from "../lib/coursework";
+import { formatGradingWeight, type GradingCategory } from "../lib/coursework";
 import type { SavedAssignment } from "../lib/workspace-codec";
-import "./class-coursework.css";
+import TaskGradingFields from "./task-grading-fields";
 
 type Props = { courseId: string; today: string; categories: GradingCategory[]; assignments: SavedAssignment[]; onAssignmentsChange: (assignments: SavedAssignment[]) => void; manualEntry?: boolean; disabled?: boolean; showErrors?: boolean; validationAttempt?: number };
 
@@ -28,7 +28,6 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
   const sectionRef = useRef<HTMLElement>(null);
   const pendingControlFocus = useRef<string | null>(null);
   const [handledValidation, setHandledValidation] = useState(-1);
-  const formatWeight = (weight: number) => Number.isFinite(weight) ? weight.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "—";
   const courseAssignments = assignments.filter((assignment) => assignment.courseId === courseId);
   const visible = courseAssignments.filter((assignment) => selected === "all" || (selected === "uncategorized" ? !assignment.categoryId : assignment.categoryId === selected));
   const activeTask = manualEntry ? visible.find((assignment) => assignment.id === editingId) ?? visible[0] : undefined;
@@ -87,9 +86,6 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
 
   const renderEditor = (assignment: SavedAssignment) => {
     const edit = (patch: Partial<SavedAssignment>) => updateAssignment(assignment.id, patch);
-    const pointsInvalid = showErrors && hasInvalidPoints(assignment);
-    const gradeReceived = assignment.pointsEarned != null;
-    const earnedScore = typeof assignment.pointsEarned === "number" && Number.isFinite(assignment.pointsEarned) ? assignment.pointsEarned : "";
     const title = <label className="class-coursework-wide">{manualEntry ? "Task Title" : "Assignment title"}<input data-task-title={assignment.id} data-coursework-focus={`title:${assignment.id}`} maxLength={500} value={assignment.title} aria-invalid={showErrors && titleMissing(assignment)} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => edit({ title: event.target.value })} /></label>;
     const description = <label className="class-coursework-wide">{manualEntry ? "Task Description" : "Description"}<textarea maxLength={20000} value={assignment.description} disabled={disabled} onChange={(event) => edit({ description: event.target.value })} /></label>;
     const dueDate = <label>{manualEntry ? "Due Date" : "Due date"}<input type="date" value={assignment.dateKey || ""} aria-invalid={manualEntry && showErrors && Boolean(assignment.dateKey) && !isDate(assignment.dateKey) || undefined} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => {
@@ -116,19 +112,10 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
     const categoryLabel = manualEntry ? "Weight Category" : "Category";
     const category = selectField(categoryLabel, <select aria-label={categoryLabel} value={assignment.categoryId ?? ""} disabled={disabled || (manualEntry && !categories.length)} onChange={(event) => { edit({ categoryId: event.target.value || undefined }); setSelected("all"); }}>
       <option value="">Uncategorized</option>
-      {categories.map((item) => <option key={item.id} value={item.id}>{manualEntry ? `${item.name} · ${formatWeight(item.weight)}%` : item.name}</option>)}
+      {categories.map((item) => <option key={item.id} value={item.id}>{manualEntry ? `${item.name} · ${formatGradingWeight(item.weight)}%` : item.name}</option>)}
     </select>);
-    const grading = <>
-      <div className="class-coursework-completion class-coursework-wide">
-        <label className="class-coursework-done"><input type="checkbox" checked={assignment.status === "done"} disabled={disabled} onChange={(event) => edit(event.target.checked ? { status: "done", completedAt: new Date().toISOString(), progressBeforeCompletion: assignment.progress, progress: 100 } : { status: assignmentStatus({ status: "later", dateKey: assignment.dateKey }, today), completedAt: null, progress: assignment.progressBeforeCompletion ?? 0, pointsEarned: null })} />Done</label>
-        <label className="class-coursework-grade-check"><input type="checkbox" checked={gradeReceived} disabled={disabled || assignment.status !== "done"} onChange={(event) => edit({ pointsEarned: event.target.checked ? Number.NaN : null })} />Grade received</label>
-      </div>
-      <label>Points possible<input type="number" min="0" max="1000000000" step="any" value={Number.isFinite(assignment.pointsPossible) ? assignment.pointsPossible! : ""} aria-invalid={pointsInvalid} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => edit({ pointsPossible: event.target.value === "" ? null : Number(event.target.value) })} /></label>
-      {(manualEntry || gradeReceived) && <label>Points earned<input type={gradeReceived ? "number" : "text"} min="0" max="1000000000" step="any"
-        value={gradeReceived ? earnedScore : "N/A"} aria-invalid={gradeReceived && pointsInvalid} disabled={disabled || !gradeReceived}
-        onKeyDown={enterGuard} onChange={(event) => edit({ pointsEarned: event.target.value === "" ? Number.NaN : Number(event.target.value) })} /></label>}
-      {assignment.pointsEarned != null && assignment.pointsPossible != null && assignment.pointsEarned > assignment.pointsPossible && <p className="class-coursework-warning" role="status">Earned points exceed possible points (extra credit).</p>}
-    </>;
+    const grading = <TaskGradingFields assignment={assignment} today={today} onChange={edit} disabled={disabled}
+      pointsInvalid={showErrors && hasInvalidPoints(assignment)} showEarnedField={manualEntry} onNumericKeyDown={enterGuard} />;
 
     if (manualEntry) return <div key={assignment.id} className="class-coursework-editor">
       {title}{description}{dueDate}{dueTime}{type}{category}{examFields}
@@ -200,7 +187,7 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
       <h3>{categories.length ? <><Check size={18} aria-hidden="true" />Your grading categories are set</> : "Assignments can be added without categories"}</h3>
       {categories.length > 0 && <div className="class-coursework-pills" aria-label="Filter assignments by category">
         {courseAssignments.length > 0 && <button type="button" data-coursework-focus="all" aria-pressed={selected === "all"} onClick={() => selectCategory("all")}>All assignments <strong>{courseAssignments.length}</strong></button>}
-        {categories.map((item) => <button type="button" key={item.id} aria-pressed={selected === item.id} onClick={() => selectCategory(item.id)}>{item.name}<strong>{formatWeight(item.weight)}%</strong></button>)}
+        {categories.map((item) => <button type="button" key={item.id} aria-pressed={selected === item.id} onClick={() => selectCategory(item.id)}>{item.name}<strong>{formatGradingWeight(item.weight)}%</strong></button>)}
         {courseAssignments.some((assignment) => !assignment.categoryId) && <button type="button" aria-pressed={selected === "uncategorized"} onClick={() => selectCategory("uncategorized")}>Uncategorized</button>}
       </div>}
     </div>

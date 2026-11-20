@@ -3,12 +3,15 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { assignmentStatus, assignmentTypes, dateLabel, isDate, isTime } from "../lib/academics";
+import { formatGradingWeight, validateAssignmentGrading, type GradingCategory } from "../lib/coursework";
 import type { SavedAssignment } from "../lib/workspace-codec";
+import TaskGradingFields from "./task-grading-fields";
 import { useSaveProtection } from "./use-save-protection";
 import "./add-task-form.css";
 
-export default function AddTaskForm({ initial, today, onApply, onClose }: {
+export default function AddTaskForm({ initial, categories, today, onApply, onClose }: {
   initial: SavedAssignment;
+  categories: GradingCategory[];
   today: string;
   onApply: (value: { assignment: SavedAssignment }) => boolean;
   onClose: () => void;
@@ -29,6 +32,7 @@ export default function AddTaskForm({ initial, today, onApply, onClose }: {
   const dueTimeId = useId();
   const typeId = useId();
   const weightCategoryId = useId();
+  const categoryHintId = useId();
   const errorId = useId();
 
   const close = () => {
@@ -104,6 +108,12 @@ export default function AddTaskForm({ initial, today, onApply, onClose }: {
       due: dateLabel(assignment.dateKey),
       status: assignmentStatus(assignment, today),
     } satisfies SavedAssignment;
+    try {
+      validateAssignmentGrading(ready);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Review the task score.");
+      return;
+    }
     if (!onApply({ assignment: ready })) setError("This task could not be saved. Check the workspace message and keep this form open.");
   };
 
@@ -132,10 +142,16 @@ export default function AddTaskForm({ initial, today, onApply, onClose }: {
         </select>
       </label>
       <label className="add-task-field" htmlFor={weightCategoryId}>Weight Category
-        <select id={weightCategoryId} value="Coming soon" disabled aria-label="Weight Category">
-          <option value="Coming soon">Coming soon</option>
+        <select id={weightCategoryId} value={assignment.categoryId ?? ""} disabled={!categories.length} aria-label="Weight Category"
+          aria-describedby={!categories.length ? categoryHintId : undefined} onChange={(event) => change({ categoryId: event.target.value || undefined })}>
+          <option value="">Uncategorized</option>
+          {categories.map(({ id, name, weight }) => <option key={id} value={id}>{name} · {formatGradingWeight(weight)}%</option>)}
         </select>
+        {!categories.length && <small id={categoryHintId} className="field-hint">Add grading categories in Edit Class.</small>}
       </label>
+      <div className="class-coursework-grading-fields class-coursework-wide add-task-grading">
+        <TaskGradingFields assignment={assignment} today={today} onChange={change} />
+      </div>
     </div>
 
     {error && <p id={errorId} role="alert" className="auth-error add-task-error">{error}</p>}

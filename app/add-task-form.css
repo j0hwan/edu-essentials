@@ -32,7 +32,7 @@
 
 .add-task-form .add-task-fields { padding-top: 0; }
 
-.add-task-form .add-task-field {
+.add-task-form .add-task-fields label {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -44,7 +44,7 @@
   grid-column: 1 / -1;
 }
 
-.add-task-form .add-task-field input,
+.add-task-form .add-task-fields input:not([type="checkbox"]),
 .add-task-form .add-task-field select,
 .add-task-form .add-task-field textarea {
   width: 100%;
@@ -62,9 +62,32 @@
   background-size: 16px;
 }
 
-.add-task-form .add-task-field select:disabled {
+.add-task-form .add-task-field select:disabled,
+.add-task-form .add-task-grading input:disabled {
   cursor: not-allowed;
   opacity: .64;
+}
+
+.add-task-form .add-task-grading {
+  margin-top: 4px;
+  padding-top: 10px;
+}
+
+.add-task-form .class-coursework-completion label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--ink);
+}
+
+.add-task-form .class-coursework-completion input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--brand);
 }
 
 @media (forced-colors: active) {

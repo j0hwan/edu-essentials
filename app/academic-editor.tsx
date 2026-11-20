@@ -6,17 +6,18 @@ import CourseIcon from "./course-icon";
 import LocationInput from "./location-input";
 import "./course-icon-picker.css";
 import { assignmentStatus, assignmentTypes, dateLabel, emptyCourseDetails, eventTypes, validateCourse, validateCourseDetails, validateExamSchedule, type Course, type CourseDetails } from "../lib/academics";
+import type { GradingCategory } from "../lib/coursework";
 import type { SavedAssignment, SavedEvent } from "../lib/workspace-codec";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import AddTaskForm from "./add-task-form";
 
 type Value = { course?: Course; details?: CourseDetails; assignment?: SavedAssignment; event?: SavedEvent; taskCourse?: Course };
-type Props = { initial: Value; courses: Course[]; today: string; onApply: (value: Value) => boolean; onClose: () => void; onDelete?: () => void };
+type Props = { initial: Value; courses: Course[]; taskCategories?: GradingCategory[]; today: string; onApply: (value: Value) => boolean; onClose: () => void; onDelete?: () => void };
 
 export default function AcademicEditor(props: Props) {
   const { initial, onApply, onClose } = props;
   if (initial.taskCourse && initial.assignment) {
-    return <AddTaskForm initial={initial.assignment} today={props.today} onApply={(value) => onApply({ ...value, taskCourse: initial.taskCourse })} onClose={onClose} />;
+    return <AddTaskForm initial={initial.assignment} categories={props.taskCategories ?? []} today={props.today} onApply={(value) => onApply({ ...value, taskCourse: initial.taskCourse })} onClose={onClose} />;
   }
   return <ExistingAcademicEditor {...props} />;
 }

@@ -18,7 +18,7 @@ Task records retain their existing IDs, notes, checklist, completion metadata, a
 
 Completion and grading are separate controls. A completed task without a score remains awaiting a grade. Selecting Grade received leaves the score blank until the user explicitly enters it. An incomplete numeric draft cannot be saved. Marking a graded task incomplete clears its earned score while retaining possible points; the existing standalone completion controls request confirmation before doing so.
 
-Due date and time are optional for coursework tasks. An undated task uses an empty `dateKey` and has no due time. Calendar events still require valid dates. The standalone Add Task flow is otherwise unchanged.
+Due date and time are optional for tasks added in class setup. An undated task uses an empty `dateKey` and has no due time. Add Task in an existing course requires a due date and time and uses the same completion and scoring controls. Its Weight Category selector uses the course's saved grading categories.
 
 ## Verification
 
