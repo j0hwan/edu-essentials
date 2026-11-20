@@ -51,8 +51,9 @@ import { useCourseExpansion } from "./use-course-expansion";
 import { useCoursePreviewPlaceholders } from "./use-course-preview-placeholders";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
-import type { ClassSetupUploads } from "./class-setup";
-import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
+import type { ClassSetupUpload, ClassSetupUploads } from "./class-setup";
+import type { SyllabusImportDraft } from "../lib/syllabus-import";
+import type { ClassSetupBounds } from "./use-class-setup-motion";
 import TopbarSearch from "./topbar-search";
 import type { SyllabusAttachmentValue } from "./course-syllabus";
 import AcademicCalendar from "./academic-calendar";
@@ -361,10 +362,10 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [dashboardView, setDashboardView] = useState<"cards" | "list">("cards");
   const closeExpandedClassRef = useRef<(() => void) | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
-  const [addClassOpen, setAddClassOpen] = useState(false);
-  const addClassChoiceRef = useRef<HTMLElement>(null);
-  const transitionClassChoice = useClassSetupMotion(addClassChoiceRef, addClassOpen);
-  const [classSetup, setClassSetup] = useState<{ course: Course; details?: CourseDetails; editing?: boolean; profileId: string; generation: number; initialBounds?: ClassSetupBounds } | null>(null);
+  const [addClassChoice, setAddClassChoice] = useState<{ initialBounds?: ClassSetupBounds; focusManualEntry?: boolean } | null>(null);
+  const [classSetup, setClassSetup] = useState<{ course: Course; details?: CourseDetails; editing?: boolean; profileId: string; generation: number; initialBounds?: ClassSetupBounds; initialSyllabus?: ClassSetupUpload; importDraft?: SyllabusImportDraft } | null>(null);
+  const [classImport, setClassImport] = useState<{ initialBounds?: ClassSetupBounds } | null>(null);
+  const importStage = useRef<{ courseId: string; uploadId: string; file?: PrivateFile; committed?: boolean } | null>(null);
   const [editor, setEditor] = useState<{ course?: Course; details?: CourseDetails; assignment?: Assignment; event?: SavedEvent; taskCourse?: Course } | null>(null);
   const [syllabusDraft, setSyllabusDraft] = useState<SyllabusDraft | null>(null);
   const [syllabusAttachment, setSyllabusAttachment] = useState<{ courseId: string; folderId: string | null; simple?: boolean; session?: { profileId: string; generation: number } } | null>(null);
@@ -374,7 +375,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   const [extraData, setExtraData] = useState<{ courseDetails: Record<string, CourseDetails>; syllabusDrafts: SyllabusDraft[]; study: StudyData; filePreferences: FilesBrowserPreferences; widgetAppearance?: WidgetAppearanceState }>({ courseDetails: {}, syllabusDrafts: [], study: emptyStudy(), filePreferences: DEFAULT_FILES_BROWSER_PREFERENCES });
   const [now, setNow] = useState(() => new Date());
   const today = dayKey(now, profile.timezone);
-  const assignments = storedAssignments.map((item) => ({ ...item, status: assignmentStatus(item, today), due: dateLabel(item.dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
+  const assignments = storedAssignments.map((item) => ({ ...item, status: assignmentStatus(item, today), due: dateLabel(item.dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.examStart ?? a.dueTime ?? "").localeCompare(b.examStart ?? b.dueTime ?? ""));
   const [calendarFilter, setCalendarFilter] = useState("all");
   const [manualEvents, setManualEvents] = useState<SavedEvent[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -587,7 +588,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         setAssignments(details.assignments); setManualEvents(details.manualEvents);
         setDashboardView(details.dashboardView); setCalendarFilter(details.calendarFilter); setExtraData({ courseDetails: details.courseDetails, syllabusDrafts: [], study: settleTimer(details.study, Date.now()), filePreferences: details.filePreferences, widgetAppearance: details.widgetAppearance }); setFileDialog(null); setFilePreview(null); setStudyOpen(false); setAppearanceOpen(false); setEditor(null); setSyllabusDraft(null);
         resetSelectedClass(); setSelectedAssignment(null); setSyllabusAttachment(null); setSyllabusTextCourseId(null); setSyllabusPreviewFileId(null);
-        setClassSetup(null);
+        setClassSetup(null); setClassImport(null); importStage.current = null;
         setExperimentalMode(null); setExperimentalMenuOpen(false); setExperimentalRestoring(false);
         autosave.hydrate(canonicalJson({ courses: [...(data.courses ?? [])].sort((a, b) => a.id.localeCompare(b.id)), dashboard: encodeWorkspaceState(decoded.workspaces, decoded.activeWorkspaceId, decoded.notes, details) }), data.revision ?? null);
       } catch (error) { if (!controller.signal.aborted) { setExperimentalRestoring(false); autosave.loadFailed(error); } }
@@ -649,7 +650,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   };
 
   const prepareAssistant = async () => {
-    if (experimentalMode || profilePending || editor || syllabusDraft || syllabusAttachment || nativeDocumentDialog || organizationState || fileUploads.dirty || pendingFolderUpload || fileStore.busy || undoBusy) throw new Error("Save and close pending editors before asking the assistant.");
+    if (experimentalMode || profilePending || editor || classImport || classSetup || syllabusDraft || syllabusAttachment || nativeDocumentDialog || organizationState || fileUploads.dirty || pendingFolderUpload || fileStore.busy || undoBusy) throw new Error("Save and close pending editors before asking the assistant.");
     await autosave.flush();
     const current = autosave.getSnapshot();
     if (!current.ready || current.dirty || current.status !== "saved") throw new Error("Wait for saving to finish, or resolve the workspace save message first.");
@@ -846,7 +847,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     setExtraData({ courseDetails: demo.courseDetails, syllabusDrafts: [], study: demo.study, filePreferences: extraData.filePreferences, widgetAppearance: extraData.widgetAppearance });
     setExperimentalMenuOpen(false);
     setSelectedAssignment(null); setSelectedClass(null); setEditor(null); setStudyOpen(false); setSyllabusDraft(null);
-    setClassSetup(null);
+    setClassSetup(null); setClassImport(null);
     navigate("home");
     flash(`${density.charAt(0).toUpperCase() + density.slice(1)} demo loaded`);
   };
@@ -1057,11 +1058,86 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   };
   const persistClassSetupRef = useRef(persistClassSetup);
   useLayoutEffect(() => { persistClassSetupRef.current = persistClassSetup; });
+
+  const saveImportedClass = async (course: Course, details: CourseDetails, uploads: ClassSetupUploads, coursework: SavedAssignment[], generation: number) => {
+    const upload = uploads.syllabus;
+    if (!upload || aiApplyLock.current || experimentalMode) throw new Error("The import is unavailable. Reopen class setup and try again.");
+    const isCurrent = () => generation === workspaceLoadGeneration.current && fileActionSessionRef.current === fileActionSession;
+    await autosave.flushLatest(true);
+    const workspace = autosave.getSnapshot();
+    if (!isCurrent() || !workspace.ready || workspace.dirty || workspace.status !== "saved" || aiApplyLock.current) {
+      throw new Error(workspace.message || "Finish saving your workspace, then retry the import.");
+    }
+    aiApplyLock.current = true;
+    const stage = importStage.current?.courseId === course.id ? importStage.current : { courseId: course.id, uploadId: upload.id };
+    importStage.current = stage;
+    try {
+      const stagedFile = stage.file ?? await fileStore.upload(upload.file, { name: upload.file.name, courseId: "", assignmentId: "", kind: "syllabus" }, stage.uploadId);
+      stage.file = stagedFile;
+      if (!isCurrent()) throw new Error("The workspace changed while uploading. Reopen class setup.");
+      if (autosave.getSnapshot().dirty) throw new Error("The workspace has pending changes. Wait for them to save, then retry.");
+
+      const commit = async (allowDuplicate: boolean) => {
+        const response = await accountFetch("/api/workspace/syllabus-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+          course, details: { ...details, syllabusName: stagedFile.name, syllabusFileId: stagedFile.id }, assignments: coursework, allowDuplicate,
+        }) });
+        const result = await response.json() as { ok?: boolean; code?: string; error?: string; alreadySaved?: boolean };
+        if (!isCurrent()) throw new Error("The workspace changed while saving. Open your original workspace to check your class.");
+        if (result.code === "syllabus-source-unavailable") {
+          stage.file = undefined;
+          stage.uploadId = crypto.randomUUID();
+        }
+        if (!allowDuplicate && response.status === 409 && result.code === "duplicate-class") {
+          if (!window.confirm(`${result.error} Create another class with this code?`)) throw new Error("Change the course code or confirm that you want to create another class with this code.");
+          return null;
+        }
+        if (!response.ok || !result.ok) throw new Error(result.error || "The import could not be saved. Your review is still here.");
+        return result;
+      };
+      const result = await commit(false) ?? await commit(true);
+      stage.committed = true;
+      if (uploads.image) {
+        try { await fileStore.upload(uploads.image.file, { name: uploads.image.file.name, courseId: course.id, assignmentId: "", kind: "class-image" }, uploads.image.id); }
+        catch (error) { throw new Error(`The class and PDF were saved. Retry to finish uploading the class image. ${error instanceof Error ? error.message : ""}`); }
+      }
+      if (!isCurrent()) return;
+      importStage.current = null;
+      setClassSetup(null);
+      autosave.loading();
+      setReloadAttempt((attempt) => attempt + 1);
+      flash(result?.alreadySaved ? "Class already saved. Open it to check your edits." : "Class imported");
+    } finally { aiApplyLock.current = false; }
+  };
+
+  const closeClassSetup = () => {
+    const stage = classSetup?.course.id === importStage.current?.courseId ? importStage.current : null;
+    importStage.current = null;
+    setClassSetup(null);
+    if (!stage) return;
+    if (stage.committed) {
+      autosave.loading(); setReloadAttempt((attempt) => attempt + 1);
+      return;
+    }
+    void (async () => {
+      // Read the current row after failed or interrupted requests. Attached PDFs
+      // are protected again by the ordinary file deletion transaction.
+      const response = await accountFetch("/api/files");
+      if (!response.ok) throw new Error("Unable to check the staged file.");
+      const { files } = await response.json() as { files: PrivateFile[] };
+      const file = files.find((item) => item.id === stage.uploadId && item.kind === "syllabus");
+      if (!file || fileActionSessionRef.current !== fileActionSession) return;
+      if (file.course_id === stage.courseId && !autosave.getSnapshot().dirty) {
+        autosave.loading(); setReloadAttempt((attempt) => attempt + 1);
+      } else if (!file.course_id) await fileStore.remove(file);
+    })().catch(() => { if (fileActionSessionRef.current === fileActionSession) flash("The staged PDF may still be in your private Files."); });
+  };
+
   const saveClassSetup = async (course: Course, details: CourseDetails, uploads: ClassSetupUploads, coursework: SavedAssignment[]) => {
     if (!classSetup || classSetup.course.id !== course.id || classSetup.profileId !== initialProfile.id || classSetup.profileId !== profile.id || classSetup.generation !== workspaceLoadGeneration.current) throw new Error("This class setup belongs to an earlier workspace session. Close it and start again.");
     if (profilePending || (!experimentalMode && !autosave.getSnapshot().ready)) throw new Error("Wait for your workspace to finish loading, then retry.");
     if (experimentalMode && (uploads.image || uploads.syllabus)) throw new Error("File uploads are unavailable in this workspace.");
     const generation = classSetup.generation;
+    if (classSetup.importDraft) return saveImportedClass(course, details, uploads, coursework, generation);
     await persistClassSetupRef.current(course, details, generation, coursework);
     try {
       if (uploads.image) await fileStore.upload(uploads.image.file, { name: uploads.image.file.name, courseId: course.id, assignmentId: "", kind: "class-image" }, uploads.image.id);
@@ -1079,10 +1155,23 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   };
   const newAssignment = () => setEditor({ assignment: { id: uid("assignment"), title: "", courseId: "", due: "", dateKey: today, dueTime: "", type: "Assignment", status: "later", progress: 0, description: "", weight: "", notes: "", checklist: [false, false, false] } });
   const newEvent = (date = today) => setEditor({ event: { id: uid("event"), title: "", courseId: "", dateKey: date, time: "", type: "Personal", description: "" } });
-  const newReview = () => createReview();
+  const openClassImport = (initialBounds?: ClassSetupBounds) => {
+    setClassImport({ initialBounds });
+    setAddClassChoice(null);
+  };
+  const openManualClassSetup = (initialBounds?: ClassSetupBounds) => {
+    setClassSetup({ course: emptyCourse(uid("course")), profileId: profile.id, generation: workspaceLoadGeneration.current, initialBounds });
+    setAddClassChoice(null);
+  };
+  const startImportedClass = (generation: number, file: File, importDraft: SyllabusImportDraft) => {
+    if (generation !== workspaceLoadGeneration.current || profile.id !== initialProfile.id) return;
+    setClassSetup({ course: importDraft.course, details: importDraft.details, importDraft,
+      profileId: profile.id, generation, initialSyllabus: { id: crypto.randomUUID(), file } });
+    setClassImport(null);
+  };
   const createReview = (file?: PrivateFile, sourceText = "") => {
     const draft: SyllabusDraft = { id: uid("review"), sourceText, sourceName: file?.name ?? "", ...(file ? { sourceFileId: file.id } : {}), course: emptyCourse(uid("course")), items: [] };
-    setSyllabusDraft(draft); setAddClassOpen(false);
+    setSyllabusDraft(draft); setAddClassChoice(null);
   };
   const approveReview = (draft: SyllabusDraft) => {
     const course = { ...draft.course, initials: draft.course.code.slice(0, 2).toUpperCase() };
@@ -1155,7 +1244,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
         if (!current.ready || current.dirty || profilePending || fileStore.busy || experimentalRestoring || aiApplying) return;
         autosave.stop();
         setExperimentalMenuOpen(false); setSidebarOpen(false); setOnboardingTest(true);
-      }} onNewReview={newReview} onOpenStudy={() => setStudyOpen(true)} />
+      }} onNewReview={() => createReview()} onOpenStudy={() => setStudyOpen(true)} />
 
       <header className="desktop-topbar">
         <TopbarSearch formRef={quickSearchRef} open={quickSearchOpen && Boolean(searchQuery.trim())} reducedMotion={profile.preferences.reducedMotion}
@@ -1251,7 +1340,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   onSelectAssignment={setSelectedAssignment}
   onSelectCourse={setSelectedClass}
   onAddAssignment={newAssignment}
-  onAddClass={() => setAddClassOpen(true)}
+  onAddClass={() => setAddClassChoice({})}
   onOpenAssistant={(question, conversationId, proposalId) => {
     if (nativeDocumentDialog) { navigate("assistant"); return; }
     setAssistantPrompt(question?.trim() || conversationId || proposalId ? { id: uid("assistant-prompt"), profileId: initialProfile.id, question: question?.trim() ?? "", send: false, conversationId, proposalId } : null);
@@ -1344,9 +1433,10 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }}
 />}
       <WorkspaceAcademicDialogs
-        classChoicePresence={{ key: `class-choice:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`, animateExit: !classSetup && !syllabusDraft && !profilePending && !experimentalRestoring }}
-        classChoice={addClassOpen ? { choiceRef: addClassChoiceRef, onClose: () => setAddClassOpen(false), onImportSyllabus: newReview, onManualEntry: () => transitionClassChoice((initialBounds) => { setClassSetup({ course: emptyCourse(uid("course")), profileId: profile.id, generation: workspaceLoadGeneration.current, initialBounds }); setAddClassOpen(false); }) } : undefined}
-        classSetupPresence={{ key: `class-setup:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`, animateExit: !profilePending && !experimentalRestoring }}
+        classChoicePresence={{ key: `class-choice:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`, animateExit: !classSetup && !classImport && !syllabusDraft && !profilePending && !experimentalRestoring }}
+        classChoice={addClassChoice ? { ...addClassChoice, onClose: () => setAddClassChoice(null), onImportSyllabus: openClassImport, onManualEntry: openManualClassSetup } : undefined}
+        classSyllabusImport={classImportDialog()}
+        classSetupPresence={{ key: `class-setup:${initialProfile.id}:${reloadAttempt}:${experimentalMode ?? "account"}`, animateExit: !addClassChoice && !profilePending && !experimentalRestoring }}
         classSetup={classSetupDialog()}
         academicEditor={editor ? { key: (editor.course ?? editor.assignment ?? editor.event)!.id, props: {
           initial: editor,
@@ -1733,7 +1823,9 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
     return { key: `${classSetup.profileId}:${classSetup.generation}:${classSetup.course.id}`, props: {
           initial: classSetup.course,
           initialDetails: classSetup.details,
-          initialAssignments: storedAssignments.filter((assignment) => assignment.courseId === classSetup.course.id),
+          initialAssignments: classSetup.importDraft?.assignments ?? storedAssignments.filter((assignment) => assignment.courseId === classSetup.course.id),
+          initialSyllabus: classSetup.initialSyllabus,
+          review: classSetup.importDraft,
           editing: classSetup.editing,
           savedImageId: image?.id,
           savedImageUrl: image ? fileStore.url(image) : undefined,
@@ -1742,9 +1834,24 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
           today: today,
           canUpload: canWriteFiles,
           onSave: saveClassSetup,
-          onClose: () => setClassSetup(null),
+          onClose: closeClassSetup,
+          onBack: !classSetup.editing && !classSetup.importDraft ? (initialBounds?: ClassSetupBounds) => {
+            closeClassSetup();
+            setAddClassChoice({ initialBounds, focusManualEntry: true });
+          } : undefined,
           onDelete: classSetup.editing ? () => removeClass(classSetup.course) : undefined
         } };
+  }
+
+  function classImportDialog() {
+    if (!classImport || profile.id !== initialProfile.id) return undefined;
+    const generation = workspaceLoadGeneration.current;
+    return { key: `${profile.id}:${generation}`, props: {
+      profileId: profile.id, canImport: saveState.ready && !experimentalMode && !profilePending,
+      initialBounds: classImport.initialBounds,
+      onReview: (file: File, draft: SyllabusImportDraft) => startImportedClass(generation, file, draft),
+      onBack: (initialBounds?: ClassSetupBounds) => { setClassImport(null); setAddClassChoice({ initialBounds }); },
+    } };
   }
 
 }

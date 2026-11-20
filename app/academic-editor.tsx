@@ -5,7 +5,7 @@ import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import CourseIcon from "./course-icon";
 import LocationInput from "./location-input";
 import "./course-icon-picker.css";
-import { assignmentStatus, assignmentTypes, dateLabel, emptyCourseDetails, eventTypes, validateCourse, validateCourseDetails, type Course, type CourseDetails } from "../lib/academics";
+import { assignmentStatus, assignmentTypes, dateLabel, emptyCourseDetails, eventTypes, validateCourse, validateCourseDetails, validateExamSchedule, type Course, type CourseDetails } from "../lib/academics";
 import type { SavedAssignment, SavedEvent } from "../lib/workspace-codec";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import AddTaskForm from "./add-task-form";
@@ -32,7 +32,7 @@ function ExistingAcademicEditor({ initial, courses, today, onApply, onClose, onD
   const changeDetails = (patch: Partial<CourseDetails>) => setDraft({ ...draft, details: { ...details, ...patch } });
   const changeItem = (patch: Partial<SavedAssignment & SavedEvent>) => {
     if (assignment && patch.status === "later" && assignment.pointsEarned != null && !window.confirm("Mark this task incomplete and clear its recorded score? Points possible will be kept.")) return;
-    setDraft(assignment ? { ...draft, assignment: { ...assignment, ...patch, ...(patch.courseId !== undefined && patch.courseId !== assignment.courseId ? { categoryId: undefined } : {}), ...(patch.status === "later" ? { pointsEarned: null } : {}), ...(patch.dateKey === "" ? { dueTime: "" } : {}) } } : { ...draft, event: { ...event!, ...patch } });
+    setDraft(assignment ? { ...draft, assignment: { ...assignment, ...patch, ...(patch.courseId !== undefined && patch.courseId !== assignment.courseId ? { categoryId: undefined } : {}), ...(patch.status === "later" ? { pointsEarned: null } : {}), ...(patch.dateKey === "" ? { dueTime: "", examStart: undefined, examEnd: undefined } : {}), ...(patch.type && patch.type !== "Exam" ? { examStart: undefined, examEnd: undefined, examLocation: undefined } : {}) } } : { ...draft, event: { ...event!, ...patch } });
   };
   const item = assignment ?? event;
   const field = (label: string, value: string | number, change: (value: string) => void, type = "text", required = false, maxLength = 160) => <label>{label}<input type={type} required={required} value={value} maxLength={maxLength} onChange={(e) => change(e.target.value)} /></label>;
@@ -41,7 +41,10 @@ function ExistingAcademicEditor({ initial, courses, today, onApply, onClose, onD
     try {
       let value = draft;
       if (course) value = { course: validateCourse({ ...course, initials: course.code.slice(0, 2).toUpperCase(), soft: `${course.color}18` }), details: validateCourseDetails(details) };
-      if (assignment) value = { assignment: { ...assignment, due: dateLabel(assignment.dateKey), status: assignmentStatus(assignment, today) } };
+      if (assignment) {
+        validateExamSchedule(assignment);
+        value = { assignment: { ...assignment, due: dateLabel(assignment.dateKey), status: assignmentStatus(assignment, today) } };
+      }
       if (!onApply(value)) setError("These changes could not be accepted. Check the workspace message and keep this draft.");
     } catch (err) { setError(err instanceof Error ? err.message : "Review these fields."); }
   }}>
@@ -49,6 +52,11 @@ function ExistingAcademicEditor({ initial, courses, today, onApply, onClose, onD
     <div className="settings-form-grid">
       {course && <>{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30)}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true)}{field("Credits", course.credits, (value) => changeCourse({ credits: Number(value) }), "number")}{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }))}<LocationInput value={course.room} onChange={(room) => changeCourse({ room })} />{field("Office hours", details.officeHours, (officeHours) => changeDetails({ officeHours }), "text", false, 2000)}{field("Class color", course.color, (color) => changeCourse({ color }), "color")}</>}
       {item && <>{field(assignment ? "Assignment title" : "Event name", item.title, (title) => changeItem({ title }), "text", true, 500)}<label>Class<select value={item.courseId} onChange={(e) => changeItem({ courseId: e.target.value })}><option value="">Personal</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}</select></label>{field(assignment ? "Due date" : "Event date", item.dateKey, (dateKey) => changeItem({ dateKey }), "date", !assignment)}{field(assignment ? "Due time (optional)" : "Time (blank for all day)", assignment ? assignment.dueTime ?? "" : event!.time, (time) => changeItem(assignment ? { dueTime: time } : { time }), "time")}<label>Type<select value={item.type ?? "Assignment"} onChange={(e) => changeItem({ type: e.target.value as SavedAssignment["type"] })}>{(assignment ? assignmentTypes : eventTypes).map((type) => <option key={type}>{type}</option>)}</select></label>{event && field("Duration in minutes (optional)", event.durationMinutes ?? "", (value) => changeItem({ durationMinutes: value ? Number(value) : undefined }), "number")}{assignment && field("Weight (optional)", assignment.weight, (weight) => changeItem({ weight }), "text", false, 100)}</>}
+      {assignment?.type === "Exam" && <>
+        {assignment.dateKey && field("Exam starts", assignment.examStart ?? "", (time) => changeItem({ examStart: time || undefined, ...(!time ? { examEnd: undefined } : {}) }), "time")}
+        {assignment.examStart && field("Exam ends", assignment.examEnd ?? "", (time) => changeItem({ examEnd: time || undefined }), "time")}
+        {field("Exam location", assignment.examLocation ?? "", (location) => changeItem({ examLocation: location || undefined }))}
+      </>}
     </div>
     {course && <fieldset className="course-icon-picker"><legend>Class icon</legend><div className="course-icon-options">{courseIconOptions.map((option) => <button key={option.id} type="button" aria-label={option.label} aria-pressed={(details.icon ?? DEFAULT_COURSE_ICON) === option.id} onClick={() => changeDetails({ icon: option.id })}>{option.id === "none" ? <Slash size={24} style={{ color: course.color }} aria-hidden="true" /> : <CourseIcon icon={option.id} size={24} style={{ color: course.color }} aria-hidden="true" />}</button>)}</div></fieldset>}
     {item && <label>Description<textarea maxLength={20000} value={item.description ?? ""} onChange={(e) => changeItem({ description: e.target.value })} /></label>}

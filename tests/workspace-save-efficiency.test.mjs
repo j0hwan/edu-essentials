@@ -237,3 +237,32 @@ test("stale workspace revisions return PT409 without writing the candidate snaps
     "select name from public.courses where profile_id=$1 and id='history'", [profileId],
   )).rows[0].name, "History");
 });
+
+test("a newly imported course, timed task, and staged PDF commit together", async (t) => {
+  const { pg, sql, profiles, revision, payload, courses, save } = await setup();
+  t.after(() => pg.close());
+  const profileId = profiles[USERS.a].id;
+  const fileId = crypto.randomUUID();
+  const courseId = crypto.randomUUID();
+  const metadata = {
+    name: "Econ1.pdf", mime: "application/pdf", size: 178300, sha256: "a".repeat(64),
+    kind: "syllabus", courseId: "", assignmentId: "",
+  };
+  await sql("select public.mutate_account_file($1,$2,$3,'reserve',null,$4)", [profileId, USERS.a, fileId, JSON.stringify(metadata)]);
+  const imported = { ...course(courseId, "Principles of Microeconomics"), code: "ECON 1" };
+  const nextCourses = [...await courses(profileId), imported];
+  const nextDashboard = dashboard({ [courseId]: { officeHours: "", meetings: [], syllabusFileId: fileId } });
+  nextDashboard.d.assignments = [{ id: "econ-final", courseId, type: "Exam", dateKey: "2026-12-11", examStart: "08:00", examEnd: "10:59" }];
+  const before = await revision(profileId);
+  await assert.rejects(save(profileId, USERS.a, nextDashboard, nextCourses, before), (error) => error.code === "23503");
+  assert.ok(!(await courses(profileId)).some(({ id }) => id === courseId));
+  assert.equal((await payload(profileId)).d.assignments.length, 0);
+  assert.equal(await revision(profileId), before);
+
+  await sql("select public.mutate_account_file($1,$2,$3,'ready')", [profileId, USERS.a, fileId]);
+  await save(profileId, USERS.a, nextDashboard, nextCourses, before);
+  assert.equal((await payload(profileId)).d.courseDetails[courseId].syllabusFileId, fileId);
+  assert.equal((await payload(profileId)).d.assignments[0].examEnd, "10:59");
+  const attached = (await sql("select course_id, mime_type from user_files where profile_id=$1 and id=$2", [profileId, fileId])).rows[0];
+  assert.deepEqual(attached, { course_id: courseId, mime_type: "application/pdf" });
+});

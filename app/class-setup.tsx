@@ -2,12 +2,13 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Plus, Slash, Trash2, X } from "lucide-react";
-import { addDays, assignmentTypes, dateLabel, emptyCourseDetails, isDate, isTime, validateCourse, validateCourseDetails, type Course, type CourseDetails, type Meeting } from "../lib/academics";
+import { addDays, assignmentTypes, dateLabel, emptyCourseDetails, isDate, isTime, validateCourse, validateCourseDetails, validateExamSchedule, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { mergeCourseworkAssignments, validateAssignmentGrading, validateGradingCategories } from "../lib/coursework";
 import type { SavedAssignment } from "../lib/workspace-codec";
 import { courseIconOptions, DEFAULT_COURSE_ICON } from "../lib/course-icons";
 import { courseImageFramingStyle, DEFAULT_COURSE_IMAGE_FRAMING, moveCourseImage, type CourseImageFraming } from "../lib/course-image-framing";
 import { MAX_FILE_BYTES } from "../lib/files";
+import type { ReviewSection, SyllabusImportDraft } from "../lib/syllabus-import";
 import CourseIcon from "./course-icon";
 import LocationInput from "./location-input";
 import ClassCardBody from "./class-card-body";
@@ -15,7 +16,7 @@ import ClassSetupDocumentPreview from "./class-setup-document-preview";
 import ClassCoursework from "./class-coursework";
 import ClassGradingCategories from "./class-grading-categories";
 import ClassSetupTitle from "./class-setup-title";
-import { useSaveProtection } from "./use-save-protection";
+import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
 import "./course-icon-picker.css";
 import "./class-setup.css";
@@ -37,22 +38,26 @@ const isMeetingComplete = (meeting: Meeting) => {
 };
 const hasMissingMeetingFields = (meeting: Meeting) => !meeting.days.length || [meeting.start, meeting.end, meeting.from, meeting.until, ...(meeting.excludedDates ?? [])].some((value) => !value.trim());
 
-export default function ClassSetup({ initial, initialDetails: savedDetails, initialAssignments = [], editing = false, savedImageId, savedImageUrl, savedSyllabusPreview, today, canUpload, onSave, onClose, onDelete, initialBounds }: {
+export default function ClassSetup({ initial, initialDetails: savedDetails, initialAssignments = [], initialSyllabus, review, editing = false, savedImageId, savedImageUrl, savedSyllabusPreview, today, canUpload, onSave, onClose, onBack, onDelete, initialBounds }: {
   initial: Course; today: string; canUpload: boolean;
   initialDetails?: CourseDetails;
   initialAssignments?: SavedAssignment[];
+  initialSyllabus?: ClassSetupUpload;
+  review?: Pick<SyllabusImportDraft, "alternatives" | "sources" | "warnings" | "creditsUnknown">;
   editing?: boolean;
   savedImageId?: string;
   savedImageUrl?: string;
   savedSyllabusPreview?: ReactNode;
   onSave: (course: Course, details: CourseDetails, uploads: ClassSetupUploads, assignments: SavedAssignment[]) => Promise<void>;
   onClose: () => void;
+  onBack?: (initialBounds?: ClassSetupBounds) => void;
   onDelete?: () => void;
   initialBounds?: ClassSetupBounds;
 }) {
   const creditsId = useId();
   const skipDatePickerId = useId();
   const [course, setCourse] = useState(initial);
+  const [creditsConfirmed, setCreditsConfirmed] = useState(!review?.creditsUnknown);
   const [initialDetails] = useState<CourseDetails>(() => {
     const draft = savedDetails ?? { ...emptyCourseDetails(), meetings: [{ id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: initial.room }] };
     return editing || draft.gradingCategories !== undefined ? draft : {
@@ -69,17 +74,18 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   const [checkedCategoryAllocation, setCheckedCategoryAllocation] = useState(false);
   const gradingCategories = details.gradingCategories ?? [];
   const categoryWeightTotal = gradingCategories.reduce((sum, category) => sum + category.weight, 0);
-  const categoryAllocationMissing = !editing && categoryWeightTotal !== 100;
+  const requireFullAllocation = !editing && !review;
+  const categoryAllocationMissing = requireFullAllocation ? categoryWeightTotal !== 100 : Boolean(review && categoryWeightTotal > 100.000001);
   const showCategoryAllocationError = checkedCategoryAllocation && categoryAllocationMissing;
-  const [uploads, setUploads] = useState<ClassSetupUploads>({});
+  const [uploads, setUploads] = useState<ClassSetupUploads>(() => initialSyllabus ? { syllabus: initialSyllabus } : {});
   const [imagePreview, setImagePreview] = useState("");
   const currentImagePreview = uploads.image ? imagePreview : savedImageUrl ?? "";
   const currentImageId = uploads.image?.id ?? savedImageId;
   const currentImageFraming = details.imageFraming && (!currentImageId || details.imageFraming.fileId === currentImageId)
     ? details.imageFraming : currentImageId ? { ...DEFAULT_COURSE_IMAGE_FRAMING, fileId: currentImageId } : undefined;
   const imageUrlRef = useRef("");
-  const [syllabusPreview, setSyllabusPreview] = useState("");
-  const syllabusUrlRef = useRef("");
+  const [syllabusPreviewAsset, setSyllabusPreviewAsset] = useState<{ file: File; url: string }>();
+  const syllabusPreview = syllabusPreviewAsset && syllabusPreviewAsset.file === uploads.syllabus?.file ? syllabusPreviewAsset.url : "";
   const hasSavedSyllabus = !details.syllabusDeleted && Boolean(savedSyllabusPreview || details.syllabusFileId || details.syllabusText || details.syllabusName);
   const hasCurrentSyllabus = Boolean(uploads.syllabus || hasSavedSyllabus);
   const currentSyllabusName = uploads.syllabus?.file.name ?? (details.syllabusDeleted ? undefined : details.syllabusName ?? (hasSavedSyllabus ? "Saved syllabus" : undefined));
@@ -96,6 +102,11 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   const focusMissingRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [attemptedSave, setAttemptedSave] = useState(false);
+  const [sourceOpenSection, setSourceOpenSection] = useState<ReviewSection>();
+  const showSyllabusFields = Boolean(review || savedDetails?.syllabusTerm !== undefined || savedDetails?.syllabusNotes !== undefined);
+  const reviewSection = (["info", "schedule", "categories", "tasks"] as const)[step] as ReviewSection | undefined;
+  const reviewNotes = review?.warnings.filter((warning) => warning.step === reviewSection) ?? [];
+  const sourcePages = review && reviewSection ? review.sources[reviewSection] : [];
   const saving = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const transition = useClassSetupMotion(formRef, step, initialBounds);
@@ -104,7 +115,18 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   const closeRef = useRef<() => void>(() => {});
   const dirty = JSON.stringify(course) !== JSON.stringify(initial) || JSON.stringify(details) !== JSON.stringify(initialDetails) || assignmentDraftJson(assignments) !== assignmentDraftJson(originalAssignments) || Boolean(uploads.image || uploads.syllabus);
   useSaveProtection(dirty || busy);
-  const close = () => { if (!formRef.current?.closest("[data-modal-exiting]") && !saving.current && (!dirty || window.confirm("Discard this class setup? Selected files have not been uploaded unless you already tried saving."))) onClose(); };
+  const close = (leave = onClose) => {
+    if (formRef.current?.closest("[data-modal-exiting], [inert]") || saving.current) return;
+    if (dirty && !window.confirm(review ? "Discard this syllabus review?" : "Discard this class setup? Selected files have not been uploaded unless you already tried saving.")) return;
+    leave();
+  };
+  const goBack = () => {
+    if (step) {
+      transition(() => { setStep(step - 1); setError(""); });
+      return;
+    }
+    close(onBack ? () => transition(onBack) : onClose);
+  };
   useEffect(() => { closeRef.current = close; });
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -112,7 +134,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
       if (event.key !== "Tab") return;
-      const controls = [...(formRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not(.class-setup-hidden-input), select:not(:disabled), textarea:not(:disabled), iframe, a[href], [tabindex="0"]') ?? [])];
+      const controls = [...(formRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not(.class-setup-hidden-input), select:not(:disabled), textarea:not(:disabled), summary, iframe, a[href], [tabindex="0"]') ?? [])];
       const first = controls[0], last = controls[controls.length - 1];
       if (!first) { event.preventDefault(); formRef.current?.focus(); return; }
       if (!formRef.current?.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
@@ -137,8 +159,15 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   }, [details.meetings]);
   useEffect(() => () => {
     if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
-    if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current);
   }, []);
+  useEffect(() => {
+    const file = uploads.syllabus?.file;
+    if (!file) return;
+    const url = URL.createObjectURL(file.slice(0, file.size, "application/pdf"));
+    let active = true;
+    queueMicrotask(() => { if (active) setSyllabusPreviewAsset({ file, url }); });
+    return () => { active = false; URL.revokeObjectURL(url); };
+  }, [uploads.syllabus?.file]);
   useEffect(() => {
     if (!currentImagePreview) return;
     const image = new window.Image();
@@ -251,18 +280,11 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
       setImagePreview(imageUrlRef.current);
       setImageSize(null);
       setDetails((current) => ({ ...current, imageFraming: { ...DEFAULT_COURSE_IMAGE_FRAMING, fileId: id } }));
-    } else {
-      if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current);
-      syllabusUrlRef.current = URL.createObjectURL(/\.pdf$/i.test(file.name) ? file.slice(0, file.size, "application/pdf") : file);
-      setSyllabusPreview(syllabusUrlRef.current);
     }
     setUploads((current) => ({ ...current, [kind]: { file, id } }));
   };
   const removeSyllabus = () => {
-    if (!canUpload || busy || attemptedSave) return;
-    if (syllabusUrlRef.current) URL.revokeObjectURL(syllabusUrlRef.current);
-    syllabusUrlRef.current = "";
-    setSyllabusPreview("");
+    if (!canUpload || busy || attemptedSave || review) return;
     setUploads((current) => ({ ...current, syllabus: undefined }));
     if (hasSavedSyllabus || details.syllabusDeleted) {
       setDetails((current) => ({ ...current, syllabusDeleted: true, syllabusText: undefined, syllabusName: undefined, syllabusFileId: undefined }));
@@ -283,6 +305,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
       if (assignment.description.length > 20000) throw new Error(`Shorten the description for ${assignment.title}.`);
       if ((assignment.dateKey && !isDate(assignment.dateKey)) || (assignment.dueTime && (!assignment.dateKey || !isTime(assignment.dueTime)))) throw new Error(`Set a valid due date and time for ${assignment.title}, or leave both blank.`);
       if (assignment.type !== undefined && !assignmentTypes.includes(assignment.type)) throw new Error(`Choose a task type for ${assignment.title}.`);
+      validateExamSchedule(assignment);
       if (assignment.categoryId && !categoryIds.has(assignment.categoryId)) throw new Error(`Choose a category for ${assignment.title}, or leave it uncategorized.`);
       if (assignment.status === "done" && assignment.progress !== 100) throw new Error(`Completed tasks must have 100% progress: ${assignment.title}.`);
       validateAssignmentGrading(assignment);
@@ -292,6 +315,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   };
   const canAdvance = () => {
     try {
+      if (!creditsConfirmed) return false;
       validateCourseDraft();
       if (step >= 1) validateSchedule();
       if (step >= 2) {
@@ -312,10 +336,11 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
     if (saving.current || formRef.current?.closest("[data-modal-exiting]")) return;
     setError("");
     setCheckedSteps((current) => current.includes(step) ? current : [...current, step]);
-    if (!course.code.trim() || !course.name.trim()) {
+    if (!course.code.trim() || !course.name.trim() || !creditsConfirmed) {
       setCheckedSteps((current) => current.includes(0) ? current : [...current, 0]);
       setStep(0);
       focusMissingRef.current = true;
+      if (!creditsConfirmed) setError("Enter the course credits to confirm the value.");
       return;
     }
     try {
@@ -341,6 +366,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
         if (categoryAllocationMissing) {
           setCheckedCategoryAllocation(true);
           setStep(2);
+          if (review) setError("Grading weights must add up to 100% or less.");
           return;
         }
         setCheckedCategoryAllocation(false);
@@ -395,7 +421,30 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
       <button type="button" className="secondary-button" disabled={busy} aria-label="Close class setup" onClick={close}><X size={18} /></button>
     </div>
     <div className="class-setup-scroll"><fieldset className="class-setup-body" disabled={busy}>
-      {step === 0 && <div className="settings-form-grid class-setup-info-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30, "ECON001")}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true, 160, "Principles of Microeconomics")}<div className="class-setup-credits-field"><label htmlFor={creditsId}>Credits</label><input id={creditsId} type="number" min={0} max={30} step={1} value={course.credits} onChange={(event) => changeCourse({ credits: Number(event.target.value) })} /></div>{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }), "text", false, 160, "Dr. John Smith")}<label className="class-setup-meeting-notes">Meeting Notes<input type="text" maxLength={2000} value={details.meetingNotes ?? ""} onChange={(event) => setDetails({ ...details, meetingNotes: event.target.value })} /></label></div>}
+      {review && reviewSection && <section className="class-setup-import-review" aria-label="Syllabus review">
+        <details key={reviewSection} onToggle={(event) => setSourceOpenSection(event.currentTarget.open ? reviewSection : undefined)}>
+          <summary>Review source PDF{sourcePages.length ? ` · ${sourcePages.length === 1 ? "page" : "pages"} ${sourcePages.join(", ")}` : ""}</summary>
+          {syllabusPreview && <p>{sourcePages.map((page) => <a key={page} href={`${syllabusPreview}#page=${page}`} target="_blank" rel="noopener noreferrer">Page {page}</a>)}</p>}
+          {sourceOpenSection === reviewSection && uploads.syllabus && <ClassSetupDocumentPreview file={uploads.syllabus.file} url={syllabusPreview} />}
+        </details>
+        {reviewNotes.length > 0 && <ul>{reviewNotes.map((note, index) => <li key={index}>{note.message}{note.pages.length ? ` (p. ${note.pages.join(", ")})` : ""}</li>)}</ul>}
+      </section>}
+      {step === 0 && <div className="settings-form-grid class-setup-info-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30, "ECON001")}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true, 160, "Principles of Microeconomics")}<div className="class-setup-credits-field"><label htmlFor={creditsId}>Credits</label><input id={creditsId} type="number" min={0} max={30} step={1} value={creditsConfirmed ? course.credits : ""} aria-invalid={!creditsConfirmed && checkedSteps.includes(0) || undefined} onChange={(event) => { setCreditsConfirmed(!review || event.target.value !== ""); changeCourse({ credits: Number(event.target.value) }); }} />{review?.creditsUnknown && !creditsConfirmed && <p className="form-hint">Check your course listing for credits.</p>}</div>{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }), "text", false, 160, "Dr. John Smith")}<label className="class-setup-meeting-notes">Meeting Notes<input type="text" maxLength={2000} value={details.meetingNotes ?? ""} onChange={(event) => setDetails({ ...details, meetingNotes: event.target.value })} /></label>{showSyllabusFields && <>
+        {field("Class term", details.syllabusTerm ?? "", (syllabusTerm) => setDetails((current) => ({ ...current, syllabusTerm })))}
+        {field("Default location", course.room, (room) => changeCourse({ room }))}
+        {field("Office hours", details.officeHours, (officeHours) => setDetails((current) => ({ ...current, officeHours })), "text", false, 2000)}
+        <label className="class-setup-meeting-notes">Syllabus notes<textarea maxLength={20000} rows={6} value={details.syllabusNotes ?? ""} onChange={(event) => setDetails((current) => ({ ...current, syllabusNotes: event.target.value }))} /></label>
+      </>}</div>}
+      {step === 1 && !!review?.alternatives.length && <fieldset className="class-setup-discussion-options"><legend>Section options</legend>
+        {review.alternatives.map(({ meeting, timing, pages }) => {
+          const selected = details.meetings.some((item) => item.id === meeting.id);
+          return <label key={meeting.id} aria-label={meeting.name}><input type="checkbox" checked={selected} disabled={!selected && details.meetings.length >= 30} onChange={(event) => {
+            if (!event.target.checked) { removeMeeting(meeting.id); return; }
+            setDetails((current) => ({ ...current, meetings: [...current.meetings, meeting] }));
+            setSelectedMeetingId(meeting.id);
+          }} /><span><strong>{meeting.name}</strong><small>{[meeting.days.map((day) => weekdays[day].slice(0, 3)).join(", "), meeting.start && `${formatMeetingTime(meeting.start)}–${formatMeetingTime(meeting.end)}`, meeting.location, timing, pages.length ? `p. ${pages.join(", ")}` : ""].filter(Boolean).join(" · ")}</small></span></label>;
+        })}
+      </fieldset>}
       {step === 1 && <div className="class-setup-schedule">
         <aside className="class-setup-meetings" aria-label="Class meetings">
           <div className="class-setup-meeting-list">
@@ -451,7 +500,8 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
       {step === 2 && <ClassGradingCategories
         categories={gradingCategories}
         weightTotal={categoryWeightTotal}
-        requireFullAllocation={!editing}
+        requireFullAllocation={requireFullAllocation}
+        allowDecimals={Boolean(review || showSyllabusFields)}
         showAllocationError={showCategoryAllocationError}
         onChange={(gradingCategories) => setDetails((current) => ({ ...current, gradingCategories }))}
         onWeightEdit={() => setCheckedCategoryAllocation(false)}
@@ -499,28 +549,29 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
               <label className="class-setup-syllabus-upload-surface">
                 <FileText size={24} aria-hidden="true" />
                 {hasCurrentSyllabus
-                  ? <span className="class-setup-syllabus-upload-details"><strong className="class-setup-syllabus-upload-title">Upload Successful</strong><small className="class-setup-syllabus-upload-name" title={currentSyllabusName}>{currentSyllabusName}</small></span>
+                  ? <span className="class-setup-syllabus-upload-details"><strong className="class-setup-syllabus-upload-title">{review ? "Original syllabus" : "Upload Successful"}</strong><small className="class-setup-syllabus-upload-name" title={currentSyllabusName}>{currentSyllabusName}</small></span>
                   : <span className="class-setup-syllabus-upload-details"><strong className="class-setup-syllabus-upload-title">Upload your syllabus</strong><small>PDF only · Up to 25 MiB</small></span>}
-                <input aria-label="Syllabus (optional)" type="file" accept=".pdf,application/pdf" disabled={!canUpload || busy} onChange={(event) => { selectFile("syllabus", event.target.files?.[0]); event.target.value = ""; }} />
+                {!review && <input aria-label="Syllabus (optional)" type="file" accept=".pdf,application/pdf" disabled={!canUpload || busy} onChange={(event) => { selectFile("syllabus", event.target.files?.[0]); event.target.value = ""; }} />}
               </label>
-              {hasCurrentSyllabus && <button type="button" className="class-setup-syllabus-remove" aria-label="Remove syllabus" title="Remove syllabus" disabled={!canUpload || busy || attemptedSave} onClick={(event) => { event.preventDefault(); event.stopPropagation(); removeSyllabus(); }}><X size={14} aria-hidden="true" /></button>}
+              {!review && hasCurrentSyllabus && <button type="button" className="class-setup-syllabus-remove" aria-label="Remove syllabus" title="Remove syllabus" disabled={!canUpload || busy || attemptedSave} onClick={(event) => { event.preventDefault(); event.stopPropagation(); removeSyllabus(); }}><X size={14} aria-hidden="true" /></button>}
             </div>
             <div className="class-setup-document-preview" role="region" aria-label="Syllabus preview">
               {uploads.syllabus ? <ClassSetupDocumentPreview key={uploads.syllabus.id} file={uploads.syllabus.file} url={syllabusPreview} />
                 : !details.syllabusDeleted && (savedSyllabusPreview || details.syllabusText) ? <div className="class-setup-document-content">{savedSyllabusPreview ?? <pre>{details.syllabusText}</pre>}</div>
                   : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>{!details.syllabusDeleted && details.syllabusFileId ? "Saved syllabus unavailable" : <>Your document preview<br />appears here</>}</p>{!details.syllabusDeleted && details.syllabusFileId && <span>Your attachment is preserved. Upload a replacement to change it.</span>}</div>}
             </div>
-            <p className="form-hint">Storage only. Uploading will not affect course</p>
+            <p className="form-hint">{review ? "The original PDF will be attached when you create the class." : "Storage only. Uploading will not affect course"}</p>
           </fieldset>
         </div>
         {!canUpload && <p className="form-hint">File uploads are unavailable until your workspace is saved. You can still {editing ? "save" : "create"} this class and attach files later.</p>}
       </>}
     </fieldset></div>
     {error && <p role="alert" className="auth-error">{error}</p>}
-    {attemptedSave && !busy && error && <p className="form-hint">Selected files are locked for safe retries because some attachments may already be saved. Retry to finish, or close setup and manage saved attachments from the class files.</p>}
+    {attemptedSave && !busy && error && !review && <p className="form-hint">Selected files are locked for safe retries because some attachments may already be saved. Retry to finish, or close setup and manage saved attachments from the class files.</p>}
     <div className="modal-actions class-setup-actions">
-      <button type="button" className="secondary-button" disabled={busy} onClick={() => { if (step) { transition(() => { setStep(step - 1); setError(""); }); } else close(); }}>{step ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button>
+      <button type="button" className="secondary-button" disabled={busy} onClick={goBack}>{step || onBack ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button>
       <span className="class-setup-step-count">{step + 1} / {steps.length}</span>
+      {review && error && <button type="button" className="secondary-button" disabled={busy} onClick={() => downloadDraft("eduessentials-syllabus-review.json", { course, details, assignments })}>Download review</button>}
       {onDelete && <button type="button" className="secondary-button" aria-label="Delete class" title="Delete class" disabled={busy || attemptedSave} onClick={onDelete}><Trash2 size={18} aria-hidden="true" /></button>}
       <button type="submit" className={highlightSubmit ? "primary-button" : "secondary-button"} data-class-setup-advance={!editing && !isFinalStep ? true : undefined} disabled={busy}>
         {busy ? "Saving class…" : isFinalStep ? (editing ? "Save class" : "Create class") : <>{advanceLabel}<ArrowRight size={16} /></>}

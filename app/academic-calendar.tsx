@@ -87,7 +87,7 @@ export default function AcademicCalendar({ courses, assignments, events, details
     const matches = (id: string) => filter === "all" || (filter === "personal" ? id === "" : id === filter);
     const courseMap = new Map(courses.map((course) => [course.id, course]));
     const put = (item: Item) => { if (visibleKinds[item.kind]) result.set(item.date, [...(result.get(item.date) ?? []), item]); };
-    for (const a of assignments) if (a.dateKey && matches(a.courseId)) put({ id: `assignment-${a.id}`, date: a.dateKey, time: a.dueTime ?? "", title: a.title, subtitle: courseMap.get(a.courseId)?.code ?? "Personal", color: "#ffcf62", kind: "deadline", allDay: true, done: a.status === "done", source: a });
+    for (const a of assignments) if (a.dateKey && matches(a.courseId)) put({ id: `assignment-${a.id}`, date: a.dateKey, time: a.examStart ?? a.dueTime ?? "", endTime: a.examEnd, title: a.title, subtitle: [courseMap.get(a.courseId)?.code ?? "Personal", a.examLocation].filter(Boolean).join(" · "), color: "#ffcf62", kind: "deadline", allDay: !a.examStart, done: a.status === "done", source: a });
     for (const e of events) if (matches(e.courseId)) {
       const endMinutes = e.time && e.durationMinutes ? timeMinutes(e.time) + e.durationMinutes : undefined;
       const endTime = endMinutes === undefined ? undefined : `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
@@ -136,7 +136,7 @@ export default function AcademicCalendar({ courses, assignments, events, details
   const itemLabel = (item: Item) => `${item.title}, ${calendarTime(item.time)}${item.endTime ? ` – ${calendarTime(item.endTime)}` : ""}, ${item.subtitle}${item.done ? ", completed" : ""}`;
   const sidebarRow = (item: Item, upcomingRow = false) => <button key={`${item.date}-${item.id}`} className={`planner-agenda-item ${item.done ? "is-complete" : ""}`} style={itemStyle(item)} onClick={() => open(item)}>
     <time>{upcomingRow ? dateLabel(item.date, { weekday: "short", month: "short", day: "numeric" }) : calendarTime(item.time)}</time>
-    <span className="planner-agenda-copy"><i className="planner-dot" /><strong>{item.title}</strong><small>{upcomingRow ? `${calendarTime(item.time)} · ` : ""}{item.subtitle}</small>{item.kind === "deadline" && <em>{item.done ? "Done" : "Due"}</em>}</span>
+    <span className="planner-agenda-copy"><i className="planner-dot" /><strong>{item.title}</strong><small>{upcomingRow || !item.allDay ? `${calendarTime(item.time)}${item.endTime ? `–${calendarTime(item.endTime)}` : ""} · ` : ""}{item.subtitle}</small>{item.kind === "deadline" && <em>{item.done ? "Done" : "Due"}</em>}</span>
   </button>;
 
   return <div className="page calendar-page planner-page">

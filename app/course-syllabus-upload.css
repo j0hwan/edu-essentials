@@ -1,6 +1,7 @@
 .course-syllabus-upload.small-modal { width: min(100%, 640px); padding: 26px; }
-.course-syllabus-upload .modal-header { align-items: center; margin-bottom: 24px; }
-.course-syllabus-upload .modal-header h2 { font-size: 20px; }
+.course-syllabus-upload.small-modal.class-syllabus-import { width: min(100%, 600px); }
+.class-syllabus-import .modal-actions { justify-content: space-between; }
+.course-syllabus-upload .modal-header { margin-bottom: 24px; }
 .course-syllabus-upload .modal-header > div > p { margin-top: 6px; font-size: 12px; }
 .course-syllabus-upload .modal-header .icon-button { flex-shrink: 0; }
 .course-syllabus-dropzone { display: flex; min-height: 280px; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 30px 20px; border: 2px dashed var(--border-strong); border-radius: 16px; background: var(--surface-2); text-align: center; transition: border-color 160ms ease, background-color 160ms ease; }

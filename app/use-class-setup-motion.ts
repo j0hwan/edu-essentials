@@ -74,7 +74,14 @@ export function useClassSetupMotion(panelRef: RefObject<HTMLElement | null>, rev
     });
     observer?.observe(panel);
     for (const child of panel.children) observer?.observe(child);
-    const onResize = () => { cancel(); measure(); };
+    const onResize = () => {
+      if (pendingRef.current) {
+        boundsRef.current = getPanelBounds(panel);
+        return;
+      }
+      cancel();
+      measure();
+    };
     window.addEventListener("resize", onResize);
     return () => {
       disposed = true;

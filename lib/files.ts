@@ -1,5 +1,9 @@
+import { PersistenceRequestError } from "./persistence-request";
+
 export const FILE_BUCKET = "eduessentials-private";
 export const MAX_FILE_BYTES = 26_214_400;
+export const MAX_SYLLABUS_IMPORT_MIB = 12;
+export const MAX_SYLLABUS_IMPORT_BYTES = MAX_SYLLABUS_IMPORT_MIB * 1024 * 1024;
 export const fileKinds = ["resource", "syllabus", "class-image", "attachment"] as const;
 export type FileKind = typeof fileKinds[number];
 export type PrivateFile = {
@@ -44,12 +48,23 @@ export function fileMetadata(value: unknown): FileMetadata {
     ...(v.folderId === undefined ? {} : { folderId: v.folderId === null || v.folderId === "" ? null : v.folderId as string }),
   };
 }
-export async function readFileBytes(request: Request): Promise<Uint8Array> {
-  if (Number(request.headers.get("content-length")) > MAX_FILE_BYTES) throw new Error("Files must be 25 MiB or smaller.");
+export async function readFileBytes(request: Request, maxBytes = MAX_FILE_BYTES): Promise<Uint8Array> {
+  const tooLarge = () => new PersistenceRequestError(`Files must be ${maxBytes / (1024 * 1024)} MiB or smaller.`, 413);
+  if (Number(request.headers.get("content-length")) > maxBytes) throw tooLarge();
   const reader = request.body?.getReader(); if (!reader) throw new Error("Choose a file to upload.");
   const chunks: Uint8Array[] = []; let size = 0;
-  try { while (true) { const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > MAX_FILE_BYTES) { await reader.cancel(); throw new Error("Files must be 25 MiB or smaller."); } chunks.push(value); } }
-  finally { reader.releaseLock(); }
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        throw tooLarge();
+      }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
   const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; } return bytes;
 }
 export function detectedMime(bytes: Uint8Array, name: string) {

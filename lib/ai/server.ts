@@ -11,6 +11,8 @@ import { GeminiProvider, ProviderError, type Content } from "./provider";
 import { runAssistant } from "./runner";
 import { buildProposal, type AcademicContext } from "./academic-tools";
 import { searchAcademicDocuments } from "./retrieval";
+import { extractSyllabusDraft, readSyllabusDocument, SYLLABUS_MAX_OUTPUT_TOKENS } from "./syllabus-import";
+import { dayKey } from "../academics";
 
 const uuid = z.string().uuid();
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "private, no-store" } });
@@ -75,6 +77,23 @@ export async function aiRoute(request: Request, resource: string): Promise<Respo
       if (body.enabled && (!config.enabled || !config.allowlist.includes(profile.id) || !body.adultConfirmed || (profile.age !== null && profile.age < 18) || (config.mode !== "paid" && !body.syntheticConfirmed))) fail("This account is not eligible for AI access.", 403);
       const result = await db.from("ai_access").upsert({ profile_id: profile.id, enabled: body.enabled, adult_confirmed: body.adultConfirmed, synthetic_confirmed: body.syntheticConfirmed, updated_at: new Date().toISOString() }); check(result.error);
       return json({ ok: true });
+    }
+    if (resource === "syllabus-import") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      await access(profile);
+      const document = await readSyllabusDocument(request);
+      await access(profile);
+      const start = Date.now();
+      await reserve(profile.id, document.inputTokens + SYLLABUS_MAX_OUTPUT_TOKENS, (document.inputTokens * config.inputUsd + SYLLABUS_MAX_OUTPUT_TOKENS * config.outputUsd) / 1000000);
+      const provider = new GeminiProvider(config.apiKey, config.model);
+      const draft = await extractSyllabusDraft({ generateDocument: async (...args) => {
+        const result = await provider.generateDocument(...args);
+        const logged = await db.from("ai_metrics").insert({ profile_id: profile.id, request_id: crypto.randomUUID(), model: config.model, input_tokens: result.inputTokens, output_tokens: result.outputTokens, latency_ms: Date.now() - start });
+        check(logged.error);
+        return result;
+      } }, document, dayKey(new Date(), profile.timezone), request.signal);
+      await access(profile);
+      return json(draft);
     }
     await access(profile);
     if (resource === "conversations") {

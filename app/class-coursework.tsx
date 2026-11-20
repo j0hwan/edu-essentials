@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown, ClipboardList, Plus, Trash2 } from "lucide-react";
-import { assignmentStatus, assignmentTypes, dateLabel, isDate, isTime } from "../lib/academics";
+import { assignmentStatus, assignmentTypes, dateLabel, isDate, isTime, validateExamSchedule } from "../lib/academics";
 import type { GradingCategory } from "../lib/coursework";
 import type { SavedAssignment } from "../lib/workspace-codec";
 import "./class-coursework.css";
@@ -15,6 +15,10 @@ const hasInvalidPoints = (assignment: SavedAssignment) =>
   (assignment.pointsPossible != null && (!Number.isFinite(assignment.pointsPossible) || assignment.pointsPossible <= 0 || assignment.pointsPossible > 1e9)) ||
   (assignment.pointsEarned != null && (!Number.isFinite(assignment.pointsEarned) || assignment.pointsEarned < 0 || assignment.pointsEarned > 1e9 || assignment.pointsPossible == null || assignment.status !== "done"));
 const enterGuard = (event: React.KeyboardEvent<HTMLInputElement>) => { if (event.key === "Enter") event.preventDefault(); };
+const invalidExam = (assignment: SavedAssignment) => {
+  try { validateExamSchedule(assignment); return false; }
+  catch { return true; }
+};
 
 export default function ClassCoursework({ courseId, today, categories, assignments, onAssignmentsChange, manualEntry = false, disabled = false, showErrors = false, validationAttempt = 0 }: Props) {
   const prefix = useId();
@@ -51,7 +55,7 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
   if (showErrors && handledValidation !== validationAttempt) {
     setHandledValidation(validationAttempt);
     const invalid = courseAssignments.find((assignment) => titleMissing(assignment) || (assignment.dateKey && !isDate(assignment.dateKey)) ||
-      (manualEntry && assignment.dueTime && (!assignment.dateKey || !isTime(assignment.dueTime))) || hasInvalidPoints(assignment));
+      (manualEntry && assignment.dueTime && (!assignment.dateKey || !isTime(assignment.dueTime))) || hasInvalidPoints(assignment) || invalidExam(assignment));
     if (invalid) {
       setSelected("all");
       setEditingId(invalid.id);
@@ -85,21 +89,30 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
     const edit = (patch: Partial<SavedAssignment>) => updateAssignment(assignment.id, patch);
     const pointsInvalid = showErrors && hasInvalidPoints(assignment);
     const gradeReceived = assignment.pointsEarned != null;
-    const earnedScore = Number.isFinite(assignment.pointsEarned) ? assignment.pointsEarned : "";
+    const earnedScore = typeof assignment.pointsEarned === "number" && Number.isFinite(assignment.pointsEarned) ? assignment.pointsEarned : "";
     const title = <label className="class-coursework-wide">{manualEntry ? "Task Title" : "Assignment title"}<input data-task-title={assignment.id} data-coursework-focus={`title:${assignment.id}`} maxLength={500} value={assignment.title} aria-invalid={showErrors && titleMissing(assignment)} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => edit({ title: event.target.value })} /></label>;
     const description = <label className="class-coursework-wide">{manualEntry ? "Task Description" : "Description"}<textarea maxLength={20000} value={assignment.description} disabled={disabled} onChange={(event) => edit({ description: event.target.value })} /></label>;
     const dueDate = <label>{manualEntry ? "Due Date" : "Due date"}<input type="date" value={assignment.dateKey || ""} aria-invalid={manualEntry && showErrors && Boolean(assignment.dateKey) && !isDate(assignment.dateKey) || undefined} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => {
       const dateKey = event.target.value;
-      const dueTime = manualEntry && !assignment.dateKey ? defaultDueTime : assignment.dueTime;
-      edit({ dateKey, due: dateKey && isDate(dateKey) ? dateLabel(dateKey) : "", status: assignment.status === "done" ? "done" : assignmentStatus({ status: "later", dateKey }, today), dueTime: dateKey ? dueTime : "" });
+      const dueTime = manualEntry && assignment.type !== "Exam" && !assignment.dateKey ? defaultDueTime : assignment.dueTime;
+      edit({ dateKey, due: dateKey && isDate(dateKey) ? dateLabel(dateKey) : "", status: assignment.status === "done" ? "done" : assignmentStatus({ status: "later", dateKey }, today), dueTime: dateKey ? dueTime : "",
+        ...(!dateKey ? { examStart: undefined, examEnd: undefined } : {}) });
     }} /></label>;
     const dueTime = <label>{manualEntry ? "Due Time" : "Due time"}<input type="time" value={assignment.dateKey ? assignment.dueTime ?? "" : ""} aria-invalid={manualEntry && showErrors && Boolean(assignment.dateKey && assignment.dueTime) && !isTime(assignment.dueTime ?? "") || undefined} disabled={disabled || !assignment.dateKey} onKeyDown={enterGuard} onChange={(event) => edit({ dueTime: event.target.value || undefined })} /></label>;
     const selectField = (label: string, control: React.ReactNode) => <label>{label}{manualEntry ? <span className="class-coursework-select">
       {control}<ChevronDown size={16} aria-hidden="true" />
     </span> : control}</label>;
-    const type = selectField("Type", <select aria-label="Type" value={assignment.type ?? "Assignment"} disabled={disabled} onChange={(event) => edit({ type: event.target.value as SavedAssignment["type"] })}>
+    const type = selectField("Type", <select aria-label="Type" value={assignment.type ?? "Assignment"} disabled={disabled} onChange={(event) => {
+      const type = event.target.value as SavedAssignment["type"];
+      edit({ type, ...(type !== "Exam" ? { examStart: undefined, examEnd: undefined, examLocation: undefined } : {}) });
+    }}>
       {assignmentTypes.map((option) => <option key={option}>{option}</option>)}
     </select>);
+    const examFields = assignment.type === "Exam" && <>
+      <label>Exam starts<input type="time" value={assignment.examStart ?? ""} aria-invalid={showErrors && invalidExam(assignment) || undefined} disabled={disabled || !assignment.dateKey} onKeyDown={enterGuard} onChange={(event) => edit({ examStart: event.target.value || undefined, ...(!event.target.value ? { examEnd: undefined } : {}) })} /></label>
+      <label>Exam ends<input type="time" value={assignment.examEnd ?? ""} aria-invalid={showErrors && invalidExam(assignment) || undefined} disabled={disabled || !assignment.examStart} onKeyDown={enterGuard} onChange={(event) => edit({ examEnd: event.target.value || undefined })} /></label>
+      <label className="class-coursework-wide">Exam location<input value={assignment.examLocation ?? ""} maxLength={160} disabled={disabled} onKeyDown={enterGuard} onChange={(event) => edit({ examLocation: event.target.value || undefined })} /></label>
+    </>;
     const categoryLabel = manualEntry ? "Weight Category" : "Category";
     const category = selectField(categoryLabel, <select aria-label={categoryLabel} value={assignment.categoryId ?? ""} disabled={disabled || (manualEntry && !categories.length)} onChange={(event) => { edit({ categoryId: event.target.value || undefined }); setSelected("all"); }}>
       <option value="">Uncategorized</option>
@@ -118,12 +131,12 @@ export default function ClassCoursework({ courseId, today, categories, assignmen
     </>;
 
     if (manualEntry) return <div key={assignment.id} className="class-coursework-editor">
-      {title}{description}{dueDate}{dueTime}{type}{category}
+      {title}{description}{dueDate}{dueTime}{type}{category}{examFields}
       <div className="class-coursework-grading-fields class-coursework-wide">{grading}</div>
     </div>;
 
     return <div className="class-coursework-editor" id={`${prefix}-${assignment.id}`}>
-      {title}{type}{category}{dueDate}{dueTime}{description}{grading}
+      {title}{type}{category}{dueDate}{dueTime}{examFields}{description}{grading}
       <div className="class-coursework-editor-actions">
         <button type="button" onClick={() => { pendingControlFocus.current = `task:${assignment.id}`; setEditingId(null); }}>Done editing</button>
         {removeId === assignment.id ? removeConfirmation(assignment) : <button type="button" data-coursework-focus={`remove-task:${assignment.id}`} disabled={disabled} onClick={() => requestRemove(assignment.id)}>Remove task</button>}

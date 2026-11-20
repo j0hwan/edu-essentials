@@ -4,7 +4,7 @@ import { validateGradingCategories, type GradingCategory } from "./coursework";
 
 export type Course = { id: string; code: string; name: string; credits: number; instructor: string; room: string; color: string; soft: string; initials: string };
 export type Meeting = { id: string; name?: string; days: number[]; start: string; end: string; from: string; until: string; location: string; excludedDates?: string[] };
-export type CourseDetails = { officeHours: string; meetingNotes?: string; meetings: Meeting[]; icon?: CourseIconId; imageFraming?: CourseImageFraming; syllabusText?: string; syllabusName?: string; syllabusFileId?: string; syllabusDeleted?: boolean; gradingCategories?: GradingCategory[] };
+export type CourseDetails = { officeHours: string; meetingNotes?: string; meetings: Meeting[]; icon?: CourseIconId; imageFraming?: CourseImageFraming; syllabusText?: string; syllabusName?: string; syllabusFileId?: string; syllabusDeleted?: boolean; syllabusTerm?: string; syllabusNotes?: string; gradingCategories?: GradingCategory[] };
 export type ReviewItem = { id: string; title: string; date: string; type: "Assignment" | "Exam" | "Project"; description: string; weight: string };
 export type SyllabusDraft = { id: string; sourceText: string; sourceName: string; sourceFileId?: string; course: Course; items: ReviewItem[] };
 export const assignmentTypes = ["Assignment", "Exam", "Project"] as const;
@@ -14,6 +14,15 @@ export const emptyCourseDetails = (): CourseDetails => ({ officeHours: "", meeti
 export function isDate(value: string) { const date = new Date(`${value}T12:00:00Z`); return /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= "1900-01-01" && value <= "2200-12-31" && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value; }
 export function meetingOccursOn(meeting: Meeting, date: string) { return isDate(date) && date >= meeting.from && date <= meeting.until && meeting.days.includes(new Date(`${date}T12:00:00Z`).getUTCDay()) && !(meeting.excludedDates ?? []).includes(date); }
 export function isTime(value: string) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(value); }
+export function validateExamSchedule(assignment: { title: string; dateKey: string; type?: string; examStart?: string; examEnd?: string; examLocation?: string }) {
+  const { examStart, examEnd, examLocation } = assignment;
+  if (examStart === undefined && examEnd === undefined && examLocation === undefined) return;
+  if (assignment.type !== "Exam" || (examLocation !== undefined && (typeof examLocation !== "string" || examLocation.length > 160)) ||
+      (examStart !== undefined && (typeof examStart !== "string" || !isDate(assignment.dateKey) || !isTime(examStart))) ||
+      (examEnd !== undefined && (typeof examEnd !== "string" || !examStart || !isTime(examEnd) || examEnd <= examStart))) {
+    throw new Error(`Set a valid exam schedule for ${assignment.title}.`);
+  }
+}
 // Earlier event forms stored this default in display format instead of HH:mm.
 export function legacyEventTime(value: string) { return value === "12:00 PM" ? "12:00" : value; }
 export function dayKey(now: Date, timezone: string) { return new Intl.DateTimeFormat("en-CA", { timeZone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now); }
@@ -36,6 +45,8 @@ export function validateCourseDetails(value: unknown): CourseDetails {
   const d = record(value); text(d.officeHours, "office hours", 2000);
   if (d.gradingCategories !== undefined) validateGradingCategories(d.gradingCategories);
   if (d.meetingNotes !== undefined) text(d.meetingNotes, "meeting notes", 2000);
+  if (d.syllabusTerm !== undefined) text(d.syllabusTerm, "class term", 160);
+  if (d.syllabusNotes !== undefined) text(d.syllabusNotes, "syllabus notes", 20000);
   if (d.icon !== undefined && !isCourseIconId(d.icon)) throw new Error("Invalid class icon.");
   if (d.imageFraming !== undefined) {
     const framing = record(d.imageFraming);

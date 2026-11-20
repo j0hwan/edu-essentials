@@ -71,6 +71,7 @@ export type SavedAssignment = {
   notes?: string; checklist?: boolean[];
   categoryId?: string; pointsPossible?: number | null; pointsEarned?: number | null;
   type?: "Assignment" | "Exam" | "Project"; dueTime?: string; completedAt?: string | null; progressBeforeCompletion?: number;
+  examStart?: string; examEnd?: string; examLocation?: string;
 };
 export type SavedEvent = { id: string; title: string; courseId: string; dateKey: string; time: string; type: string; description?: string; durationMinutes?: number };
 export type WorkspaceData = {

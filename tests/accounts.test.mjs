@@ -87,7 +87,7 @@ test("upload confirmation preferences preserve legacy defaults and round-trip sa
 const state = globalThis.__accountTests = { user: null, calls: [], profile: null };
 function query(table) {
   const call = { table, filters: [], action: "select" }; state.calls.push(call);
-  const result = () => ({ error: null, data: table === "app_profiles" ? state.profile : table === "dashboard_state" ? { payload: layout, updated_at: call.value?.updated_at ?? revision } : [] });
+  const result = () => ({ error: null, data: table === "app_profiles" ? state.profile : table === "ai_access" ? state.aiAccess : table === "dashboard_state" ? { payload: layout, updated_at: call.value?.updated_at ?? revision } : [] });
   const chain = {
     select() { return chain; }, eq(key, value) { call.filters.push([key, value]); return chain; }, order() { return chain; },
     update(value) { call.action = "update"; call.value = value; return chain; },
@@ -113,12 +113,13 @@ const aiApi = await import(await compile("lib/ai/server.ts", {
   "./contracts": await clientModule("lib/ai/contracts.ts"), "./provider": await clientModule("lib/ai/provider.ts"),
   "./runner": await clientModule("lib/ai/runner.ts"), "./academic-tools": await clientModule("lib/ai/academic-tools.ts"),
   "./retrieval": moduleUrl('export const searchAcademicDocuments = () => { throw new Error("Unauthorized document search"); };'),
+  "./syllabus-import": await clientModule("lib/ai/syllabus-import.ts"), "../academics": await clientModule("lib/academics.ts"),
 }));
 const origin = "https://edu.example";
 function reset() {
   state.user = { id: "user-a", email: "alex@example.com", app_metadata: { provider: "google" } };
   state.profile = { id: "profile-a", auth_user_id: "user-a", initialized: true, onboarding_completed_at: "2026-09-04", preferences: defaultPreferences, updated_at: revision };
-  state.authError = null; state.rpcError = null; state.calls = [];
+  state.authError = null; state.rpcError = null; state.aiAccess = null; state.calls = [];
 }
 function request(method, body, path = "/api/workspace") { return new Request(origin + path, { method, headers: { origin, "content-type": "application/json", cookie: "eduessentials_profile=profile-b" }, ...(body ? { body: JSON.stringify({ baseRevision: revision, ...body }) } : {}) }); }
 
@@ -133,6 +134,17 @@ test("AI endpoints enforce authentication, same-origin writes, account scope and
   state.profile.age = 20;
   assert.equal((await aiApi.aiRoute(request("GET"), "conversations")).status, 403);
   assert.ok(!state.calls.some(c => ["ai_messages", "ai_proposals", "ai_chunks"].includes(c.table)));
+});
+
+test("syllabus import in synthetic mode reaches PDF validation after consent", async () => {
+  reset();
+  state.aiAccess = { enabled: true, adult_confirmed: true, synthetic_confirmed: false };
+  const importSyllabus = () => aiApi.aiRoute(request("POST", {}, "/api/ai/syllabus-import"), "syllabus-import");
+  assert.equal((await importSyllabus()).status, 403);
+  state.aiAccess.synthetic_confirmed = true;
+  const response = await importSyllabus();
+  assert.equal(response.status, 415);
+  assert.equal((await response.json()).error, "Choose a PDF syllabus.");
 });
 
 test("workspace API rejects unverified users even without middleware", async () => {

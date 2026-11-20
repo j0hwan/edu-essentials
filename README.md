@@ -20,6 +20,14 @@ usage-based cost estimates, AI migrations, server configuration, evaluation comm
 and production release gates. Free Gemini testing is limited to explicitly enabled
 adults with fictional-data accounts. AI is disabled by default.
 
+**Add Class → Scan Syllabus** uses the web runtime's existing `GEMINI_API_KEY`
+and `AI_CHAT_MODEL`. Automatic import requires `AI_ENABLED=true`,
+an allowlisted account, and AI consent. In synthetic mode, use fictional syllabuses
+and confirm synthetic data in AI settings. Use `AI_DATA_MODE=paid` with a key on
+the paid Gemini project for real syllabuses. The PDF prefills the class setup
+wizard and is saved to private Files when the student creates the class. Manual
+entry is available from the Add Class chooser.
+
 ## Local development
 
 Requires Node.js 22.13 or later.
@@ -135,12 +143,12 @@ return 426 and require a reload after preserving pending edits.
 
 Dashboard provides class and assignment editors; Calendar provides event editing
 and actual month/week/day views with the saved time zone, week start, and filter.
-Syllabus reviews are temporary: source text, editable course fields, and review
-rows are not saved before approval, and closing or reloading discards the review.
-Approval commits the course, source, and typed assignments together. Existing
-courses have a Syllabus section with import and preview controls. The dashboard
-header places Add Class beside the Cards/List toggle.
-PDF/image storage and extraction are not claimed by this text-review workflow.
+Syllabus reviews are temporary. For new classes, PDF import prefills class
+information, meetings, grading categories, and tasks in the same wizard as
+manual entry. Creating the class saves the reviewed records and links the original
+PDF in one workspace transaction. Existing courses have a Syllabus section with
+attachment and preview controls. The sidebar and Files preview also support
+text-based review.
 See PERSISTENCE_ACADEMICS.md for the completed Step 5 surfaces, storage, recovery,
 and verification limits.
 

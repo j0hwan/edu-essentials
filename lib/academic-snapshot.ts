@@ -1,4 +1,4 @@
-import { validateCourse, isDate, isTime, assignmentTypes, eventTypes, type Course } from "./academics";
+import { validateCourse, validateExamSchedule, isDate, isTime, assignmentTypes, eventTypes, type Course } from "./academics";
 import { decodeWorkspaceState, encodeWorkspaceState, type CompactWorkspaceState, type WorkspaceData } from "./workspace-codec";
 
 export function academicSnapshot(courses: unknown, dashboard: unknown): { courses: Course[]; dashboard: CompactWorkspaceState } {
@@ -33,6 +33,7 @@ function buildSnapshot(courses: unknown, dashboard: unknown, unchanged?: Workspa
       if (!a.title.trim()) throw new Error("Enter an assignment title.");
       if ((a.dateKey !== "" && !isDate(a.dateKey)) || (a.dueTime !== undefined && (typeof a.dueTime !== "string" || (a.dueTime !== "" && (!a.dateKey || !isTime(a.dueTime)))))) throw new Error(`Set a valid due date and time for ${a.title}, or leave both blank.`);
       if (a.type !== undefined && !assignmentTypes.includes(a.type)) throw new Error("Invalid assignment type.");
+      validateExamSchedule(a);
       if (a.completedAt != null && (typeof a.completedAt !== "string" || !Number.isFinite(Date.parse(a.completedAt)) || !/^\d{4}-\d\d-\d\dT/.test(a.completedAt))) throw new Error("Invalid completion timestamp.");
       if (a.progressBeforeCompletion !== undefined && (!Number.isFinite(a.progressBeforeCompletion) || a.progressBeforeCompletion < 0 || a.progressBeforeCompletion > 100)) throw new Error("Invalid previous progress.");
       if (a.status === "done" && a.progress !== 100) throw new Error("Completed assignments must have 100% progress.");

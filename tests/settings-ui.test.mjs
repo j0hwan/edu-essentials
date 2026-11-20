@@ -2328,8 +2328,8 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     assert.doesNotMatch(chooser.textContent, /Choose how you’d like to set up your class\./);
     const choices = [...chooser.querySelectorAll(".add-class-choices > button")];
     assert.equal(choices.length, 2, "the chooser presents two class setup cards");
-    assert.deepEqual(choices.map((button) => button.querySelector(".add-class-choice-title")?.textContent.trim()), ["Import syllabus", "Manual entry"]);
-    assert.deepEqual(choices.map((button) => button.getAttribute("aria-label")), ["Import syllabus", "Manual entry"]);
+    assert.deepEqual(choices.map((button) => button.querySelector(".add-class-choice-title")?.textContent.trim()), ["Scan Syllabus", "Manual entry"]);
+    assert.deepEqual(choices.map((button) => button.getAttribute("aria-label")), ["Scan Syllabus", "Manual entry"]);
     assert.ok(choices[1].classList.contains("add-class-choice-manual"), "manual entry keeps its dashed-card styling hook");
     for (const choice of choices) {
       const description = choice.querySelector(".add-class-choice-description");
@@ -2423,7 +2423,8 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     const addClass = rootNode.querySelector('[role="dialog"][aria-label="Add a class"]');
     assert.ok(addClass);
     assert.doesNotMatch(addClass.textContent, /HIST 199|Resume|pending review/i, "a legacy saved review is not offered for resuming");
-    await clickIn(addClass, "Import syllabus");
+    await clickIn(addClass, "Close");
+    await clickAria("Upload syllabus");
 
     await edit("Syllabus text", "HIST 222\nEssay - 2026-10-15\nMidterm exam - 2026-11-03\nRead chapter 1 in September.");
     await edit("Course code", "HIST 222");
@@ -2463,8 +2464,7 @@ test("academic forms, syllabus review and calendar save complete account snapsho
     const server = installWorkspaceServer();
     await render(Workspace, { initialProfile: baseProfile });
     await click("Dashboard");
-    await click("Add Class");
-    await clickIn(rootNode.querySelector('[role="dialog"][aria-label="Add a class"]'), "Import syllabus");
+    await clickAria("Upload syllabus");
     const sourceText = "HIST 222\nEssay - 2026-10-15\nMidterm exam - 2026-11-03\nRead chapter 1 in September.";
     await edit("Syllabus text", sourceText);
     await edit("Course code", "HIST 222");
@@ -4598,5 +4598,191 @@ test("late upload acknowledgements are fenced across an A to B to A profile sess
     xhr.restore();
     if (root) await unmount();
     if (previousFrame) window.requestAnimationFrame = previousFrame; else delete window.requestAnimationFrame;
+  }
+});
+
+test("Add Class fades and resizes in both directions for Scan Syllabus and Manual entry", async () => {
+  reset();
+  const style = document.createElement("style");
+  style.textContent = `
+    .add-class-choice-modal { box-sizing: border-box; width: 620px; height: 350px; }
+    .class-syllabus-import { box-sizing: border-box; width: 600px; height: 240px; }
+    .class-setup { box-sizing: border-box; width: 760px; height: 540px; }
+  `;
+  document.head.append(style);
+  const animate = Object.getOwnPropertyDescriptor(Element.prototype, "animate");
+  const animations = [];
+  Object.defineProperty(Element.prototype, "animate", {
+    configurable: true,
+    value(frames, options) {
+      let finish;
+      const finished = new Promise((resolve) => { finish = resolve; });
+      animations.push({ element: this, frames, options, finish });
+      return { finished, cancel() {} };
+    },
+  });
+  const finishFade = async (panel) => {
+    assert.ok(panel.hasAttribute("inert"));
+    const fades = animations.filter(({ element, frames }) => element.parentElement === panel && frames.at(-1).opacity === 0);
+    assert.equal(fades.length, panel.children.length);
+    await act(async () => fades.forEach(({ finish }) => finish()));
+  };
+  try {
+    installWorkspaceServer();
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard");
+    await click("Add Class");
+    const chooser = rootNode.querySelector(".add-class-choice-modal");
+    await click("Scan Syllabus");
+    assert.equal(rootNode.querySelector(".class-syllabus-import"), null);
+    await finishFade(chooser);
+
+    const importer = rootNode.querySelector(".class-syllabus-import");
+    assert.ok(importer?.hasAttribute("data-morphing-entry"));
+    assert.equal(importer.querySelector("h2").textContent, "Scan Syllabus");
+    assert.equal(rootNode.querySelector(".add-class-choice-modal"), null);
+    assert.ok(importer.hasAttribute("data-resizing"));
+    const resize = animations.find(({ element }) => element === importer);
+    assert.equal(resize.options.duration, 460);
+    assert.deepEqual(resize.frames[0], { width: "620px", height: "350px", offset: 0 });
+    assert.deepEqual(resize.frames.at(-1), { width: "600px", height: "240px", offset: 1 });
+    await act(async () => animations.forEach(({ finish }) => finish()));
+    assert.equal(importer.hasAttribute("data-resizing"), false);
+    assert.equal(document.activeElement, importer.querySelector('input[type="file"]'));
+
+    await click("Back");
+    assert.equal(rootNode.querySelector(".add-class-choice-modal"), null);
+    await act(async () => window.dispatchEvent(new window.Event("resize")));
+    await finishFade(importer);
+    const returnedChooser = rootNode.querySelector(".add-class-choice-modal");
+    assert.ok(returnedChooser?.hasAttribute("data-morphing-entry"));
+    assert.equal(rootNode.querySelector(".class-syllabus-import"), null);
+    assert.ok(returnedChooser.hasAttribute("data-resizing"));
+    const expand = animations.find(({ element }) => element === returnedChooser);
+    assert.equal(expand.options.duration, resize.options.duration);
+    assert.deepEqual(expand.frames[0], { width: "600px", height: "240px", offset: 0 });
+    assert.deepEqual(expand.frames.at(-1), { width: "620px", height: "350px", offset: 1 });
+    await act(async () => animations.forEach(({ finish }) => finish()));
+    assert.equal(returnedChooser.hasAttribute("data-resizing"), false);
+    assert.equal(document.activeElement, returnedChooser.querySelector('[aria-label="Scan Syllabus"]'));
+
+    await click("Manual entry");
+    await finishFade(returnedChooser);
+    const manualForm = rootNode.querySelector(".class-setup");
+    assert.ok(manualForm?.hasAttribute("data-resizing"));
+    await act(async () => animations.forEach(({ finish }) => finish()));
+    assert.equal(manualForm.querySelector(".class-setup-actions button").textContent, "Back");
+    await edit("Course code", "BIO 101");
+    let discard = false;
+    window.confirm = (message) => {
+      assert.match(message, /Discard this class setup/);
+      return discard;
+    };
+    await click("Back");
+    assert.equal(manualForm.hasAttribute("inert"), false);
+    assert.equal(field("Course code").value, "BIO 101");
+
+    discard = true;
+    await click("Back");
+    assert.equal(rootNode.querySelector(".add-class-choice-modal"), null);
+    await finishFade(manualForm);
+    const manualChooser = rootNode.querySelector(".add-class-choice-modal");
+    assert.equal(rootNode.querySelectorAll(".modal-backdrop").length, 1);
+    const shrink = animations.find(({ element }) => element === manualChooser);
+    assert.equal(shrink.options.duration, expand.options.duration);
+    assert.deepEqual(shrink.frames[0], { width: "760px", height: "540px", offset: 0 });
+    assert.deepEqual(shrink.frames.at(-1), { width: "620px", height: "350px", offset: 1 });
+    await act(async () => animations.forEach(({ finish }) => finish()));
+    assert.equal(document.activeElement, manualChooser.querySelector('[aria-label="Manual entry"]'));
+
+    media.matches = true;
+    const animationCount = animations.length;
+    await click("Scan Syllabus");
+    assert.ok(rootNode.querySelector(".class-syllabus-import"));
+    await click("Back");
+    assert.ok(rootNode.querySelector(".add-class-choice-modal"));
+    assert.equal(animations.length, animationCount);
+  } finally {
+    if (root) await unmount();
+    if (animate) Object.defineProperty(Element.prototype, "animate", animate);
+    else delete Element.prototype.animate;
+    style.remove();
+  }
+});
+
+test("Add Class imports a PDF, reviews the draft, and reloads exactly one saved class after a lost response", async () => {
+  reset();
+  try {
+    const server = installWorkspaceServer();
+    const workspaceFetch = fetcher;
+    const { econSyllabusExtraction } = await import("./fixtures/econ-syllabus-extraction.mjs");
+    const { buildSyllabusDraft } = await import(await clientModule("lib/syllabus-import.ts"));
+    const draft = buildSyllabusDraft(econSyllabusExtraction, 6, "2026-09-20");
+    const pdf = new window.File(["%PDF-1.4 example"], "Econ1.pdf", { type: "application/pdf" });
+    let file, uploads = 0, commitRequests = 0;
+    filesFetcher = async (url, request) => {
+      if (request?.method === "POST") {
+        uploads++;
+        const metadata = JSON.parse(decodeURIComponent(new Headers(request.headers).get("x-file-metadata")));
+        assert.deepEqual(metadata, { name: "Econ1.pdf", courseId: "", assignmentId: "", kind: "syllabus" });
+        assert.equal(request.body, pdf);
+        file = { id: new URL(url, "https://edu.example").searchParams.get("id"), name: metadata.name, kind: "syllabus", mime_type: "application/pdf",
+          state: "ready", course_id: null, trashed_at: null, size_bytes: pdf.size, updated_at: baseProfile.updated_at };
+        return Response.json({ file }, { status: 201 });
+      }
+      return Response.json({ files: file ? [file] : [], folders: [], activities: { files: [], folders: [] } });
+    };
+    fetcher = async (url, request) => {
+      if (url === "/api/ai/syllabus-import") {
+        assert.equal(request.body, pdf);
+        return Response.json(draft);
+      }
+      if (url === "/api/workspace/syllabus-import") {
+        commitRequests++;
+        const { course, details, assignments } = JSON.parse(request.body);
+        assert.equal(course.id, draft.course.id);
+        assert.equal(details.syllabusFileId, file.id);
+        if (commitRequests === 2) return Response.json({ ok: true, revision: server.revision, alreadySaved: true });
+        const current = decodeWorkspaceState(server.dashboard);
+        const snapshot = academicSnapshot([course], encodeWorkspaceState(current.workspaces, current.activeWorkspaceId, current.notes, {
+          ...current.data, assignments, courseDetails: { [course.id]: details },
+        }));
+        server.courses = snapshot.courses;
+        server.dashboard = snapshot.dashboard;
+        server.revision = new Date(Date.parse(server.revision) + 1000).toISOString();
+        file = { ...file, course_id: course.id };
+        throw new Error("Response lost");
+      }
+      return workspaceFetch(url, request);
+    };
+    await render(Workspace, { initialProfile: baseProfile });
+    await click("Dashboard"); await click("Add Class"); await click("Scan Syllabus");
+    const picker = rootNode.querySelector('[aria-labelledby="class-syllabus-import-title"] input[type="file"]');
+    Object.defineProperty(picker, "files", { configurable: true, value: [pdf] });
+    await act(async () => picker.dispatchEvent(new window.Event("change", { bubbles: true })));
+    await click("Read syllabus");
+    assert.equal(field("Course code").value, "ECON 1");
+    assert.equal(uploads, 0);
+    assert.equal(commitRequests, 0);
+    await edit("Credits", "4"); await click("Next");
+    await edit("Classes start", "2026-09-25"); await edit("Classes end", "2026-12-04"); await click("Next");
+    await click("Next"); await click("Next"); await click("Create class");
+    assert.match(rootNode.querySelector(".class-setup > [role=alert]").textContent, /Response lost/);
+    assert.equal(uploads, 1);
+    assert.equal(commitRequests, 1);
+    await click("Create class");
+    await waitUntil(() => !rootNode.querySelector(".class-setup"), "PDF class committed and workspace reloaded");
+    assert.equal(uploads, 1);
+    assert.equal(commitRequests, 2);
+    assert.equal(server.courses.length, 1);
+    assert.equal(server.dashboard.d.assignments.length, 12);
+    assert.equal(file.course_id, server.courses[0].id);
+    await click("Calendar"); await selectCalendarDate("2026-12-11"); await click("Day");
+    const final = [...rootNode.querySelectorAll(".academic-calendar .calendar-chip")].filter((chip) => chip.textContent.includes("Final Exam"));
+    assert.equal(final.length, 1);
+    assert.match(final[0].textContent, /8:00 AM.*10:59 AM/);
+  } finally {
+    filesFetcher = undefined;
+    if (root) await unmount();
   }
 });

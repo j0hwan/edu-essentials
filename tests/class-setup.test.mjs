@@ -12,20 +12,16 @@ const { createRoot } = await import("react-dom/client");
 const { default: ClassSetup } = await import(await clientModule("app/class-setup.tsx"));
 const { default: AcademicEditor } = await import(await clientModule("app/academic-editor.tsx"));
 const { emptyCourse } = await import(await clientModule("lib/academics.ts"));
-test("add a class heading matches the active setup step typography", async () => {
-  const styles = await readFile(new URL("../app/class-setup.css", import.meta.url), "utf8");
-  const layout = new JSDOM(`<style>.modal-header h2 { font-size: 22px; letter-spacing: -0.04em; }${styles}</style><section class="add-class-choice-modal"><div class="modal-header"><h2>Add a class</h2></div></section><ol class="class-setup-progress"><li aria-current="step">Info</li></ol>`);
+test("Add a class and Scan Syllabus center their 20px headings with their close buttons", async () => {
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const layout = new JSDOM(`<style>${styles}</style>
+    <section class="add-class-choice-modal"><div class="modal-header"><h2>Add a class</h2><button>Close</button></div></section>
+    <form class="course-syllabus-upload class-syllabus-import"><div class="modal-header"><h2>Scan Syllabus</h2><button aria-label="Close syllabus scan"></button></div></form>`);
   try {
-    const heading = layout.window.getComputedStyle(layout.window.document.querySelector("h2"));
-    const step = layout.window.getComputedStyle(layout.window.document.querySelector("li"));
-    for (const property of ["fontSize", "fontWeight", "lineHeight"]) assert.equal(heading[property], step[property], property);
-    assert.equal(heading.fontFamily, step.fontFamily);
-    assert.equal(heading.letterSpacing, "normal");
-    const responsive = [...layout.window.document.styleSheets[0].cssRules].find((rule) => rule.conditionText && [...(rule.cssRules ?? [])].some((child) => child.selectorText === ".add-class-choice-modal .modal-header h2"));
-    assert.ok(responsive);
-    const headingRule = [...responsive.cssRules].find((rule) => rule.selectorText === ".add-class-choice-modal .modal-header h2");
-    const stepRule = [...responsive.cssRules].find((rule) => rule.selectorText === ".class-setup-progress li");
-    assert.equal(headingRule.style.getPropertyValue("font-size"), stepRule.style.getPropertyValue("font-size"));
+    for (const header of layout.window.document.querySelectorAll(".modal-header")) {
+      assert.equal(layout.window.getComputedStyle(header.querySelector("h2")).fontSize, "20px");
+      assert.equal(layout.window.getComputedStyle(header).alignItems, "center");
+    }
   } finally { layout.window.close(); }
 });
 const host = document.getElementById("root");
@@ -1363,4 +1359,42 @@ test("existing class edits can remove exceptions when the semester range changes
   await click("Remove exception 1"); await submit();
   assert.equal(applied.details.meetings[0].until, "2026-11-30");
   assert.deepEqual(applied.details.meetings[0].excludedDates, []);
+});
+
+test("import review preloads the manual wizard and requires approval before saving the PDF and edits", async () => {
+  const { econSyllabusExtraction } = await import("./fixtures/econ-syllabus-extraction.mjs");
+  const { buildSyllabusDraft } = await import(await clientModule("lib/syllabus-import.ts"));
+  const draft = buildSyllabusDraft(econSyllabusExtraction, 6, "2026-09-20");
+  const original = { id: crypto.randomUUID(), file: new window.File(["example"], "Econ1.pdf", { type: "application/pdf" }) };
+  await mount({ initial: draft.course, initialDetails: draft.details, initialAssignments: draft.assignments, initialSyllabus: original, review: draft });
+  assert.equal(document.querySelector(".class-setup-credits-field input").value, "");
+  assert.match(host.textContent, /Review source PDF/);
+  await submit();
+  assert.match(host.querySelector('.class-setup > [role="alert"]').textContent, /Enter the course credits/);
+  await change("Credits", "4");
+  await submit();
+  assert.equal(host.querySelectorAll(".class-setup-discussion-options input").length, 5);
+  assert.equal(host.querySelectorAll(".class-setup-meeting-card").length, 1);
+  await act(async () => host.querySelectorAll(".class-setup-discussion-options input")[4].click());
+  assert.equal(host.querySelectorAll(".class-setup-meeting-card").length, 2);
+  await change("Classes start", "2026-10-05");
+  await change("Classes end", "2026-12-04");
+  await click("Select meeting 1");
+  await change("Classes start", "2026-09-25");
+  await change("Classes end", "2026-12-04");
+  await submit();
+  assert.deepEqual([...host.querySelectorAll(".class-grading-weight input")].map((input) => input.value), ["3", "10", "20", "20", "47"]);
+  await submit();
+  assert.equal(host.querySelectorAll(".class-coursework-task-title").length, 12);
+  await act(async () => [...host.querySelectorAll(".class-coursework-task-title")].find((node) => node.querySelector("strong").textContent === "Comprehensive Final Exam").click());
+  await change("Exam ends", "10:45");
+  await submit();
+  assert.match(host.textContent, /Econ1.pdf/);
+  assert.equal(calls, 0);
+  await submit();
+  assert.equal(calls, 1);
+  assert.equal(saved[0].credits, 4);
+  assert.equal(saved[1].meetings[1].location, "Center Hall Room 214");
+  assert.equal(saved[2].syllabus, original);
+  assert.equal(saved[3].find(({ title }) => /Final Exam/.test(title)).examEnd, "10:45");
 });

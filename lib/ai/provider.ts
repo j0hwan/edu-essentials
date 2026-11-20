@@ -1,6 +1,6 @@
 import { AI_MAX_INPUT_CHARS, AI_MAX_OUTPUT_TOKENS } from "./contracts";
 
-export type Part = { text?: string; thought?: boolean; thoughtSignature?: string; functionCall?: { name: string; args: unknown }; functionResponse?: { name: string; response: unknown } };
+export type Part = { text?: string; inlineData?: { mimeType: string; data: string }; thought?: boolean; thoughtSignature?: string; functionCall?: { name: string; args: unknown }; functionResponse?: { name: string; response: unknown } };
 export type Content = { role: "user" | "model"; parts: Part[] };
 export type ToolDeclaration = { name: string; description: string; parameters: Record<string, unknown> };
 export type ModelResult = { content: Content; inputTokens: number; outputTokens: number };
@@ -12,17 +12,30 @@ export class ProviderError extends Error {
 export class GeminiProvider implements AiProvider {
   constructor(private key: string, private model: string, private fetcher: typeof fetch = fetch) {}
   async generate(system: string, contents: Content[], declarations: ToolDeclaration[]): Promise<ModelResult> {
-    if (!this.key) throw new ProviderError(503, "AI is not configured.");
     const body = { systemInstruction: { parts: [{ text: system }] }, contents,
       ...(declarations.length ? { tools: [{ functionDeclarations: declarations.map(({ parameters, ...d }) => ({ ...d, parametersJsonSchema: parameters })) }] } : {}),
       generationConfig: { maxOutputTokens: AI_MAX_OUTPUT_TOKENS } };
-    if (new TextEncoder().encode(JSON.stringify(body)).byteLength > AI_MAX_INPUT_CHARS) throw new ProviderError(413, "This conversation needs a shorter question or a new conversation.");
+    return this.request(body, AI_MAX_INPUT_CHARS, "This conversation needs a shorter question or a new conversation.");
+  }
+
+  async generateDocument(system: string, parts: Part[], schema: object, maxOutputTokens: number, signal?: AbortSignal): Promise<ModelResult> {
+    return this.request({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts }],
+      generationConfig: { responseMimeType: "application/json", responseJsonSchema: schema, maxOutputTokens } },
+    18 * 1024 * 1024, "This syllabus is too large for automatic extraction.", signal);
+  }
+
+  private async request(body: object, maxBytes: number, sizeError: string, signal?: AbortSignal): Promise<ModelResult> {
+    if (!this.key) throw new ProviderError(503, "AI is not configured.");
+    const payload = JSON.stringify(body);
+    if (new TextEncoder().encode(payload).byteLength > maxBytes) throw new ProviderError(413, sizeError);
+    const timeout = AbortSignal.timeout(45000);
     let response: Response;
     try { response = await this.fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`, {
-      method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.key }, body: JSON.stringify(body), signal: AbortSignal.timeout(45000),
+      method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.key }, body: payload, signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     }); } catch (error) {
-      const timeout = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
-      throw new ProviderError(timeout ? 504 : 503, timeout ? "Gemini took too long to respond. Please retry shortly." : "Could not connect to Gemini. Please retry shortly.", true);
+      signal?.throwIfAborted();
+      const timedOut = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
+      throw new ProviderError(timedOut ? 504 : 503, timedOut ? "Gemini took too long to respond. Please retry shortly." : "Could not connect to Gemini. Please retry shortly.", true);
     }
     if (!response.ok) {
       if (response.status === 429) throw new ProviderError(429, "Gemini's request quota is exhausted. Wait for the quota to reset and try again.", false, 429);
