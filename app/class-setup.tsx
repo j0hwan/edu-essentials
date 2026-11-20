@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, Plus, Slash, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Circle, CircleCheck, FileText, ImagePlus, LoaderCircle, Plus, Slash, Trash2, X } from "lucide-react";
 import { addDays, assignmentTypes, dateLabel, emptyCourseDetails, isDate, isTime, validateCourse, validateCourseDetails, validateExamSchedule, type Course, type CourseDetails, type Meeting } from "../lib/academics";
 import { mergeCourseworkAssignments, validateAssignmentGrading, validateGradingCategories } from "../lib/coursework";
 import type { SavedAssignment } from "../lib/workspace-codec";
@@ -16,8 +16,9 @@ import ClassSetupDocumentPreview from "./class-setup-document-preview";
 import ClassCoursework from "./class-coursework";
 import ClassGradingCategories from "./class-grading-categories";
 import ClassSetupTitle from "./class-setup-title";
+import SyllabusSourcePane, { useSyllabusPreviewUrl } from "./syllabus-source-pane";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
-import { useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
+import { getClassSetupBounds, useClassSetupMotion, type ClassSetupBounds } from "./use-class-setup-motion";
 import "./course-icon-picker.css";
 import "./class-setup.css";
 
@@ -25,6 +26,9 @@ export type ClassSetupUpload = { file: File; id: string };
 export type ClassSetupUploads = { image?: ClassSetupUpload; syllabus?: ClassSetupUpload };
 const steps = ["Course information", "Class schedule", "Set up your coursework", "Add tasks", "Make it yours"];
 const stepLabels = ["Info", "Schedule", "Categories", "Tasks", "Customize"];
+const stepIndexes = steps.map((_, index) => index);
+const categoriesStep = 2;
+const importedWeightTolerance = 0.000001;
 const assignmentDraftJson = (assignments: SavedAssignment[]) => JSON.stringify(assignments, (_key, value: unknown) => typeof value === "number" && !Number.isFinite(value) ? "invalid-number" : value);
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const formatMeetingTime = (time: string) => {
@@ -38,12 +42,27 @@ const isMeetingComplete = (meeting: Meeting) => {
 };
 const hasMissingMeetingFields = (meeting: Meeting) => !meeting.days.length || [meeting.start, meeting.end, meeting.from, meeting.until, ...(meeting.excludedDates ?? [])].some((value) => !value.trim());
 
-export default function ClassSetup({ initial, initialDetails: savedDetails, initialAssignments = [], initialSyllabus, review, editing = false, savedImageId, savedImageUrl, savedSyllabusPreview, today, canUpload, onSave, onClose, onBack, onDelete, initialBounds }: {
+function hasCompleteGradingCategories(categories: CourseDetails["gradingCategories"]) {
+  if (!categories) return false;
+  const total = categories.reduce((sum, { weight }) => sum + weight, 0);
+  if (Math.abs(total - 100) > importedWeightTolerance) return false;
+  try { validateGradingCategories(categories); return true; }
+  catch { return false; }
+}
+
+export default function ClassSetup({ initial, initialDetails: savedDetails, initialAssignments = [], initialSyllabus, review, analysis, editing = false, savedImageId, savedImageUrl, savedSyllabusPreview, today, canUpload, onSave, onClose, onBack, onDelete, initialBounds }: {
   initial: Course; today: string; canUpload: boolean;
   initialDetails?: CourseDetails;
   initialAssignments?: SavedAssignment[];
   initialSyllabus?: ClassSetupUpload;
-  review?: Pick<SyllabusImportDraft, "alternatives" | "sources" | "warnings" | "creditsUnknown">;
+  review?: Pick<SyllabusImportDraft, "alternatives" | "warnings" | "creditsUnknown">;
+  analysis?: {
+    error: string;
+    canRetry: boolean;
+    onRetry: () => void;
+    onChooseAnother: (bounds?: ClassSetupBounds) => void;
+    onCancel: (bounds?: ClassSetupBounds) => void;
+  };
   editing?: boolean;
   savedImageId?: string;
   savedImageUrl?: string;
@@ -57,8 +76,9 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   const creditsId = useId();
   const skipDatePickerId = useId();
   const [course, setCourse] = useState(initial);
-  const [creditsConfirmed, setCreditsConfirmed] = useState(!review?.creditsUnknown);
-  const [initialDetails] = useState<CourseDetails>(() => {
+  const [creditsBlank, setCreditsBlank] = useState(Boolean(review?.creditsUnknown));
+  const [initialDetails, setInitialDetails] = useState<CourseDetails>(() => {
+    if (analysis) return emptyCourseDetails();
     const draft = savedDetails ?? { ...emptyCourseDetails(), meetings: [{ id: crypto.randomUUID(), days: [], start: "09:00", end: "10:00", from: today, until: addDays(today, 90), location: initial.room }] };
     return editing || draft.gradingCategories !== undefined ? draft : {
       ...draft,
@@ -66,16 +86,34 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
     };
   });
   const [details, setDetails] = useState<CourseDetails>(initialDetails);
-  const [originalAssignments] = useState(() => initialAssignments.filter((assignment) => assignment.courseId === initial.id));
+  const [originalAssignments, setOriginalAssignments] = useState(() => initialAssignments.filter((assignment) => assignment.courseId === initial.id));
   const [assignments, setAssignments] = useState(originalAssignments);
   const [selectedMeetingId, setSelectedMeetingId] = useState(initialDetails.meetings[0]?.id ?? "");
+  const [awaitingReview, setAwaitingReview] = useState(Boolean(analysis));
+  if (awaitingReview && review && savedDetails) {
+    const importedAssignments = initialAssignments.filter((assignment) => assignment.courseId === initial.id);
+    setAwaitingReview(false);
+    setCourse(initial);
+    setCreditsBlank(review.creditsUnknown);
+    setInitialDetails(savedDetails);
+    setDetails(savedDetails);
+    setOriginalAssignments(importedAssignments);
+    setAssignments(importedAssignments);
+    setSelectedMeetingId(savedDetails.meetings[0]?.id ?? "");
+  }
   const [skipDatePickerFallback, setSkipDatePickerFallback] = useState(false);
   const [step, setStep] = useState(0);
+  // Base the steps on the import so the Categories page stays open while its weights are edited.
+  const showCategories = !analysis && (!review || !hasCompleteGradingCategories(initialDetails.gradingCategories));
+  const visibleSteps = showCategories ? stepIndexes : stepIndexes.filter((index) => index !== categoriesStep);
+  const stepPosition = visibleSteps.indexOf(step);
+  const previousStep = visibleSteps[stepPosition - 1];
+  const nextStep = visibleSteps[stepPosition + 1];
   const [checkedCategoryAllocation, setCheckedCategoryAllocation] = useState(false);
   const gradingCategories = details.gradingCategories ?? [];
   const categoryWeightTotal = gradingCategories.reduce((sum, category) => sum + category.weight, 0);
   const requireFullAllocation = !editing && !review;
-  const categoryAllocationMissing = requireFullAllocation ? categoryWeightTotal !== 100 : Boolean(review && categoryWeightTotal > 100.000001);
+  const categoryAllocationMissing = requireFullAllocation ? categoryWeightTotal !== 100 : Boolean(review && categoryWeightTotal > 100 + importedWeightTolerance);
   const showCategoryAllocationError = checkedCategoryAllocation && categoryAllocationMissing;
   const [uploads, setUploads] = useState<ClassSetupUploads>(() => initialSyllabus ? { syllabus: initialSyllabus } : {});
   const [imagePreview, setImagePreview] = useState("");
@@ -84,8 +122,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   const currentImageFraming = details.imageFraming && (!currentImageId || details.imageFraming.fileId === currentImageId)
     ? details.imageFraming : currentImageId ? { ...DEFAULT_COURSE_IMAGE_FRAMING, fileId: currentImageId } : undefined;
   const imageUrlRef = useRef("");
-  const [syllabusPreviewAsset, setSyllabusPreviewAsset] = useState<{ file: File; url: string }>();
-  const syllabusPreview = syllabusPreviewAsset && syllabusPreviewAsset.file === uploads.syllabus?.file ? syllabusPreviewAsset.url : "";
+  const syllabusPreview = useSyllabusPreviewUrl(uploads.syllabus?.file);
   const hasSavedSyllabus = !details.syllabusDeleted && Boolean(savedSyllabusPreview || details.syllabusFileId || details.syllabusText || details.syllabusName);
   const hasCurrentSyllabus = Boolean(uploads.syllabus || hasSavedSyllabus);
   const currentSyllabusName = uploads.syllabus?.file.name ?? (details.syllabusDeleted ? undefined : details.syllabusName ?? (hasSavedSyllabus ? "Saved syllabus" : undefined));
@@ -102,13 +139,14 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   const focusMissingRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [attemptedSave, setAttemptedSave] = useState(false);
-  const [sourceOpenSection, setSourceOpenSection] = useState<ReviewSection>();
   const showSyllabusFields = Boolean(review || savedDetails?.syllabusTerm !== undefined || savedDetails?.syllabusNotes !== undefined);
   const reviewSection = (["info", "schedule", "categories", "tasks"] as const)[step] as ReviewSection | undefined;
+  const reviewFile = review || analysis ? uploads.syllabus?.file : undefined;
+  const analyzing = Boolean(analysis && !analysis.error);
   const reviewNotes = review?.warnings.filter((warning) => warning.step === reviewSection) ?? [];
-  const sourcePages = review && reviewSection ? review.sources[reviewSection] : [];
   const saving = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const transition = useClassSetupMotion(formRef, step, initialBounds);
   const meetingFocusRef = useRef<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -117,12 +155,16 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   useSaveProtection(dirty || busy);
   const close = (leave = onClose) => {
     if (formRef.current?.closest("[data-modal-exiting], [inert]") || saving.current) return;
+    if (analysis) {
+      analysis.onCancel(formRef.current ? getClassSetupBounds(formRef.current) : undefined);
+      return;
+    }
     if (dirty && !window.confirm(review ? "Discard this syllabus review?" : "Discard this class setup? Selected files have not been uploaded unless you already tried saving.")) return;
     leave();
   };
   const goBack = () => {
-    if (step) {
-      transition(() => { setStep(step - 1); setError(""); });
+    if (previousStep !== undefined) {
+      transition(() => { setStep(previousStep); setError(""); });
       return;
     }
     close(onBack ? () => transition(onBack) : onClose);
@@ -144,7 +186,10 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
     document.addEventListener("keydown", keydown);
     return () => { document.removeEventListener("keydown", keydown); if (previous?.isConnected) previous.focus(); };
   }, []);
-  useEffect(() => { headingRef.current?.focus({ preventScroll: true }); }, [step]);
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+    if (review && scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [step, review]);
   useEffect(() => {
     if (!focusMissingRef.current) return;
     focusMissingRef.current = false;
@@ -160,14 +205,6 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   useEffect(() => () => {
     if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
   }, []);
-  useEffect(() => {
-    const file = uploads.syllabus?.file;
-    if (!file) return;
-    const url = URL.createObjectURL(file.slice(0, file.size, "application/pdf"));
-    let active = true;
-    queueMicrotask(() => { if (active) setSyllabusPreviewAsset({ file, url }); });
-    return () => { active = false; URL.revokeObjectURL(url); };
-  }, [uploads.syllabus?.file]);
   useEffect(() => {
     if (!currentImagePreview) return;
     const image = new window.Image();
@@ -315,7 +352,6 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
   };
   const canAdvance = () => {
     try {
-      if (!creditsConfirmed) return false;
       validateCourseDraft();
       if (step >= 1) validateSchedule();
       if (step >= 2) {
@@ -334,13 +370,16 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
     : editing ? (step === 3 ? "Continue to Customize" : "Continue") : "Next";
   const submit = async () => {
     if (saving.current || formRef.current?.closest("[data-modal-exiting]")) return;
+    if (analysis) {
+      if (analysis.canRetry) analysis.onRetry();
+      return;
+    }
     setError("");
     setCheckedSteps((current) => current.includes(step) ? current : [...current, step]);
-    if (!course.code.trim() || !course.name.trim() || !creditsConfirmed) {
+    if (!course.code.trim() || !course.name.trim()) {
       setCheckedSteps((current) => current.includes(0) ? current : [...current, 0]);
       setStep(0);
       focusMissingRef.current = true;
-      if (!creditsConfirmed) setError("Enter the course credits to confirm the value.");
       return;
     }
     try {
@@ -391,10 +430,10 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
           throw failure;
         }
       }
-      if (!isFinalStep) {
+      if (nextStep !== undefined) {
         transition(() => {
           if (manualAssignments) setAssignments(validatedAssignments);
-          setStep(step + 1);
+          setStep(nextStep);
         });
         return;
       }
@@ -408,33 +447,48 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
     finally { saving.current = false; setBusy(false); }
   };
 
-  return <div className="modal-backdrop"><form ref={formRef} noValidate data-morphing-entry={initialBounds ? true : undefined} className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : (step === 2 || step === 3) ? " class-setup-coursework-step" : step === 4 ? " class-setup-customize-step" : ""}${manualAssignments ? " class-setup-assignments-step" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-    <h2 className="class-setup-accessible-title" id="class-setup-title" ref={headingRef} tabIndex={-1}>{steps[step]}</h2>
+  return <div className="modal-backdrop"><form ref={formRef} noValidate data-morphing-entry={initialBounds ? true : undefined} className={`add-class-modal academic-editor class-setup${step === 1 ? " class-setup-schedule-step" : (step === 2 || step === 3) ? " class-setup-coursework-step" : step === 4 ? " class-setup-customize-step" : ""}${manualAssignments ? " class-setup-assignments-step" : ""}${reviewFile ? " syllabus-review-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="class-setup-title" aria-busy={busy || analyzing} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <h2 className="class-setup-accessible-title" id="class-setup-title" ref={headingRef} tabIndex={-1}>{analysis ? (analyzing ? "Analyzing your syllabus" : "Syllabus scan") : steps[step]}</h2>
     <div className="modal-header class-setup-header">
-      <ol className="class-setup-progress" aria-label="Class setup progress">{steps.map((label, index) => <li key={label} aria-label={`${label}${index < step ? ", completed" : ""}`} aria-current={step === index ? "step" : undefined} className={index < step ? "is-complete" : undefined}>
-        <button type="button" className="class-setup-step-button" aria-label={`Go to ${stepLabels[index]}`} disabled={busy || (!editing && index > step)} onClick={() => { if (index !== step) transition(() => { setStep(index); setError(""); }); }}>
+      <ol className="class-setup-progress" aria-label="Class setup progress">{visibleSteps.map((index, position) => <li key={index} aria-label={`${steps[index]}${index < step ? ", completed" : ""}`} aria-current={step === index ? "step" : undefined} className={index < step ? "is-complete" : undefined}>
+        <button type="button" className="class-setup-step-button" aria-label={`Go to ${stepLabels[index]}`} disabled={busy || Boolean(analysis) || (!editing && index > step)} onClick={() => { if (index !== step) transition(() => { setStep(index); setError(""); }); }}>
           {index < step ? <CircleCheck className="class-setup-step-indicator" size={18} aria-hidden="true" /> : <Circle className="class-setup-step-indicator" size={18} aria-hidden="true" />}
           <span className="class-setup-step-label">{stepLabels[index]}</span>
         </button>
-        {index < steps.length - 1 && <ChevronRight className="class-setup-step-separator" size={18} aria-hidden="true" />}
+        {position < visibleSteps.length - 1 && <ChevronRight className="class-setup-step-separator" size={18} aria-hidden="true" />}
       </li>)}</ol>
-      <button type="button" className="secondary-button" disabled={busy} aria-label="Close class setup" onClick={close}><X size={18} /></button>
+      <button type="button" className="secondary-button" disabled={busy} aria-label="Close class setup" onClick={() => close()}><X size={18} /></button>
     </div>
-    <div className="class-setup-scroll"><fieldset className="class-setup-body" disabled={busy}>
-      {review && reviewSection && <section className="class-setup-import-review" aria-label="Syllabus review">
-        <details key={reviewSection} onToggle={(event) => setSourceOpenSection(event.currentTarget.open ? reviewSection : undefined)}>
-          <summary>Review source PDF{sourcePages.length ? ` · ${sourcePages.length === 1 ? "page" : "pages"} ${sourcePages.join(", ")}` : ""}</summary>
-          {syllabusPreview && <p>{sourcePages.map((page) => <a key={page} href={`${syllabusPreview}#page=${page}`} target="_blank" rel="noopener noreferrer">Page {page}</a>)}</p>}
-          {sourceOpenSection === reviewSection && uploads.syllabus && <ClassSetupDocumentPreview file={uploads.syllabus.file} url={syllabusPreview} />}
-        </details>
-        {reviewNotes.length > 0 && <ul>{reviewNotes.map((note, index) => <li key={index}>{note.message}{note.pages.length ? ` (p. ${note.pages.join(", ")})` : ""}</li>)}</ul>}
+    {reviewFile && <SyllabusSourcePane file={reviewFile} url={syllabusPreview} />}
+    <div ref={scrollRef} className="class-setup-scroll">{analysis ? <div className="syllabus-analysis" aria-label="Syllabus analysis" role="region">
+      {!analysis.error && <LoaderCircle className="syllabus-analysis-spinner" size={32} aria-hidden="true" />}
+      <h3>{analysis.error ? "Could not read syllabus" : "Analyzing your syllabus"}</h3>
+      {analysis.error ? <p className="auth-error" role="alert">{analysis.error}</p> : <p role="status">Extracting class information and assignments…</p>}
+      {analysis.error && <button type="button" className="secondary-button" onClick={() => transition(analysis.onChooseAnother)}>Choose another PDF</button>}
+    </div> : <fieldset className="class-setup-body" disabled={busy}>
+      {reviewNotes.length > 0 && <section className="class-setup-import-review" aria-label="Syllabus review">
+        <ul>{reviewNotes.map((note, index) => <li key={index}>{note.message}{note.pages.length ? ` (p. ${note.pages.join(", ")})` : ""}</li>)}</ul>
       </section>}
-      {step === 0 && <div className="settings-form-grid class-setup-info-grid">{field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30, "ECON001")}{field("Class name", course.name, (name) => changeCourse({ name }), "text", true, 160, "Principles of Microeconomics")}<div className="class-setup-credits-field"><label htmlFor={creditsId}>Credits</label><input id={creditsId} type="number" min={0} max={30} step={1} value={creditsConfirmed ? course.credits : ""} aria-invalid={!creditsConfirmed && checkedSteps.includes(0) || undefined} onChange={(event) => { setCreditsConfirmed(!review || event.target.value !== ""); changeCourse({ credits: Number(event.target.value) }); }} />{review?.creditsUnknown && !creditsConfirmed && <p className="form-hint">Check your course listing for credits.</p>}</div>{field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }), "text", false, 160, "Dr. John Smith")}<label className="class-setup-meeting-notes">Meeting Notes<input type="text" maxLength={2000} value={details.meetingNotes ?? ""} onChange={(event) => setDetails({ ...details, meetingNotes: event.target.value })} /></label>{showSyllabusFields && <>
-        {field("Class term", details.syllabusTerm ?? "", (syllabusTerm) => setDetails((current) => ({ ...current, syllabusTerm })))}
-        {field("Default location", course.room, (room) => changeCourse({ room }))}
-        {field("Office hours", details.officeHours, (officeHours) => setDetails((current) => ({ ...current, officeHours })), "text", false, 2000)}
-        <label className="class-setup-meeting-notes">Syllabus notes<textarea maxLength={20000} rows={6} value={details.syllabusNotes ?? ""} onChange={(event) => setDetails((current) => ({ ...current, syllabusNotes: event.target.value }))} /></label>
-      </>}</div>}
+      {step === 0 && <div className="settings-form-grid class-setup-info-grid">
+        {field("Course code", course.code, (code) => changeCourse({ code }), "text", true, 30, "ECON001")}
+        {field("Class name", course.name, (name) => changeCourse({ name }), "text", true, 160, "Principles of Microeconomics")}
+        <div className="class-setup-credits-field">
+          <label htmlFor={creditsId}>Credits</label>
+          <input id={creditsId} type="number" min={0} max={30} step={1} value={creditsBlank ? "" : course.credits} onChange={(event) => {
+            const { value } = event.currentTarget;
+            setCreditsBlank(value === "");
+            changeCourse({ credits: Number(value) });
+          }} />
+        </div>
+        {field("Instructor", course.instructor, (instructor) => changeCourse({ instructor }), "text", false, 160, "Dr. John Smith")}
+        <label className="class-setup-meeting-notes">Meeting Notes<input type="text" maxLength={2000} value={details.meetingNotes ?? ""} onChange={(event) => setDetails({ ...details, meetingNotes: event.target.value })} /></label>
+        {showSyllabusFields && <>
+          {field("Class term", details.syllabusTerm ?? "", (syllabusTerm) => setDetails((current) => ({ ...current, syllabusTerm })))}
+          {field("Default location", course.room, (room) => changeCourse({ room }))}
+          {field("Office hours", details.officeHours, (officeHours) => setDetails((current) => ({ ...current, officeHours })), "text", false, 2000)}
+          <label className="class-setup-meeting-notes">Syllabus notes<textarea maxLength={20000} rows={6} value={details.syllabusNotes ?? ""} onChange={(event) => setDetails((current) => ({ ...current, syllabusNotes: event.target.value }))} /></label>
+        </>}
+      </div>}
       {step === 1 && !!review?.alternatives.length && <fieldset className="class-setup-discussion-options"><legend>Section options</legend>
         {review.alternatives.map(({ meeting, timing, pages }) => {
           const selected = details.meetings.some((item) => item.id === meeting.id);
@@ -543,7 +597,7 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
               <fieldset className="course-icon-picker class-setup-icon-picker"><legend>Class icon</legend><div className="course-icon-options">{courseIconOptions.map((option) => <button key={option.id} type="button" title={option.label} aria-label={option.label} aria-pressed={(details.icon ?? DEFAULT_COURSE_ICON) === option.id} onClick={() => setDetails((current) => ({ ...current, icon: option.id }))}>{option.id === "none" ? <Slash size={24} style={{ color: course.color }} aria-hidden="true" /> : <CourseIcon icon={option.id} size={24} style={{ color: course.color }} aria-hidden="true" />}</button>)}</div></fieldset>
             </div>
           </section>
-          <fieldset className="class-setup-syllabus" disabled={attemptedSave}>
+          {!reviewFile && <fieldset className="class-setup-syllabus" disabled={attemptedSave}>
             <legend>Syllabus <span>(optional)</span></legend>
             <div className={`class-setup-syllabus-upload${hasCurrentSyllabus ? " has-file" : ""}`}>
               <label className="class-setup-syllabus-upload-surface">
@@ -560,21 +614,22 @@ export default function ClassSetup({ initial, initialDetails: savedDetails, init
                 : !details.syllabusDeleted && (savedSyllabusPreview || details.syllabusText) ? <div className="class-setup-document-content">{savedSyllabusPreview ?? <pre>{details.syllabusText}</pre>}</div>
                   : <div className="class-setup-document-empty"><FileText size={36} aria-hidden="true" /><p>{!details.syllabusDeleted && details.syllabusFileId ? "Saved syllabus unavailable" : <>Your document preview<br />appears here</>}</p>{!details.syllabusDeleted && details.syllabusFileId && <span>Your attachment is preserved. Upload a replacement to change it.</span>}</div>}
             </div>
-            <p className="form-hint">{review ? "The original PDF will be attached when you create the class." : "Storage only. Uploading will not affect course"}</p>
-          </fieldset>
+            <p className="form-hint">Storage only. Uploading will not affect course</p>
+          </fieldset>}
         </div>
+        {reviewFile && <p className="form-hint">The original PDF will be attached when you create the class.</p>}
         {!canUpload && <p className="form-hint">File uploads are unavailable until your workspace is saved. You can still {editing ? "save" : "create"} this class and attach files later.</p>}
       </>}
-    </fieldset></div>
+    </fieldset>}</div>
     {error && <p role="alert" className="auth-error">{error}</p>}
     {attemptedSave && !busy && error && !review && <p className="form-hint">Selected files are locked for safe retries because some attachments may already be saved. Retry to finish, or close setup and manage saved attachments from the class files.</p>}
     <div className="modal-actions class-setup-actions">
       <button type="button" className="secondary-button" disabled={busy} onClick={goBack}>{step || onBack ? <><ArrowLeft size={16} />Back</> : "Cancel"}</button>
-      <span className="class-setup-step-count">{step + 1} / {steps.length}</span>
+      <span className="class-setup-step-count">{stepPosition + 1} / {visibleSteps.length}</span>
       {review && error && <button type="button" className="secondary-button" disabled={busy} onClick={() => downloadDraft("eduessentials-syllabus-review.json", { course, details, assignments })}>Download review</button>}
       {onDelete && <button type="button" className="secondary-button" aria-label="Delete class" title="Delete class" disabled={busy || attemptedSave} onClick={onDelete}><Trash2 size={18} aria-hidden="true" /></button>}
-      <button type="submit" className={highlightSubmit ? "primary-button" : "secondary-button"} data-class-setup-advance={!editing && !isFinalStep ? true : undefined} disabled={busy}>
-        {busy ? "Saving class…" : isFinalStep ? (editing ? "Save class" : "Create class") : <>{advanceLabel}<ArrowRight size={16} /></>}
+      <button type="submit" className={highlightSubmit || analysis?.canRetry ? "primary-button" : "secondary-button"} data-class-setup-advance={!editing && !isFinalStep ? true : undefined} disabled={busy || Boolean(analysis && !analysis.canRetry)}>
+        {analysis?.error ? "Retry import" : busy ? "Saving class…" : isFinalStep ? (editing ? "Save class" : "Create class") : <>{advanceLabel}<ArrowRight size={16} /></>}
       </button>
     </div>
   </form></div>;

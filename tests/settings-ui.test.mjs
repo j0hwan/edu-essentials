@@ -4776,7 +4776,7 @@ test("Add Class imports a PDF, reviews the draft, and reloads exactly one saved 
     const { buildSyllabusDraft } = await import(await clientModule("lib/syllabus-import.ts"));
     const draft = buildSyllabusDraft(econSyllabusExtraction, 6, "2026-09-20");
     const pdf = new window.File(["%PDF-1.4 example"], "Econ1.pdf", { type: "application/pdf" });
-    let file, uploads = 0, commitRequests = 0;
+    let file, completeScan, uploads = 0, commitRequests = 0;
     filesFetcher = async (url, request) => {
       if (request?.method === "POST") {
         uploads++;
@@ -4792,7 +4792,7 @@ test("Add Class imports a PDF, reviews the draft, and reloads exactly one saved 
     fetcher = async (url, request) => {
       if (url === "/api/ai/syllabus-import") {
         assert.equal(request.body, pdf);
-        return Response.json(draft);
+        return new Promise((resolve) => { completeScan = resolve; });
       }
       if (url === "/api/workspace/syllabus-import") {
         commitRequests++;
@@ -4818,12 +4818,34 @@ test("Add Class imports a PDF, reviews the draft, and reloads exactly one saved 
     Object.defineProperty(picker, "files", { configurable: true, value: [pdf] });
     await act(async () => picker.dispatchEvent(new window.Event("change", { bubbles: true })));
     await click("Read syllabus");
+    const dialog = rootNode.querySelector(".class-setup.syllabus-review-modal");
+    const header = dialog.querySelector(".class-setup-header");
+    const pdfPreview = dialog.querySelector(".private-pdf-preview");
+    const reviewPane = dialog.querySelector(".class-setup-scroll");
+    const next = dialog.querySelector('button[type="submit"]');
+    assert.equal(dialog.getAttribute("aria-busy"), "true");
+    assert.deepEqual([...header.querySelectorAll(".class-setup-step-label")].map((tab) => tab.textContent), ["Info", "Schedule", "Tasks", "Customize"]);
+    assert.ok([...header.querySelectorAll(".class-setup-step-button")].every((tab) => tab.disabled));
+    assert.match(reviewPane.querySelector('[role="status"]').textContent, /Extracting class information/);
+    assert.equal(next.disabled, true);
+    pdfPreview.scrollTop = 180;
+    await act(async () => completeScan(Response.json(draft)));
+    assert.equal(rootNode.querySelector(".class-setup.syllabus-review-modal"), dialog);
+    assert.equal(dialog.querySelector(".class-setup-header"), header);
+    assert.equal(dialog.querySelector(".private-pdf-preview"), pdfPreview);
+    assert.equal(pdfPreview.scrollTop, 180);
+    assert.equal(dialog.querySelector(".class-setup-scroll"), reviewPane);
+    assert.equal(dialog.querySelector('button[type="submit"]'), next);
+    assert.equal(dialog.getAttribute("aria-busy"), "false");
+    assert.equal(reviewPane.querySelector(".syllabus-analysis"), null);
+    assert.equal(header.querySelector('[aria-label="Go to Categories"]'), null);
     assert.equal(field("Course code").value, "ECON 1");
+    assert.equal(field("Credits").value, "");
     assert.equal(uploads, 0);
     assert.equal(commitRequests, 0);
-    await edit("Credits", "4"); await click("Next");
+    await click("Next");
     await edit("Classes start", "2026-09-25"); await edit("Classes end", "2026-12-04"); await click("Next");
-    await click("Next"); await click("Next"); await click("Create class");
+    await click("Next"); await click("Create class");
     assert.match(rootNode.querySelector(".class-setup > [role=alert]").textContent, /Response lost/);
     assert.equal(uploads, 1);
     assert.equal(commitRequests, 1);
@@ -4832,6 +4854,7 @@ test("Add Class imports a PDF, reviews the draft, and reloads exactly one saved 
     assert.equal(uploads, 1);
     assert.equal(commitRequests, 2);
     assert.equal(server.courses.length, 1);
+    assert.equal(server.courses[0].credits, 0);
     assert.equal(server.dashboard.d.assignments.length, 12);
     assert.equal(file.course_id, server.courses[0].id);
     await click("Calendar"); await selectCalendarDate("2026-12-11"); await click("Day");

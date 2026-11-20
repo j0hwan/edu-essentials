@@ -863,7 +863,8 @@ test("Next marks all missing information asterisks and clears them as fields are
   assert.ok(button("Next").matches(".primary-button"));
   await change("Credits", "31");
   assert.equal(button("Next").className, button("Cancel").className);
-  await change("Credits", "3");
+  await change("Credits", "");
+  assert.equal(host.querySelector(".class-setup-credits-field input").value, "");
   assert.ok(button("Next").matches(".primary-button"));
   await click("Next");
   assert.equal(host.querySelector("h2").textContent, "Class schedule");
@@ -1368,11 +1369,26 @@ test("import review preloads the manual wizard and requires approval before savi
   const original = { id: crypto.randomUUID(), file: new window.File(["example"], "Econ1.pdf", { type: "application/pdf" }) };
   await mount({ initial: draft.course, initialDetails: draft.details, initialAssignments: draft.assignments, initialSyllabus: original, review: draft });
   assert.equal(document.querySelector(".class-setup-credits-field input").value, "");
-  assert.match(host.textContent, /Review source PDF/);
+  assert.equal(button("Go to Categories"), undefined);
+  assert.equal(host.querySelector(".class-setup-step-count").textContent, "1 / 4");
+  const source = host.querySelector(".syllabus-review-modal .syllabus-source-pane");
+  const preview = source.querySelector('[aria-label="PDF preview"]');
+  assert.equal(preview.tabIndex, 0);
+  assert.equal(source.firstElementChild, preview);
+  assert.equal(source.querySelector('a[target="_blank"]'), null);
+  assert.ok(source.nextElementSibling.classList.contains("class-setup-scroll"));
+  assert.doesNotMatch(source.nextElementSibling.textContent, /Review source PDF/);
+  assert.equal(source.nextElementSibling.querySelector('a[href*="#page="]'), null);
+  await change("Credits", "31");
   await submit();
-  assert.match(host.querySelector('.class-setup > [role="alert"]').textContent, /Enter the course credits/);
-  await change("Credits", "4");
+  assert.match(host.querySelector('.class-setup > [role="alert"]').textContent, /Credits must be a whole number between 0 and 30/);
+  await change("Credits", "");
+  assert.equal(document.querySelector(".class-setup-credits-field input").value, "");
+  for (const label of ["Instructor", "Meeting Notes", "Class term", "Default location", "Office hours"]) {
+    await change(label, "");
+  }
   await submit();
+  assert.equal(host.querySelector(".syllabus-source-pane .private-pdf-preview"), preview);
   assert.equal(host.querySelectorAll(".class-setup-discussion-options input").length, 5);
   assert.equal(host.querySelectorAll(".class-setup-meeting-card").length, 1);
   await act(async () => host.querySelectorAll(".class-setup-discussion-options input")[4].click());
@@ -1383,18 +1399,45 @@ test("import review preloads the manual wizard and requires approval before savi
   await change("Classes start", "2026-09-25");
   await change("Classes end", "2026-12-04");
   await submit();
-  assert.deepEqual([...host.querySelectorAll(".class-grading-weight input")].map((input) => input.value), ["3", "10", "20", "20", "47"]);
+  assert.equal(host.querySelector("#class-setup-title").textContent, "Add tasks");
+  assert.equal(host.querySelector(".class-setup-step-count").textContent, "3 / 4");
+  await click("Back");
+  assert.equal(host.querySelector("#class-setup-title").textContent, "Class schedule");
   await submit();
+  assert.equal(host.querySelector(".syllabus-source-pane .private-pdf-preview"), preview);
   assert.equal(host.querySelectorAll(".class-coursework-task-title").length, 12);
   await act(async () => [...host.querySelectorAll(".class-coursework-task-title")].find((node) => node.querySelector("strong").textContent === "Comprehensive Final Exam").click());
   await change("Exam ends", "10:45");
   await submit();
-  assert.match(host.textContent, /Econ1.pdf/);
+  assert.equal(host.querySelector(".syllabus-source-pane .private-pdf-preview"), preview);
+  assert.match(host.textContent, /The original PDF will be attached when you create the class/);
   assert.equal(calls, 0);
   await submit();
   assert.equal(calls, 1);
-  assert.equal(saved[0].credits, 4);
+  assert.equal(saved[0].credits, 0);
   assert.equal(saved[1].meetings[1].location, "Center Hall Room 214");
+  assert.deepEqual(saved[1].gradingCategories, draft.details.gradingCategories);
   assert.equal(saved[2].syllabus, original);
   assert.equal(saved[3].find(({ title }) => /Final Exam/.test(title)).examEnd, "10:45");
 });
+
+for (const weight of [45, 55]) {
+  test(`import review shows Categories when the grading weights total ${50 + weight}%`, async () => {
+    await mount({
+      initialDetails: { officeHours: "", meetings: [], gradingCategories: [
+        { id: "exams", name: "Exams", weight: 50 },
+        { id: "homework", name: "Homework", weight },
+      ] },
+      review: { alternatives: [], warnings: [], creditsUnknown: false },
+    });
+    assert.ok(button("Go to Categories"));
+    await submit();
+    await submit();
+    assert.equal(host.querySelector(".class-setup-step-count").textContent, "3 / 5");
+    assert.ok(host.querySelector(".class-grading-categories"));
+    await change("Homework weight", "50");
+    assert.ok(host.querySelector(".class-grading-categories"));
+    await submit();
+    assert.equal(host.querySelector("#class-setup-title").textContent, "Add tasks");
+  });
+}

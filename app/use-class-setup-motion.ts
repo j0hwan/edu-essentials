@@ -8,7 +8,7 @@ export type ClassSetupBounds = { width: number; height: number };
 const reducedMotion = () => document.documentElement.dataset.motion === "reduced"
   || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-function getPanelBounds(panel: HTMLElement): ClassSetupBounds {
+export function getClassSetupBounds(panel: HTMLElement): ClassSetupBounds {
   const style = window.getComputedStyle(panel);
   return {
     width: style.boxSizing === "border-box" ? Number.parseFloat(style.width) || panel.offsetWidth : panel.offsetWidth,
@@ -39,7 +39,7 @@ export function useClassSetupMotion(panelRef: RefObject<HTMLElement | null>, rev
       if (disposed || panel.closest("[data-modal-exiting]") || (!reveal && animationsRef.current.length)) return;
       const previous = boundsRef.current;
       cancel();
-      const next = getPanelBounds(panel);
+      const next = getClassSetupBounds(panel);
       boundsRef.current = { width: next.width, height: next.height };
       pendingRef.current = false;
       if (reducedMotion() || typeof panel.animate !== "function" || !previous?.width || !next.width) return;
@@ -76,7 +76,7 @@ export function useClassSetupMotion(panelRef: RefObject<HTMLElement | null>, rev
     for (const child of panel.children) observer?.observe(child);
     const onResize = () => {
       if (pendingRef.current) {
-        boundsRef.current = getPanelBounds(panel);
+        boundsRef.current = getClassSetupBounds(panel);
         return;
       }
       cancel();
@@ -97,10 +97,10 @@ export function useClassSetupMotion(panelRef: RefObject<HTMLElement | null>, rev
     const panel = panelRef.current;
     if (pendingRef.current) return;
     if (!panel || reducedMotion() || typeof panel.animate !== "function") {
-      update(panel ? getPanelBounds(panel) : undefined);
+      update(panel ? getClassSetupBounds(panel) : undefined);
       return;
     }
-    const bounds = getPanelBounds(panel);
+    const bounds = getClassSetupBounds(panel);
     cancel();
     boundsRef.current = { width: bounds.width, height: bounds.height };
     pendingRef.current = true;

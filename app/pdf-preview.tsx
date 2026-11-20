@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderPdfPreviewPage } from "../lib/pdf-preview-client";
 
-type PreviewProps = { data: Blob; name: string; downloadUrl?: string; onSettled?: () => void };
+type PreviewProps = { data: Blob; name: string; downloadUrl?: string; onSettled?: () => void; focusable?: boolean };
 type DocumentProps = Omit<PreviewProps, "onSettled"> & { onDocumentSettled: (data: Blob) => void };
 type RenderQueue = { current: Promise<void> };
 
@@ -107,12 +107,13 @@ function PdfPage({ page, root, queueRef, onDocumentReady, ...props }: DocumentPr
   </div>;
 }
 
-function PdfDocument(props: DocumentProps) {
+function PdfDocument({ focusable, ...props }: DocumentProps) {
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [pages, setPages] = useState(1);
   const queueRef = useRef(Promise.resolve());
 
-  return <div ref={setRoot} className="private-pdf-preview" role="region" aria-label="PDF preview">
+  // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- The preview is a scrollable region that needs keyboard focus.
+  return <div ref={setRoot} className="private-pdf-preview" role="region" aria-label="PDF preview" tabIndex={focusable ? 0 : undefined}>
     {Array.from({ length: pages }, (_, index) => <PdfPage key={index + 1} {...props} page={index + 1} root={root} queueRef={queueRef} onDocumentReady={setPages} />)}
   </div>;
 }
@@ -141,5 +142,5 @@ export function PdfPreview(props: PreviewProps) {
   }, [props.data, props.onSettled, notify]);
   if (document.data !== props.data) setDocument({ data: props.data, revision: document.revision + 1 });
   const documentProps = { data: props.data, name: props.name, downloadUrl: props.downloadUrl };
-  return <PdfDocument key={document.revision} {...documentProps} onDocumentSettled={onDocumentSettled} />;
+  return <PdfDocument key={document.revision} {...documentProps} focusable={props.focusable} onDocumentSettled={onDocumentSettled} />;
 }

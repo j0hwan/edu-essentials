@@ -15,17 +15,25 @@ const response = () => Response.json(draft);
 const selected = () => new window.File(["%PDF-1.4 fictional"], "Econ1.pdf", { type: "application/pdf" });
 
 async function setup(t, fetcher) {
-  const timer = globalThis.fetch;
+  const previousFetch = globalThis.fetch;
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
   globalThis.fetch = fetcher;
+  URL.createObjectURL = () => "blob:syllabus-preview";
+  URL.revokeObjectURL = () => {};
   const root = createRoot(host);
   const reviews = [];
   let returned = false;
   t.after(async () => {
     await act(async () => root.unmount());
-    globalThis.fetch = timer;
+    globalThis.fetch = previousFetch;
+    URL.createObjectURL = originalCreate;
+    URL.revokeObjectURL = originalRevoke;
   });
   await act(async () => root.render(createElement(ClassSyllabusImport, {
-    profileId: "account-test", canImport: true, onReview: (...args) => reviews.push(args), onBack: () => { returned = true; },
+    profileId: "account-test", canImport: true, canUpload: true, today: "2026-11-20",
+    onReview: (review) => reviews.push(review), onBack: () => { returned = true; },
+    onSave: () => assert.fail("A scan should not save the class"), onClose: () => assert.fail("The review is not shown in this fixture"),
   })));
   return { reviews, returned: () => returned };
 }
@@ -91,19 +99,27 @@ test("a failed extraction keeps the local source for retry and disables duplicat
   await upload(file);
   assert.equal(calls, 0);
   await act(async () => button("Read syllabus").click());
-  assert.match(host.querySelector('[role="alert"]').textContent, /quota/);
+  assert.match(host.querySelector('.syllabus-analysis [role="alert"]').textContent, /quota/);
+  const source = host.querySelector('[aria-label="Uploaded syllabus"]');
+  assert.equal(source.firstElementChild.getAttribute("aria-label"), "PDF preview");
+  assert.equal(source.querySelector('a[target="_blank"]'), null);
   await act(async () => {
     const retry = button("Retry import");
     retry.click();
     retry.click();
   });
   assert.equal(calls, 2);
-  assert.equal(host.querySelector('[aria-busy="true"]').getAttribute("role"), "dialog");
+  const dialog = host.querySelector('[aria-busy="true"]');
+  assert.equal(dialog.getAttribute("role"), "dialog");
+  assert.ok(dialog.classList.contains("syllabus-review-modal"));
+  assert.equal(dialog.querySelector('[aria-label="Uploaded syllabus"]'), source);
+  assert.match(source.nextElementSibling.querySelector('[aria-label="Syllabus analysis"]').textContent, /Analyzing your syllabus/);
+  assert.equal(dialog.querySelector('input[type="file"]'), null);
   await act(async () => complete(response()));
-  assert.deepEqual(reviews, [[file, draft]]);
+  assert.deepEqual(reviews, [draft]);
 });
 
-test("back cancels pending extraction and ignores a late response", async (t) => {
+test("cancel stops pending extraction and ignores a late response", async (t) => {
   let complete, signal;
   const { reviews, returned } = await setup(t, async (_url, init) => {
     signal = init.signal;
@@ -111,7 +127,7 @@ test("back cancels pending extraction and ignores a late response", async (t) =>
   });
   await upload(selected());
   await act(async () => button("Read syllabus").click());
-  await act(async () => button("Back").click());
+  await act(async () => button("Cancel").click());
   assert.equal(returned(), true);
   assert.equal(signal.aborted, true);
   await act(async () => complete(response()));
