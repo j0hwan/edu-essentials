@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ChevronDown, GraduationCap, MapPin, SlidersHorizontal, UserRound } from "lucide-react";
 import { editableProfile, validateProfile, type Profile, type ProfileDetails, type Preferences } from "../lib/profile";
+import { themePalette } from "../lib/theme";
 import { downloadDraft, useSaveProtection } from "./use-save-protection";
 import { usePreferences } from "./use-preferences";
+import ThemePicker from "./theme-picker";
 
 const UNIVERSITY_SUGGESTIONS = [
   "California State University",
@@ -70,6 +72,8 @@ export default function ProfileEditor({ initialProfile, onboarding = false, onSa
   const [lastSkip, setLastSkip] = useState(false);
   const busyRef = useRef(false);
   const dirty = JSON.stringify(editableProfile(draft)) !== JSON.stringify(editableProfile(savedProfile));
+  const savedTheme = themePalette(savedProfile.preferences.theme);
+  const draftTheme = themePalette(draft.preferences.theme);
 
   useSaveProtection(!openingWorkspace && (dirty || busy || failureKind !== null));
   usePreferences(savedProfile.preferences);
@@ -255,19 +259,12 @@ export default function ProfileEditor({ initialProfile, onboarding = false, onSa
     {timezoneField}
   </div>;
   const preferenceFields = <div className="profile-preferences">
-    <label>
-      <span className="field-heading">Theme</span>
-      <select value={draft.preferences.theme} onChange={(event) => preference("theme", event.target.value)}>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-        <option value="system">Match my device</option>
-      </select>
-    </label>
     {([["deadlineReminders", "Deadline reminders"], ["dailyStudyPlan", "Daily study plan"], ["streakNudges", "Study streak nudges"], ["reducedMotion", "Reduce motion"], ["highContrast", "High-contrast status labels"]] as const).map(([key, label]) => <label className="profile-toggle" key={key}><span>{label}</span><input type="checkbox" checked={draft.preferences[key]} onChange={(event) => preference(key, event.target.checked)} /></label>)}
     <p className="form-hint">Notification preferences are saved for when reminders are available.</p>
   </div>;
+  const themePicker = <ThemePicker value={draftTheme} onChange={(theme) => preference("theme", theme === savedTheme ? savedProfile.preferences.theme : theme)} />;
 
-  return <form className="profile-editor" onSubmit={(event) => {
+  return <form className="profile-editor" data-theme-preference={onboarding ? savedTheme : undefined} data-theme-preview={draftTheme === savedTheme ? undefined : draftTheme} onSubmit={(event) => {
     event.preventDefault();
     if (onboarding && step === 0) {
       if (draft.display_name.trim()) {
@@ -284,6 +281,7 @@ export default function ProfileEditor({ initialProfile, onboarding = false, onSa
       <li className={step === 1 ? "active" : ""}><span>2</span><div><strong>Study setup</strong><small>Optional preferences</small></div></li>
     </ol>}
     <fieldset disabled={busy || openingWorkspace}>
+      {!onboarding && themePicker}
       {(!onboarding || step === 0) && <section className="settings-card profile-primary-card">
         <div className="settings-card-title"><span><UserRound size={20} /></span><div><h2>{onboarding ? "What should we call you?" : "Your profile"}</h2><p>{onboarding ? "Confirm the name connected to your Google account." : "Your Google account and personal details."}</p></div></div>
         <label className="account-email"><span className="field-heading">Google account</span><input value={initialProfile.email} readOnly type="email" /></label>
@@ -296,7 +294,7 @@ export default function ProfileEditor({ initialProfile, onboarding = false, onSa
         </section>
         {onboarding ? <details className="settings-card onboarding-more">
           <summary><span><SlidersHorizontal size={18} /></span><div><strong>More ways to personalize</strong><small>Term, grading, calendar, theme, and reminders</small></div><ChevronDown size={18} /></summary>
-          <div className="onboarding-more-content"><h3>Planning defaults</h3>{planningFields}<h3>Preferences</h3>{preferenceFields}</div>
+          <div className="onboarding-more-content">{themePicker}<h3>Planning defaults</h3>{planningFields}<h3>Preferences</h3>{preferenceFields}</div>
         </details> : <>
           <section className="settings-card"><div className="settings-card-title"><span><MapPin size={20} /></span><div><h2>Planning defaults</h2><p>Used for your calendar, study tools, and grades.</p></div></div>{planningFields}</section>
           <section className="settings-card"><h2>Preferences</h2>{preferenceFields}</section>

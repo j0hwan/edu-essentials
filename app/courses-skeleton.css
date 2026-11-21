@@ -1,6 +1,5 @@
 .courses-skeleton {
   min-width: 0;
-  color-scheme: dark;
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
 }
 
@@ -27,16 +26,16 @@
   box-sizing: border-box;
   position: relative;
   overflow: hidden;
-  border: 1px solid #233c5d;
+  border: 1px solid var(--border-strong);
   border-radius: 24px;
-  background: linear-gradient(145deg, #10213a, #0d1b30 58%, #09182b);
-  box-shadow: 0 calc(7 * var(--desktop-density-unit, 1px)) calc(21 * var(--desktop-density-unit, 1px)) #01091442, inset 0 calc(1 * var(--desktop-density-unit, 1px)) 0 #b5cbec0b;
+  background: linear-gradient(145deg, var(--surface-2), var(--surface) 58%, var(--surface));
+  box-shadow: 0 calc(7 * var(--desktop-density-unit, 1px)) calc(21 * var(--desktop-density-unit, 1px)) #01091442, inset 0 calc(1 * var(--desktop-density-unit, 1px)) 0 color-mix(in srgb, var(--brand) 3%, transparent);
 }
 
 .courses-skeleton__surface::after {
   position: absolute;
   inset: -40% -65%;
-  background: linear-gradient(105deg, transparent 43%, #b6ccf20a 49%, #d9e5ff12 51%, transparent 58%);
+  background: linear-gradient(105deg, transparent 43%, color-mix(in srgb, var(--surface) 4%, transparent) 49%, color-mix(in srgb, var(--surface) 7%, transparent) 51%, transparent 58%);
   content: "";
   pointer-events: none;
   transform: translateX(-52%);
@@ -66,9 +65,9 @@ html[data-motion="reduced"] .courses-skeleton__surface::after {
 .courses-skeleton__tools span {
   box-sizing: border-box;
   display: block;
-  border: 1px solid #263d61;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #0d1b30;
+  background: var(--surface);
 }
 
 .courses-skeleton__section-title {

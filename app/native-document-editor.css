@@ -13,16 +13,16 @@
   min-height: calc(31 * var(--ui-unit));
   align-items: center;
   gap: calc(8 * var(--ui-unit));
-  border: 1px solid #294572;
+  border: 1px solid var(--border-strong);
   border-radius: calc(7 * var(--ui-unit));
-  background: #132b4d;
+  background: var(--surface-2);
   padding: calc(6 * var(--ui-unit)) calc(9 * var(--ui-unit));
-  color: #c4d6fb;
+  color: var(--ink);
   font-size: calc(11 * var(--ui-unit));
 }
 .reference-ui .native-document-status svg { flex: 0 0 auto; }
-.reference-ui .native-document-status.is-saving { border-color: #43538a; background: #202d55; color: #d3d8ff; }
-.reference-ui .native-document-status.is-error { border-color: #6b4f49; background: #332622; color: #ffd1b5; }
+.reference-ui .native-document-status.is-saving { border-color: var(--brand); background: var(--surface-3); color: var(--ink); }
+.reference-ui .native-document-status.is-error { border-color: var(--red); background: var(--red-soft); color: var(--red); }
 .reference-ui .native-document-fields {
   display: grid;
   min-height: 0;
@@ -35,7 +35,7 @@
   display: grid;
   min-width: 0;
   gap: calc(5 * var(--ui-unit));
-  color: #a8bedf;
+  color: var(--ink);
   font-size: calc(11 * var(--ui-unit));
   font-weight: 600;
 }
@@ -43,16 +43,16 @@
 .reference-ui .native-document-fields textarea {
   width: 100%;
   min-width: 0;
-  border: 1px solid #304971;
+  border: 1px solid var(--border-strong);
   border-radius: calc(6 * var(--ui-unit));
-  background: #09182a;
+  background: var(--surface);
   padding: calc(9 * var(--ui-unit)) calc(10 * var(--ui-unit));
-  color: #e6edff;
+  color: var(--ink);
   font: inherit;
   font-size: calc(12 * var(--ui-unit));
 }
 .reference-ui .native-document-fields input:focus,
-.reference-ui .native-document-fields textarea:focus { outline: 2px solid #90a7ff; outline-offset: 1px; border-color: #7184ff; }
+.reference-ui .native-document-fields textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; border-color: var(--brand); }
 .reference-ui .native-document-fields input:disabled,
 .reference-ui .native-document-fields textarea:disabled { opacity: .74; }
 .reference-ui .native-document-fields textarea {
@@ -65,11 +65,11 @@
 }
 .reference-ui .native-document-error {
   margin: 0;
-  border: 1px solid #684a49;
+  border: 1px solid var(--border-strong);
   border-radius: calc(6 * var(--ui-unit));
-  background: #342423;
+  background: var(--surface-2);
   padding: calc(8 * var(--ui-unit)) calc(10 * var(--ui-unit));
-  color: #ffd0c2;
+  color: var(--red);
   font-size: calc(11 * var(--ui-unit));
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -77,18 +77,18 @@
 .reference-ui .native-document-conflict {
   display: grid;
   gap: calc(7 * var(--ui-unit));
-  border: 1px solid #655a3b;
+  border: 1px solid var(--amber);
   border-radius: calc(7 * var(--ui-unit));
-  background: #302d24;
+  background: var(--surface-2);
   padding: calc(9 * var(--ui-unit));
 }
-.reference-ui .native-document-conflict p { margin: 0 0 calc(2 * var(--ui-unit)); color: #ffdf8c; font-size: calc(11 * var(--ui-unit)); line-height: 1.45; }
+.reference-ui .native-document-conflict p { margin: 0 0 calc(2 * var(--ui-unit)); color: var(--amber); font-size: calc(11 * var(--ui-unit)); line-height: 1.45; }
 .reference-ui .native-document-conflict .files-secondary-button { justify-self: start; }
 .reference-ui .native-document-retry-initial { align-self: flex-start; }
 .reference-ui .native-document-actions { flex-wrap: wrap; justify-content: flex-start; gap: calc(7 * var(--ui-unit)); margin-top: 0; border-top: 0; padding-top: 0; }
 .reference-ui .native-document-actions .native-document-close { margin-left: auto; }
-.reference-ui .native-document-help { margin: calc(-4 * var(--ui-unit)) 0 0; color: #91a9cf; font-size: calc(10 * var(--ui-unit)); line-height: 1.45; }
-.reference-ui .native-document-dialog :is(button, input, textarea):focus-visible { outline: 2px solid #90a7ff; outline-offset: 2px; }
+.reference-ui .native-document-help { margin: calc(-4 * var(--ui-unit)) 0 0; color: var(--muted); font-size: calc(10 * var(--ui-unit)); line-height: 1.45; }
+.reference-ui .native-document-dialog :is(button, input, textarea):focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 @media (max-width: 650px) {
   .reference-ui .native-document-backdrop { align-items: end; padding: 0; }

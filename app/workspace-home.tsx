@@ -173,7 +173,7 @@ export function WorkspaceHome({ data, customizeButtonRef, workspaceOptionsButton
             items={activeWorkspace.widgets}
             workspaceId={activeWorkspace.id}
             label={`${activeWorkspace.name} widgets`}
-            style={widgetAppearanceStyle(resolveWidgetAppearance(widgetAppearance)) as CSSProperties}
+            style={widgetAppearanceStyle(resolveWidgetAppearance(widgetAppearance), true) as CSSProperties}
             layoutKey={`${activeWorkspace.id}:${sidebarCollapsed}:${JSON.stringify(widgetAppearance)}`}
             reflowKey={String(sidebarCollapsed)}
             enabled={widgetEditingEnabled}

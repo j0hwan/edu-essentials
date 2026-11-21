@@ -1,7 +1,9 @@
+import { defaultTheme, isThemePreference, type ThemePreference } from "./theme";
+
 export const profileFields = ["display_name", "last_name", "university", "major", "academic_year", "birthday", "school_type", "graduation_year", "program_length", "study_goal", "academic_structure", "gpa_system", "current_term", "week_starts_on", "timezone"] as const;
 export type ProfileDetails = Record<(typeof profileFields)[number], string> & { age: number | null };
 export type Preferences = {
-  theme: "light" | "dark" | "system";
+  theme: ThemePreference;
   reducedMotion: boolean;
   highContrast: boolean;
   deadlineReminders: boolean;
@@ -19,7 +21,7 @@ export type Profile = ProfileDetails & {
   preferences: Preferences;
 };
 export const defaultPreferences: Preferences = {
-  theme: "light", reducedMotion: false, highContrast: true,
+  theme: defaultTheme, reducedMotion: false, highContrast: true,
   deadlineReminders: true, dailyStudyPlan: true, streakNudges: false,
 };
 
@@ -81,8 +83,8 @@ export function validateProfile(value: unknown): ProfileDetails & { preferences:
   if (input.preferences !== undefined) {
     if (!input.preferences || typeof input.preferences !== "object" || Array.isArray(input.preferences)) throw new Error("Invalid preferences.");
     const candidate = input.preferences as Record<string, unknown>;
-    if (!["light", "dark", "system"].includes(candidate.theme as string)) throw new Error("Invalid theme.");
-    preferences.theme = candidate.theme as Preferences["theme"];
+    if (!isThemePreference(candidate.theme)) throw new Error("Invalid theme.");
+    preferences.theme = candidate.theme;
     for (const key of ["reducedMotion", "highContrast", "deadlineReminders", "dailyStudyPlan", "streakNudges"] as const) {
       if (typeof candidate[key] !== "boolean") throw new Error("Invalid preference.");
       preferences[key] = candidate[key];

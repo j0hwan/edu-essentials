@@ -4,7 +4,6 @@
   width: 100%;
   min-width: 0;
   container-type: inline-size;
-  color-scheme: dark;
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
 }
 
@@ -35,10 +34,10 @@
   box-sizing: border-box;
   height: var(--home-skeleton-measured-today-height, calc(175 * var(--ui-unit, 1px) + 2px));
   margin-bottom: var(--layout-gap, 12px);
-  border: 1px solid #2a447d;
+  border: 1px solid var(--border-strong);
   border-radius: calc(10 * var(--ui-unit, 1px));
-  background: linear-gradient(115deg, #293f80bb, #102543dd 60%);
-  box-shadow: inset 0 1px calc(9 * var(--ui-unit, 1px)) #6a86ff16;
+  background: linear-gradient(115deg, color-mix(in srgb, var(--surface-3) 73%, transparent), color-mix(in srgb, var(--surface-2) 87%, transparent) 60%);
+  box-shadow: inset 0 1px calc(9 * var(--ui-unit, 1px)) color-mix(in srgb, var(--brand) 6%, transparent);
 }
 
 .home-skeleton__toolbar {
@@ -74,15 +73,15 @@
   box-sizing: border-box;
   height: calc(31 * var(--ui-unit, 1px));
   min-width: calc(74 * var(--ui-unit, 1px));
-  border: 1px solid #1b3351;
+  border: 1px solid var(--border);
   border-radius: calc(6 * var(--ui-unit, 1px));
-  background: #0d1b30;
+  background: var(--surface);
   opacity: .7;
 }
 
 .home-skeleton__tab.is-current {
-  border-color: #4154b8;
-  background: #1b2c55;
+  border-color: var(--brand);
+  background: var(--surface-3);
   opacity: 1;
 }
 
@@ -91,9 +90,9 @@
   width: calc(92 * var(--ui-unit, 1px));
   height: calc(34 * var(--ui-unit, 1px));
   flex: 0 0 auto;
-  border: 1px solid #263d61;
+  border: 1px solid var(--border-strong);
   border-radius: calc(8 * var(--ui-unit, 1px));
-  background: #0d1b30;
+  background: var(--surface);
 }
 
 .home-skeleton__action[data-control="save-status"] { width: calc(44 * var(--ui-unit, 1px)); }
@@ -117,10 +116,10 @@
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  border: 1px solid #233c5d;
+  border: 1px solid var(--border-strong);
   border-radius: calc(11 * var(--desktop-density-unit, 1px));
-  background: linear-gradient(145deg, #10213a, #0d1b30 58%, #09182b);
-  box-shadow: 0 calc(7 * var(--desktop-density-unit, 1px)) calc(21 * var(--desktop-density-unit, 1px)) #01091442, inset 0 calc(1 * var(--desktop-density-unit, 1px)) 0 #b5cbec0b;
+  background: linear-gradient(145deg, var(--surface-2), var(--surface) 58%, var(--surface));
+  box-shadow: 0 calc(7 * var(--desktop-density-unit, 1px)) calc(21 * var(--desktop-density-unit, 1px)) #01091442, inset 0 calc(1 * var(--desktop-density-unit, 1px)) 0 color-mix(in srgb, var(--brand) 3%, transparent);
   grid-column: var(--desktop-column) / span var(--desktop-column-span);
   grid-row: var(--desktop-row) / span var(--desktop-row-span);
 }
@@ -128,7 +127,7 @@
 .home-skeleton__card::after {
   position: absolute;
   inset: -40% -65%;
-  background: linear-gradient(105deg, transparent 43%, #b6ccf20a 49%, #d9e5ff12 51%, transparent 58%);
+  background: linear-gradient(105deg, transparent 43%, color-mix(in srgb, var(--surface) 4%, transparent) 49%, color-mix(in srgb, var(--surface) 7%, transparent) 51%, transparent 58%);
   content: "";
   pointer-events: none;
   transform: translateX(-52%);

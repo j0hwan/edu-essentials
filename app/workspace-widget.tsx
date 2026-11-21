@@ -171,7 +171,7 @@ export function WorkspaceWidget({
       data-widget-id={widget.instanceId}
       aria-hidden={isDragged ? true : undefined}
       inert={isDragged}
-      style={widgetAppearanceStyle(appearance) as CSSProperties}
+      style={widgetAppearanceStyle(appearance, true) as CSSProperties}
       {...appearanceAttributes(appearance)}
     >
       <div className="widget-frame">
@@ -444,7 +444,7 @@ export function HomeTodayPresentation({
           hidden={Boolean(workspace.todayHidden)}
           sections={sections}
           optionsButtonRef={todayOptionsButtonRef}
-          menuStyle={widgetAppearanceStyle(resolveWidgetAppearance(widgetAppearance)) as CSSProperties}
+          menuStyle={widgetAppearanceStyle(resolveWidgetAppearance(widgetAppearance), true) as CSSProperties}
           onHiddenChange={actions.onHiddenChange}
           onSectionsChange={actions.onSectionsChange}
           onCalendar={actions.onCalendar}

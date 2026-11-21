@@ -95,3 +95,17 @@ test("safe none values produce a transparent-free surface and six distinct prese
   assert.ok(appearancePresets.every(({ description }) => description.length > 0));
   assert.equal(new Set(appearancePresets.map(({ appearance }) => JSON.stringify(appearance))).size, 6);
 });
+
+test("default widget palettes follow the workspace theme without replacing custom colors", () => {
+  const themed = widgetAppearanceStyle({ ...defaultWidgetAppearance, radius: 20 }, true);
+  assert.equal(themed["--wa-background"], "var(--theme-surface)");
+  assert.equal(themed["--wa-text-color"], "var(--theme-ink)");
+  assert.equal(themed["--wa-accent"], "var(--theme-accent)");
+  assert.equal(themed["--wa-on-accent"], "var(--on-brand)");
+  assert.equal(themed["--wa-radius"], "calc(20 * var(--desktop-density-unit, 1px))");
+  const custom = widgetAppearanceStyle({ ...defaultWidgetAppearance, surface: "#282131", accent: "#ffad6b" }, true);
+  assert.equal(custom["--wa-background"], "rgba(40, 33, 49, 1)");
+  assert.equal(custom["--wa-text-color"], defaultWidgetAppearance.textColor);
+  assert.equal(custom["--wa-accent"], "#ffad6b");
+  assert.equal(custom["--wa-on-accent"], "#000");
+});

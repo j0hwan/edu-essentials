@@ -257,6 +257,7 @@ function hexChannels(hex: string): [number, number, number] {
 }
 
 function rgba(hex: string, alpha: number): string {
+  if (hex.startsWith("var(")) return alpha === 1 ? hex : `color-mix(in srgb, ${hex} ${Number((alpha * 100).toFixed(2))}%, transparent)`;
   const [red, green, blue] = hexChannels(hex);
   return `rgba(${red}, ${green}, ${blue}, ${Number(alpha.toFixed(3))})`;
 }
@@ -301,13 +302,28 @@ const pxFields = ["minWidth", "minHeight", "gap", "radius", "padding", "borderWi
 const styleNames: Record<typeof fieldNames[number], string> = Object.fromEntries(fieldNames.map((key) => [key, `--wa-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`])) as Record<typeof fieldNames[number], string>;
 
 /** Convert the typed model to CSS custom properties without accepting CSS input. */
-export function widgetAppearanceStyle(appearance: WidgetAppearance): Record<string, string> {
+export function widgetAppearanceStyle(appearance: WidgetAppearance, followTheme = false): Record<string, string> {
   const safe = normalizedAppearance(appearance, "style");
+  const themed = followTheme && (["surface", "accent", "borderColor", "textColor", "mutedColor"] as const).every((key) => safe[key] === defaultWidgetAppearance[key]);
+  if (themed) {
+    safe.surface = "var(--theme-surface)";
+    safe.accent = "var(--theme-accent)";
+    safe.borderColor = "var(--theme-border-strong)";
+    safe.textColor = "var(--theme-ink)";
+    safe.mutedColor = "var(--theme-muted)";
+  }
   const style: Record<string, string> = {};
   for (const key of pxFields) style[styleNames[key]] = densityLength(safe[key]);
   style[styleNames.surface] = rgba(safe.surface, safe.surfaceOpacity / 100);
   style[styleNames.surfaceOpacity] = `${safe.surfaceOpacity}%`;
   style[styleNames.accent] = safe.accent;
+  if (followTheme) {
+    const luminance = themed ? 0 : hexChannels(safe.accent).map((channel) => {
+      const normalized = channel / 255;
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+    style["--wa-on-accent"] = themed ? "var(--on-brand)" : luminance > 0.179 ? "#000" : "#fff";
+  }
   style[styleNames.borderColor] = safe.borderColor;
   style[styleNames.borderStyle] = safe.borderStyle;
   style[styleNames.shadow] = shadowValue(safe.shadow);

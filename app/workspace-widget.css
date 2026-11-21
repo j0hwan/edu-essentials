@@ -170,7 +170,7 @@
 .week-bars i {
   min-height: 6px;
   border-radius: 5px 5px 2px 2px;
-  background: linear-gradient(180deg, #7d84f7, var(--brand));
+  background: var(--brand);
 }
 
 .week-bars small {
@@ -346,11 +346,11 @@
 
 .mini-days button.today {
   background: var(--brand);
-  color: white;
+  color: var(--on-brand);
 }
 
 .mini-days small { color: var(--muted); font-size: 8px; }
-.mini-days .today small { color: rgba(255, 255, 255, 0.8); }
+.mini-days .today small { color: color-mix(in srgb, var(--ink) 80%, transparent); }
 .mini-days strong { margin-top: 2px; font-size: 12px; }
 .mini-days i { position: absolute; bottom: 7px; width: 4px; height: 4px; border-radius: 50%; background: var(--amber); }
 
@@ -368,7 +368,7 @@
   height: 116px;
   place-content: center;
   border: 7px solid var(--red-soft);
-  border-top-color: #e56d5d;
+  border-top-color: var(--red);
   border-radius: 50%;
   text-align: center;
   transition: 0.2s ease;
@@ -409,7 +409,7 @@
 .timer-controls button:first-child {
   border-color: var(--brand);
   background: var(--brand);
-  color: white;
+  color: var(--on-brand);
 }
 
 .focus-timer {
@@ -438,7 +438,7 @@
 .big-number strong { font-size: 34px; letter-spacing: -0.05em; }
 .big-number span { color: var(--muted); font-size: 11px; }
 .completion-widget .completion-track { height: 10px; margin: 16px 0 12px; }
-.completion-widget .completion-track span { background: linear-gradient(90deg, var(--green), #55c995); }
+.completion-widget .completion-track span { background: var(--green); }
 .legend-row { display: flex; gap: 14px; color: var(--muted); font-size: 9px; }
 .legend-row span { display: flex; align-items: center; gap: 5px; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
@@ -461,7 +461,7 @@
   flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--surface) 57%, transparent 58%), conic-gradient(#5b63e8 0 37.5%, #df6b57 37.5% 62.5%, #249975 62.5% 87.5%, #d6922c 87.5% 100%);
+  background: radial-gradient(circle, var(--surface) 57%, transparent 58%), conic-gradient(var(--brand) 0 37.5%, var(--red) 37.5% 62.5%, var(--green-soft) 62.5% 87.5%, var(--amber) 87.5% 100%);
 }
 
 .pie-chart span { text-align: center; }
@@ -559,7 +559,7 @@
   place-items: center;
   border-radius: 50%;
   background: var(--amber-soft);
-  color: #eb7a28;
+  color: var(--amber);
 }
 
 .streak-widget > div:nth-child(2) { flex: 1; }
@@ -568,7 +568,7 @@
 .streak-widget > div:nth-child(2) span { color: var(--muted); font-size: 9px; }
 .streak-dots { display: flex; width: 100%; justify-content: space-between; }
 .streak-dots i { width: 15px; height: 5px; border-radius: 99px; background: var(--border); }
-.streak-dots i.filled { background: #ee8b36; }
+.streak-dots i.filled { background: var(--amber); }
 
 .today-widget {
   display: grid;

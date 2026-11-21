@@ -51,10 +51,10 @@
   align-items: center;
   justify-content: center;
   gap: calc(8 * var(--ui-unit));
-  border: 1px dashed #ff7784;
+  border: 1px dashed var(--red);
   border-radius: calc(10 * var(--ui-unit));
-  background: color-mix(in srgb, #ff7784 9%, #102543);
-  color: #ffc0c5;
+  background: color-mix(in srgb, var(--red) 9%, var(--surface-2));
+  color: var(--red);
   font-size: calc(14 * var(--ui-unit));
   font-weight: 650;
   pointer-events: none;
@@ -63,9 +63,9 @@
 }
 
 .reference-ui .today-remove-target-host[data-remove-target-over="true"] .today-remove-target-overlay {
-  background: color-mix(in srgb, #ff7784 17%, #102543);
+  background: color-mix(in srgb, var(--red) 17%, var(--surface-2));
   box-shadow: inset 0 0 20px #ff77841c;
-  color: #ffe0e2;
+  color: var(--ink);
 }
 
 .reference-ui .today-remove-target-host.today-remove-target-dock .today-remove-target-overlay {
@@ -91,9 +91,9 @@
 
 .reference-ui .today-remove-target-host.today-remove-target-dock[data-remove-target-near="true"] .today-remove-target-overlay,
 .reference-ui .today-remove-target-host.today-remove-target-dock[data-remove-target-over="true"] .today-remove-target-overlay {
-  background: color-mix(in srgb, #ff7784 17%, #102543);
+  background: color-mix(in srgb, var(--red) 17%, var(--surface-2));
   box-shadow: inset 0 0 20px #ff77841c;
-  color: #ffe0e2;
+  color: var(--ink);
 }
 
 .reference-ui .today-remove-target-overlay svg {
@@ -181,7 +181,7 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-shake-preview
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: var(--wa-accent, #7181ff);
+  color: var(--wa-accent);
   cursor: nwse-resize;
   touch-action: none;
   user-select: none;
@@ -207,7 +207,7 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-shake-preview
 .reference-ui .widget-resize-handle:is(:hover, :focus-visible) > svg,
 .reorderable-widget-grid.is-widget-resizing .widget-resizing .widget-resize-handle > svg {
   stroke-width: 4.25;
-  color: color-mix(in srgb, var(--wa-accent, #7181ff) 75%, white);
+  color: color-mix(in srgb, var(--wa-accent) 75%, var(--ink));
 }
 
 .reference-ui .widget-resize-handle:is(:hover, :focus-visible) > svg > path,
@@ -233,7 +233,7 @@ html[data-motion="reduced"] .reference-ui .widget-resize-handle > svg > path {
 }
 
 .reference-ui .widget-resizing {
-  outline: 2px solid var(--wa-accent, #7181ff) !important;
+  outline: 2px solid var(--wa-accent) !important;
   outline-offset: 2px;
 }
 
@@ -275,9 +275,9 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-resize-live="
 
 .reorderable-widget-grid .widget-card.widget-reorder-placeholder {
   border-style: dashed !important;
-  border-color: color-mix(in srgb, var(--wa-accent, #7181ff) 68%, white) !important;
+  border-color: color-mix(in srgb, var(--wa-accent) 68%, var(--border-strong)) !important;
   outline: none;
-  background: color-mix(in srgb, var(--wa-accent, #7181ff) 9%, var(--wa-surface, #0d1b30)) !important;
+  background: color-mix(in srgb, var(--wa-accent) 9%, var(--wa-surface)) !important;
   box-shadow: none !important;
   pointer-events: none;
   animation: none !important;
@@ -289,8 +289,8 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-resize-live="
 }
 
 .reorderable-widget-grid.is-reorder-invalid .widget-reorder-placeholder {
-  border-color: #ff7784 !important;
-  background: color-mix(in srgb, #ff7784 9%, var(--wa-surface, #0d1b30)) !important;
+  border-color: var(--red) !important;
+  background: color-mix(in srgb, var(--red) 9%, var(--wa-surface)) !important;
 }
 
 .reference-ui .widget-reorder-overlay {
@@ -316,7 +316,7 @@ html[data-motion="reduced"] .reference-ui .widget-card[data-widget-resize-live="
   overflow: visible;
   pointer-events: none;
   outline: none;
-  box-shadow: 0 18px 44px #02091775, 0 3px 10px #02091750 !important;
+  box-shadow: 0 18px 44px light-dark(rgb(0 0 0 / 0.17), #02091775), 0 3px 10px #02091750 !important;
   transform: scale(1.025);
   transform-origin: center;
   rotate: none;

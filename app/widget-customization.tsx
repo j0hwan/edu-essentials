@@ -148,7 +148,7 @@ function WidgetIcon({ kind }: { kind: DemoCard["kind"] }) {
 }
 
 function PreviewCard({ card, appearance }: { card: DemoCard; appearance: WidgetAppearance }) {
-  const style = widgetAppearanceStyle(appearance);
+  const style = widgetAppearanceStyle(appearance, true);
   delete style["--wa-min-width"];
   delete style["--wa-min-height"];
   delete style["--wa-gap"];

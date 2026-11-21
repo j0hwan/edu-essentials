@@ -13,6 +13,8 @@ import {
   editableProfile, validateProfile, type Profile,
 } from "../lib/profile";
 import { useSaveProtection } from "./use-save-protection";
+import { usePreferences } from "./use-preferences";
+import { themePalette } from "../lib/theme";
 import "./onboarding-flow.css";
 
 type Step = "about" | "school" | "location" | "major" | "graduation" | "syllabus";
@@ -97,22 +99,7 @@ export default function OnboardingFlow({
 
   useSaveProtection(!preview && !openingWorkspace && isDirty);
 
-  // Preview is an isolated, read-only flow; it must not change the host page's theme.
-  useEffect(() => {
-    if (preview) return;
-    const { theme, reducedMotion, highContrast } = initialProfile.preferences;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const root = document.documentElement;
-      root.dataset.theme = theme === "system" ? (media.matches ? "dark" : "light") : theme;
-      root.style.colorScheme = root.dataset.theme;
-      root.dataset.motion = reducedMotion ? "reduced" : "full";
-      root.dataset.contrast = highContrast ? "high" : "normal";
-    };
-    apply();
-    media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
-  }, [preview, initialProfile.preferences]);
+  usePreferences(initialProfile.preferences, !preview);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -451,7 +438,7 @@ export default function OnboardingFlow({
 
   const schoolResults = useMemo(() => schoolSearchOpen && schools.length > 0, [schoolSearchOpen, schools.length]);
 
-  return <main className="ee-onboarding">
+  return <main className="ee-onboarding" data-theme-preference={preview ? undefined : themePalette(initialProfile.preferences.theme)}>
     <div className="ee-onboarding-shell">
       <header className="ee-onboarding-header">
         <div className="ee-onboarding-brand">

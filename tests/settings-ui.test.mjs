@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { clientModule } from "./helpers/client-modules.mjs";
@@ -384,7 +385,9 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
     reset(); let payload;
     fetcher = async (_url, init) => { payload = JSON.parse(init.body); return Response.json({ profile: { ...baseProfile, ...validateProfile(payload), updated_at: "2026-09-06T00:00:01Z" } }); };
     await render(ProfileEditor, { initialProfile: baseProfile });
-    for (const [name, value] of Object.entries({ "Display name": "Taylor", "Last name": "Lee", "College or university": "Example University", "Major": "History", "Academic year": "Senior", "Age": "22", "Study goal": "Read every day", "Current term": "Fall", "Academic structure": "Quarter", "GPA system": "Percentage", "Week starts on": "Monday", "Time zone": "America/New_York", "Theme": "system" })) await edit(name, value);
+    for (const [name, value] of Object.entries({ "Display name": "Taylor", "Last name": "Lee", "College or university": "Example University", "Major": "History", "Academic year": "Senior", "Age": "22", "Study goal": "Read every day", "Current term": "Fall", "Academic structure": "Quarter", "GPA system": "Percentage", "Week starts on": "Monday", "Time zone": "America/New_York" })) await edit(name, value);
+    await act(async () => field("Match my device").click());
+    assert.equal(rootNode.querySelector(".profile-editor").dataset.themePreview, "system");
     for (const [name, value] of [["Deadline reminders", false], ["Daily study plan", false], ["Study streak nudges", true], ["Reduce motion", true], ["High-contrast status labels", false]]) await edit(name, value);
     assert.equal(unloadBlocked(), true);
     await click("Save changes");
@@ -393,9 +396,70 @@ test("settings UI saves, preserves drafts, and recovers without losing account e
     assert.equal(field("Display name").value, "Taylor"); assert.equal(unloadBlocked(), false);
     assert.match(rootNode.textContent, /profile and preferences are saved/);
     assert.equal(document.documentElement.dataset.motion, "reduced"); assert.equal(document.documentElement.dataset.contrast, "normal");
-    await act(async () => { media.matches = true; media.listeners.forEach((fn) => fn()); });
-    assert.equal(document.documentElement.dataset.theme, "dark");
-    await unmount(); assert.equal(media.listeners.size, 0);
+    assert.equal(rootNode.querySelector(".profile-editor").hasAttribute("data-theme-preview"), false);
+    await unmount();
+  });
+
+  await t.test("the appearance picker previews each palette and persists only a confirmed account save", async () => {
+    reset();
+    const initialProfile = { ...baseProfile, preferences: { ...baseProfile.preferences, theme: "dark" } };
+    const server = installWorkspaceServer(savedDashboard, [], initialProfile);
+    const workspaceRequests = fetcher;
+    let profileWrites = 0;
+    fetcher = async (url, init) => {
+      if (url !== "/api/profile") return workspaceRequests(url, init);
+      profileWrites++;
+      server.profile = { ...server.profile, ...validateProfile(JSON.parse(init.body)), updated_at: "2026-09-06T00:00:01Z" };
+      return Response.json({ profile: server.profile });
+    };
+    const css = document.createElement("style");
+    css.textContent = readFileSync(new URL("../app/themes.css", import.meta.url), "utf8");
+    document.head.append(css);
+    try {
+      await render(Workspace, { initialProfile });
+      await click("Settings");
+      assert.equal(rootNode.querySelector(".app-shell").dataset.themePreference, "midnight");
+      assert.equal(field("Midnight").checked, true);
+      const groups = [...rootNode.querySelectorAll(".theme-group")];
+      assert.deepEqual(groups.map((group) => group.querySelector("h3").textContent), ["Light mode", "Dark mode", "Default"]);
+      assert.deepEqual(groups.map((group) => group.querySelectorAll(".theme-swatch").length), [2, 2, 1]);
+      assert.equal(groups.at(-1).querySelector(".theme-swatch").dataset.palette, "classic-blue");
+      for (const [label, palette, scheme] of [["Classic Blue", "classic-blue", "dark"], ["White & Green", "white-green", "light"], ["White & Blue", "white-blue", "light"], ["Charcoal & Orange", "charcoal-orange", "dark"], ["Match my device", "system", "light dark"], ["Midnight", undefined, "dark"]]) {
+        await act(async () => field(label).click());
+        assert.equal(rootNode.querySelector(".profile-editor").dataset.themePreview, palette);
+        const styles = getComputedStyle(document.documentElement);
+        assert.equal(styles.getPropertyValue("color-scheme"), scheme);
+        if (palette === "classic-blue") {
+          assert.equal(styles.getPropertyValue("--canvas"), "#061222");
+          assert.equal(styles.getPropertyValue("--brand"), "#5969ff");
+          assert.match(styles.getPropertyValue("--mountain-background"), /mountain-header\.png/);
+        } else {
+          assert.equal(styles.getPropertyValue("--mountain-background"), "");
+        }
+        assert.equal(field(label).checked, true);
+      }
+      assert.equal(profileWrites, 0);
+      await act(async () => field("Charcoal & Orange").click());
+      await click("Reset to saved");
+      assert.equal(field("Midnight").checked, true);
+      assert.equal(unloadBlocked(), false);
+
+      await act(async () => field("Classic Blue").click());
+      await click("Save changes");
+      assert.equal(profileWrites, 1);
+      assert.equal(server.profile.preferences.theme, "classic-blue");
+      assert.equal(rootNode.querySelector(".profile-editor").hasAttribute("data-theme-preview"), false);
+      await click("Dashboard");
+      assert.equal(rootNode.querySelector(".app-shell").dataset.themePreference, "classic-blue");
+      await unmount();
+      reset();
+      await render(Workspace, { initialProfile: server.profile });
+      assert.equal(getComputedStyle(document.documentElement).getPropertyValue("--canvas"), "#061222");
+      await click("Settings");
+      assert.equal(field("Classic Blue").checked, true);
+    } finally {
+      css.remove();
+    }
   });
 
   await t.test("failed saves preserve the draft, block signout, and retry without retyping", async () => {

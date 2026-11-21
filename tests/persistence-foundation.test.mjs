@@ -151,7 +151,7 @@ test("PostgreSQL migration, account isolation, conditional APIs and atomic snaps
       return chain;
     }
     const runtime = globalThis.__foundationTest = { user: userA, from };
-    const profileUrl = await compile("lib/profile.ts");
+    const profileUrl = await clientModule("lib/profile.ts");
     const { defaultPreferences, editableProfile, validateProfile } = await import(profileUrl);
     runtime.profileFor = async () => { const profile = await profileFor(runtime.user); return { ...profile, preferences: { ...defaultPreferences, ...profile.preferences } }; };
     const authUrl = moduleUrl(`

@@ -71,7 +71,7 @@
 .reference-ui .widget-card .widget-body :is(strong, blockquote) { color: var(--wa-text-color, #edf1ff); }
 .reference-ui .widget-card .widget-body :is(p, small, .form-hint, time) { color: var(--wa-muted-color, #a5bbdf); }
 .reference-ui .widget-card .widget-body :is(p, strong, small, blockquote, button) { line-height: var(--wa-line-height, 1.45); letter-spacing: var(--wa-letter-spacing, 0em); }
-.reference-ui .widget-card .primary-button { background: var(--wa-accent, #6674ff); }
+.reference-ui .widget-card .primary-button { background: var(--wa-accent, var(--theme-accent)); color: var(--wa-on-accent, var(--on-brand)); }
 .reference-ui .widget-card .reference-ring .ring-value { stroke: var(--wa-accent, #6674ff); }
 .reference-ui .widget-card .completion-track > span { background: var(--wa-accent, #6674ff); }
 .reference-ui .widget-card .notes-widget textarea {
@@ -90,7 +90,7 @@
 }
 .reference-ui .widget-card :is(.text-button, .mini-cal-month button, .notes-widget .clear-note, .widget-header .mini) { color: var(--wa-muted-color); }
 .reference-ui .widget-card .widget-body .primary-button,
-.reference-ui .widget-card .notes-widget .save-note { background: var(--wa-accent); color: white; }
+.reference-ui .widget-card .notes-widget .save-note { background: var(--wa-accent); color: var(--wa-on-accent, var(--on-brand)); }
 .reference-ui .widget-card .reference-ring .ring-track { stroke: color-mix(in srgb, var(--wa-accent) 18%, var(--wa-surface)); }
 .reference-ui .widget-card .completion-track { background: color-mix(in srgb, var(--wa-accent) 18%, var(--wa-surface)); }
 .reference-ui .widget-card .glance-rows > button { border-color: var(--wa-border-color); }
@@ -101,8 +101,8 @@
   border-color: var(--wa-border-color);
   background: color-mix(in srgb, var(--wa-accent) 8%, var(--wa-surface));
 }
-.reference-ui .widget-card .mini-days .today { color: white; border-color: var(--wa-accent); background: var(--wa-accent); }
-.reference-ui .widget-card .mini-days .today :is(strong, small) { color: white; }
+.reference-ui .widget-card .mini-days .today { color: var(--wa-on-accent, var(--on-brand)); border-color: var(--wa-accent); background: var(--wa-accent); }
+.reference-ui .widget-card .mini-days .today :is(strong, small) { color: var(--wa-on-accent, var(--on-brand)); }
 .reference-ui :is(.widget-card .popover, .today-section-menu) {
   color: var(--wa-text-color, #edf1ff);
   border-color: var(--wa-border-color, #28405f);

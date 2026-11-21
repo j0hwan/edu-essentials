@@ -89,7 +89,7 @@ html[data-motion="reduced"] .class-setup-progress li { transition: none; }
 .class-setup-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-bottom: 24px; }
 .class-setup-week button { min-height: 48px; padding: 0; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 9px; cursor: pointer; font-size: 13px; }
 .class-setup-week[aria-invalid="true"] button { background: var(--red-soft); border-color: var(--red); color: var(--red); }
-.class-setup-week button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: white; }
+.class-setup-week button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
 .class-setup .class-setup-meeting-fields { padding-top: 0; gap: 22px; }
 .class-setup .class-setup-meeting-fields label { margin: 0; font-size: 14px; }
 .class-setup .class-setup-meeting-fields > label:last-child { grid-column: 1 / -1; }

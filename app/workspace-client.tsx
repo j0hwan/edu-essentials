@@ -46,6 +46,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Bell, CheckCircle2, FlaskConical, Plus, Search, Send } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
 import { Autosave, SaveFailure, canonicalJson } from "../lib/autosave";
+import { themePalette } from "../lib/theme";
 import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "../lib/sidebar-preference";
 import { useCourseExpansion } from "./use-course-expansion";
 import { useCoursePreviewPlaceholders } from "./use-course-preview-placeholders";
@@ -1234,7 +1235,7 @@ export default function EduEssentialsApp({ initialProfile, children, filesBrowse
   }} />;
 
   return (
-    <div ref={setAppShellElement} className={`app-shell reference-ui ${page === "files" && filesBrowserEnabled ? "files-workspace" : ""} ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div ref={setAppShellElement} data-theme-preference={themePalette(profile.preferences.theme)} className={`app-shell reference-ui ${page === "files" && filesBrowserEnabled ? "files-workspace" : ""} ${customizing ? "is-customizing" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <div className="mountain-backdrop" aria-hidden="true" />
 
       <a className="skip-link" href="#main-content">Skip to main content</a>

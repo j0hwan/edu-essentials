@@ -670,7 +670,7 @@ test("appearance history, per-widget overrides, and board reset stay scoped", as
   assert.equal(state.defaults.accent, "#6674ff", "editing one widget does not change the board default");
   assert.equal(state.overrides.notes.accent, "#1759d1");
   assert.equal(rootNode.querySelector('[data-widget-id="notes"]').style.getPropertyValue("--wa-accent"), "#1759d1");
-  assert.equal(rootNode.querySelector('[data-widget-id="alerts"]').style.getPropertyValue("--wa-accent"), "#6674ff");
+  assert.equal(rootNode.querySelector('[data-widget-id="alerts"]').style.getPropertyValue("--wa-accent"), "var(--theme-accent)");
 
   await click("Widget customization");
   await click("Reset all widgets", appearanceDialog());

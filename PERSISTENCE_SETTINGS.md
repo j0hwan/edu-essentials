@@ -25,7 +25,8 @@ hydration, and the authenticated user's `app_profiles` row.
 | Settings → School & study; onboarding → Make it yours | College/university, major, academic year, age | `university`, `major`, `academic_year`, `age` |
 | Same School & study section | Study goal text, current term, academic structure, GPA system | `study_goal`, `current_term`, `academic_structure`, `gpa_system` |
 | Same School & study section | Week starts on, time zone | `week_starts_on`, `timezone` |
-| Settings / onboarding → Preferences | Theme, reduce motion, high-contrast status labels | `preferences.theme`, `reducedMotion`, `highContrast` |
+| Settings → Appearance | Theme (White & Green, White & Blue, Midnight, Charcoal & Orange, Classic Blue, or match the device) | `preferences.theme` |
+| Settings → Preferences | Reduce motion, high-contrast status labels | `preferences.reducedMotion`, `highContrast` |
 | Same Preferences section | Deadline reminders, daily study plan, study streak nudges | `preferences.deadlineReminders`, `dailyStudyPlan`, `streakNudges` |
 
 These are 12 profile/school values and six preferences. Optional text can be cleared,
@@ -33,8 +34,14 @@ age can be reset to null, and false toggles stay false. Partial profile API requ
 preserve omitted fields. The Google email remains read-only; identity fields are
 resolved on the server and cannot be reassigned through a settings payload.
 
-Saved theme/accessibility preferences apply to the workspace and onboarding. Device
-theme now subscribes to device changes and updates native controls' color scheme.
+Appearance previews apply across the workspace until the draft is saved or reset.
+Saved themes follow the account and set the canvas, surfaces, text, borders, accent,
+and native control color scheme on first render. Course colors, document contents,
+and custom widget palettes stay independent. Classic Blue restores the original navy
+workspace and is the default for new accounts and legacy `light` preferences. Legacy
+`dark` preferences render as Midnight. `system` follows the device's color scheme
+using White & Green and Midnight. The existing profile JSON stores all theme choices;
+no database migration is required.
 Notification choices are stored; the UI continues to state that delivery is pending.
 Calendar use of week-start/time-zone belongs to Step 5, and numeric study targets,
 GPA calculations, and study history belong to Step 6. Saving those school fields

@@ -3,7 +3,7 @@
   align-items: center;
   flex: 0 0 auto;
   margin-right: calc(2 * var(--ui-unit));
-  border-right: 1px solid #29436b;
+  border-right: 1px solid var(--border-strong);
   padding-right: calc(14 * var(--ui-unit));
 }
 
@@ -23,7 +23,7 @@
 .reference-ui .workspace-save-status-trigger[data-save-state="saving"] { color: var(--muted); }
 .reference-ui .workspace-save-status-trigger[data-save-state="error"] { color: var(--red); }
 .reference-ui .workspace-save-status-trigger:hover { color: var(--ink); background: var(--surface-2); }
-.reference-ui .workspace-save-status-trigger[data-save-state="error"]:hover { color: #ffd0d5; background: var(--red-soft); }
+.reference-ui .workspace-save-status-trigger[data-save-state="error"]:hover { color: var(--red); background: var(--red-soft); }
 .reference-ui .workspace-save-status-trigger:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .reference-ui .workspace-save-status-trigger svg { flex: none; }
 
@@ -39,7 +39,7 @@
   padding: calc(14 * var(--ui-unit));
   color: var(--ink);
   background: var(--surface-2);
-  box-shadow: 0 14px 40px #02091499;
+  box-shadow: 0 14px 40px light-dark(rgb(0 0 0 / 0.23), #02091499);
 }
 
 .reference-ui .workspace-save-status-popover.is-opening {

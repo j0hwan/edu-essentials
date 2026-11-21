@@ -11,12 +11,14 @@ async function compile(path, imports = {}) {
   return moduleUrl(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText);
 }
 const policyUrl = await compile("lib/auth-policy.ts");
-const profileUrl = await compile("lib/profile.ts");
+const profileUrl = await clientModule("lib/profile.ts");
+const themeUrl = await clientModule("lib/theme.ts");
 const codecUrl = await clientModule("lib/workspace-codec.ts");
 const requestUrl = await compile("lib/persistence-request.ts");
 const revision = "2026-09-04T00:00:00.000Z";
 const { isGoogleUser, isPublicPath } = await import(policyUrl);
 const { validateProfile, defaultPreferences } = await import(profileUrl);
+const { themePalette } = await import(themeUrl);
 const { encodeWorkspaceState, decodeWorkspaceState } = await import(codecUrl);
 const layout = encodeWorkspaceState([{ id: "day", name: "My day", widgets: [{ instanceId: "one", type: "notes", size: "large", note: "My notes" }] }], "day", "");
 
@@ -44,6 +46,19 @@ test("profile validation rejects malformed fields and excludes ownership fields"
   assert.equal(result.auth_user_id, undefined);
   assert.equal(result.email, undefined);
   assert.equal(result.onboarding_completed_at, undefined);
+});
+test("profile validation accepts all five named themes and existing theme preferences", () => {
+  for (const theme of ["white-green", "white-blue", "midnight", "charcoal-orange", "classic-blue", "light", "dark", "system"]) {
+    const details = validateProfile({ display_name: "Alex", preferences: { ...defaultPreferences, theme } });
+    assert.equal(details.preferences.theme, theme);
+  }
+});
+test("Classic Blue is the default and retains the original appearance for legacy light preferences", () => {
+  assert.equal(defaultPreferences.theme, "classic-blue");
+  assert.equal(themePalette(undefined), "classic-blue");
+  assert.equal(themePalette("light"), "classic-blue");
+  assert.equal(themePalette("dark"), "midnight");
+  assert.equal(themePalette("system"), "system");
 });
 test("widgets, notes, assignment edits and calendar events round trip", () => {
   const data = { assignments: [{ id: "a", title: "Essay", courseId: "c", due: "Tomorrow", dateKey: "2026-09-05", status: "done", progress: 100, description: "Write", weight: "10%", notes: "Submitted", checklist: [true, true, true] }], manualEvents: [{ id: "e", title: "Study", courseId: "c", dateKey: "2026-09-05", time: "18:00", type: "Study block" }], dashboardView: "list" };
